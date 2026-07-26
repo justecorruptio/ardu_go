@@ -14,8 +14,8 @@ extern uint8_t floodScratch[BOARD_CELLS + 2];
 // the spare slots, so a stomped entry can never feed a bogus board
 // position back into a flood.
 inline uint8_t& floodSlot(uint8_t i) {
-    uint16_t a = (uint16_t)(floodScratch + i);
-    if((a & 0xFFFE) == 0x800)
+    uintptr_t a = (uintptr_t)(floodScratch + i);
+    if((a & ~(uintptr_t)1) == 0x800)
         return floodScratch[BOARD_CELLS + (a & 1)];
     return floodScratch[i];
 }
