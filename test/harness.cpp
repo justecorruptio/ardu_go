@@ -443,12 +443,13 @@ int main(int argc, char **argv) {
     if(argc > 4) mctsIterations = atoi(argv[4]);
     if(argc > 5) reclaimEnabled = atoi(argv[5]);
     if(argc > 6) resignStreak = atoi(argv[6]);
-    srand(12345);
-    fprintf(stderr, "iterations=%u\n", mctsIterations);
+    int seedOffset = argc > 7 ? atoi(argv[7]) : 0;
+    srand(12345 + seedOffset);
+    fprintf(stderr, "iterations=%u\n", (unsigned)mctsIterations);
 
     int wins = 0, losses = 0, errs = 0;
     for(int g = 0; g < games; g++) {
-        int r = playGame(g, level, (g & 1) ? WHITE : BLACK, false);
+        int r = playGame(g + seedOffset, level, (g & 1) ? WHITE : BLACK, false);
         if(r > 0) wins++;
         else if(r == -1) losses++;
         else errs++;

@@ -147,14 +147,22 @@ uint8_t AI::chooseMove(Game &game) {
 // cheap to give up — keep total free RAM >= ~230 for the stack.
 #define NODE_POOL_EXT 23
 #define NODE_POOL (NODE_POOL_SB + NODE_POOL_EXT) // must stay < 255 (8-bit links)
+#ifndef MCTS_ITERATIONS
 #define MCTS_ITERATIONS 400 // must stay under ~3400: 12-bit visit counters
+#endif
+#ifndef RAVE_K
 #define RAVE_K 300          // Gelly-Silver beta schedule constant
+#endif
+#ifndef LCB_Z
 #define LCB_Z 328           // Q8 (1.28 sigma): root move picked by LCB
+#endif
 // Exploration term scaled down by this shift: at 400 iterations over
 // ~56 root moves, full UCB1-Tuned exploration (~0.3 at n=10) dwarfs
 // the real q spread (~0.1) and the search polls uniformly instead of
 // concentrating on the best line.
+#ifndef UCB_EXPLORE_SHIFT
 #define UCB_EXPLORE_SHIFT 1
+#endif
 
 // Virtual win/visit priors seeded at expansion; real playout results
 // accumulate on top and wash these out. The base is deliberately heavy
@@ -162,16 +170,36 @@ uint8_t AI::chooseMove(Game &game) {
 // child's q from 0.50 to 0.67 and selection chased noise; at weight 8
 // early q is stable and selection follows the bonus ordering until
 // real evidence accumulates.
+#ifndef PRIOR_BASE_V
 #define PRIOR_BASE_V 8
+#endif
+#ifndef PRIOR_BASE_W
 #define PRIOR_BASE_W 4
+#endif
+#ifndef PRIOR_CAPTURE
 #define PRIOR_CAPTURE 6     // captures an enemy group (its last liberty)
+#endif
+#ifndef PRIOR_SAVE
 #define PRIOR_SAVE 4        // extends an own group out of atari
+#endif
+#ifndef PRIOR_ATARI
 #define PRIOR_ATARI 2       // puts an enemy group into atari
+#endif
+#ifndef PRIOR_CENTER_MAX
 #define PRIOR_CENTER_MAX 2  // + min(distance from board edge, this)
+#endif
+#ifndef PRIOR_LOCAL
 #define PRIOR_LOCAL 2       // adjacent or diagonal to the previous move
+#endif
+#ifndef PRIOR_PATTERN
 #define PRIOR_PATTERN 3     // matches a local 3x3 shape pattern
+#endif
+#ifndef PRIOR_BIG
 #define PRIOR_BIG 2         // big open point (far from every stone)
+#endif
+#ifndef PRIOR_OPEN_CORNER
 #define PRIOR_OPEN_CORNER 4 // corner point of an untouched quadrant
+#endif
 
 // Low-line discipline, two-layered: during the opening (below
 // EARLY_STONES stones) every non-tactical line-1/line-2 move is
@@ -180,26 +208,45 @@ uint8_t AI::chooseMove(Game &game) {
 // opening the rule turns positional: line 1 stays penalized, line 2
 // is exempt when an enemy stone is within distance 2, which is what
 // real boundary and endgame plays look like.
+#ifndef EARLY_STONES
 #define EARLY_STONES 20
+#endif
+#ifndef PRIOR_EDGE_PENALTY
 #define PRIOR_EDGE_PENALTY 5    // first line
+#endif
+#ifndef PRIOR_LINE2_PENALTY
 #define PRIOR_LINE2_PENALTY 3   // second line
+#endif
 
 // A non-tactical move whose merged group lands at <=2 liberties is a
 // thin stretch: easy to disconnect and chase. At exactly one liberty
 // it is outright self-atari and eats a much larger penalty.
+#ifndef PRIOR_THIN_PENALTY
 #define PRIOR_THIN_PENALTY 4
+#endif
+#ifndef PRIOR_SELFATARI_PENALTY
 #define PRIOR_SELFATARI_PENALTY 8
+#endif
 
 // Extending a group whose ladder is lost just feeds stones to the
 // capture. Playouts cannot see this (they let doomed groups escape by
-// randomness), so the prior must.
+// randomness), so the prior must. Strength-tested hard (2026-07):
+// an apparent 2x win-rate gain from removing it did NOT replicate on
+// an independent seed set (10 vs 12 of 160) — it is strength-neutral
+// and kept for the visible behavior it prevents. Note the reader's
+// defender can only extend, never counter-capture, so "doomed" runs
+// pessimistic in messy fights.
+#ifndef PRIOR_FEED_PENALTY
 #define PRIOR_FEED_PENALTY 6
+#endif
 
 // Urgency: reinforcing an own 2-liberty group near the opponent's
 // last move. Playouts resolve fights by coin flip, so the tree sees a
 // fight move and a tenuki big-point as equal — and walks away from
 // burning fights. This is what makes it stay.
+#ifndef PRIOR_URGENT
 #define PRIOR_URGENT 5
+#endif
 
 // Connection and cutting, deliberately narrow: only when a candidate
 // touches two DISTINCT chains and the weakest of them has exactly 2
@@ -208,49 +255,79 @@ uint8_t AI::chooseMove(Game &game) {
 // misfires constantly: touching two chains does NOT mean they need
 // connecting (they are usually joined elsewhere), and a generic cut
 // bonus pays for suicidal wedges between healthy groups.
+#ifndef PRIOR_CONNECT_WEAK
 #define PRIOR_CONNECT_WEAK 6
+#endif
+#ifndef PRIOR_CUT_WEAK
 #define PRIOR_CUT_WEAK 5
+#endif
 
 // A candidate whose ONLY link to friendly stones is a knight's move,
 // with enemy support around the waist points, is an extension that
 // can be pushed through and cut immediately.
+#ifndef PRIOR_KEIMA_PENALTY
 #define PRIOR_KEIMA_PENALTY 4
+#endif
 
 // Moves inside settled territory (see regionVital): filling one's
 // own loses a point; invading the opponent's gifts a prisoner. The
 // region's VITAL point is the opposite: it decides simple life and
 // death, and playouts cannot be trusted to find it on their own.
+#ifndef PRIOR_OWNFILL_PENALTY
 #define PRIOR_OWNFILL_PENALTY 6
+#endif
+#ifndef PRIOR_INVADE_PENALTY
 #define PRIOR_INVADE_PENALTY 8
+#endif
+#ifndef PRIOR_VITAL
 #define PRIOR_VITAL 10
+#endif
 
 // Only the first moves of a playout feed RAVE: a point that gets
 // filled successfully in the endgame of most playouts says nothing
 // about playing it NOW, and those stats were drowning the priors.
+#ifndef RAVE_HORIZON
 #define RAVE_HORIZON 24
+#endif
 
 // Resignation: real-playout win rate under ~8% (1/12) for this many
 // consecutive searches, past the opening. Light playouts keep a
 // 5-10% swindle floor even in dead positions, so a reading this low
 // means truly hopeless; the streak guards against one noisy search.
+#ifndef RESIGN_DENOM
 #define RESIGN_DENOM 12
+#endif
+#ifndef RESIGN_STREAK
 #define RESIGN_STREAK 2
+#endif
+#ifndef RESIGN_MIN_STONES
 #define RESIGN_MIN_STONES 25
+#endif
 
 // Progressive widening (non-root): children allowed = 1 + visits/RATE
+#ifndef WIDEN_RATE
 #define WIDEN_RATE 6
+#endif
+#ifndef WIDEN_CAP
 #define WIDEN_CAP 16
+#endif
 // A leaf must collect this many visits (prior seed included) before it
 // may grow a child: playouts from a cold leaf are as informative as a
 // one-child subtree, and each expansion costs a full prior scan.
 // Tactically hot leaves carry big seeds, so they still expand at once.
+#ifndef EXPAND_VISITS
 #define EXPAND_VISITS 8
+#endif
 // Playouts should run until the position resolves: truncating scores
 // every not-yet-dead group as alive. ~90-120 moves settles an early
 // position; 160 keeps the runaway guard from bending evaluations
 // while staying affordable on the device.
+#ifndef PLAYOUT_CAP
 #define PLAYOUT_CAP 160
+#endif
+#ifndef MERCY_MARGIN
 #define MERCY_MARGIN 25     // capture lead that ends a playout early
+#endif
 #define MOVE_PASS 81
 #define NO_KO 0xFF
 #define ILLEGAL 0xFE
@@ -1681,11 +1758,20 @@ void AI::think(Game &game) {
     passToWin = 0;
     resigned = 0;
     if(game.consecutivePasses == 1) {
-        game.computeScore();
-        if(game.winner() == game.turn) {
-            passToWin = 1;
-            resignCount = 0;
-            return;
+        // Don't trust the count if the previous search already read
+        // this game as bad (under ~30%): dead stones make
+        // computeScore miscount in both directions, and a massacre
+        // position full of our corpses can neutralize enough enemy
+        // territory to read as a "win" — passing then gifts the game.
+        uint8_t evalOK = !thinkSims ||
+            (uint32_t)thinkSimWins * 10 >= (uint32_t)thinkSims * 3;
+        if(evalOK) {
+            game.computeScore();
+            if(game.winner() == game.turn) {
+                passToWin = 1;
+                resignCount = 0;
+                return;
+            }
         }
     }
 
