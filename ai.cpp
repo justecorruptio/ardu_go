@@ -140,7 +140,12 @@ uint8_t AI::chooseMove(Game &game) {
 // ==================== MCTS + UCB1 ====================
 
 #define NODE_POOL_SB 143    // nodes in the borrowed screen buffer
-#define NODE_POOL_EXT 33    // extension nodes in ordinary statics
+// Extension nodes in ordinary statics. RAM here trades directly
+// against stack headroom: at EXT 33 the globals reached 2,383 bytes
+// and think()'s call chain smashed the stack into them (the board
+// filled with diagonal garbage). Subtree recycling makes pool size
+// cheap to give up — keep total free RAM >= ~230 for the stack.
+#define NODE_POOL_EXT 23
 #define NODE_POOL (NODE_POOL_SB + NODE_POOL_EXT) // must stay < 255 (8-bit links)
 #define MCTS_ITERATIONS 400 // must stay under ~3400: 12-bit visit counters
 #define RAVE_K 300          // Gelly-Silver beta schedule constant
@@ -217,7 +222,7 @@ uint8_t AI::chooseMove(Game &game) {
 // death, and playouts cannot be trusted to find it on their own.
 #define PRIOR_OWNFILL_PENALTY 6
 #define PRIOR_INVADE_PENALTY 8
-#define PRIOR_VITAL 8
+#define PRIOR_VITAL 10
 
 // Only the first moves of a playout feed RAVE: a point that gets
 // filled successfully in the endgame of most playouts says nothing
@@ -340,6 +345,12 @@ static uint8_t simKomi;
 // (not max-biased) evaluation of the root position. Read by the host
 // test tools; costs two counters on-device.
 static uint16_t thinkSims, thinkSimWins;
+// Vital points of small eyespaces on the ROOT board, found once per
+// search. Playouts probe these no matter where the last move was —
+// otherwise a tenuki from a life-and-death spot is never punished in
+// rollouts and scores as well as resolving it.
+static uint8_t rootVitals[3];
+static uint8_t nRootVitals;
 // Liberty carryover: a gated simPlay floods the placed group anyway;
 // the next playout move classifies that same group on an unchanged
 // board, so the result is cached instead of re-flooded.
@@ -350,9 +361,17 @@ static uint8_t simBoard[BOARD_CELLS];
 static uint8_t simMark[BOARD_CELLS];   // epoch marks for flood fill
 static uint8_t markEpoch;
 static uint16_t rngState;
-// Iteration budget as a variable so the host test harness can sweep
-// it; on-device it always holds MCTS_ITERATIONS.
+// Host-harness tuning knobs. On the device they compile to constants
+// and cost neither RAM nor cycles.
+#ifdef ARDUINO
+#define mctsIterations MCTS_ITERATIONS
+#define reclaimEnabled 1
+#define resignStreak RESIGN_STREAK
+#else
 uint16_t mctsIterations = MCTS_ITERATIONS;
+uint8_t reclaimEnabled = 1;
+uint8_t resignStreak = RESIGN_STREAK;
+#endif
 // flood work stack: shared floodScratch[] from game.cpp
 
 static uint16_t rnd16() {
@@ -916,6 +935,36 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
             }
         }
 
+        // Root-board vital points: grab one if still open (1/8 per
+        // move — hotter distorts ordinary endgame playouts). The
+        // local hook above only reacts when the last move touches
+        // the eyespace — this is what makes tenuki from a
+        // life-and-death spot actually lose rollouts.
+        if(nRootVitals && !(rnd16() & 7)) {
+            uint8_t vp = 0xFF;
+            for(uint8_t i = 0; i < nRootVitals; i++)
+                if(simBoard[rootVitals[i]] == EMPTY) {
+                    vp = rootVitals[i];
+                    break;
+                }
+            if(vp != 0xFF && vp != ko && !isOwnEye(vp, toMove)) {
+                uint8_t nk = simPlay(vp, toMove, ko, 1);
+                if(nk != ILLEGAL) {
+                    if(toMove == rootTurn && m < RAVE_HORIZON)
+                        raveMark(vp);
+                    if(simCaptured) {
+                        if(toMove == BLACK) capB += simCaptured;
+                        else capW += simCaptured;
+                    }
+                    ko = nk;
+                    last = vp;
+                    passes = 0;
+                    toMove = 3 - toMove;
+                    continue;
+                }
+            }
+        }
+
         // MoGo-style: 3x3 patterns at the 8 points around the last move
         if(last < BOARD_CELLS && (rnd16() & 15)) {
             int8_t lpx = last % BOARD_SIZE, lpy = last / BOARD_SIZE;
@@ -1099,8 +1148,6 @@ static uint8_t reclaim() {
 // A node can be allocated now, or after recycling a dead subtree.
 // Checked BEFORE the prior scans in expand/widen, so a hopeless scan
 // is never paid for.
-uint8_t reclaimEnabled = 1; // A/B switch for the host test harness
-uint8_t resignStreak = RESIGN_STREAK; // 255 = never resign (harness A/B)
 static uint8_t allocReady() {
     if(freeHead != 0xFF || poolUsed < NODE_POOL) return 1;
     return reclaimEnabled && reclaim();
@@ -1225,14 +1272,21 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     // OTHER move inside a settled region is an own fill or a
     // hopeless invasion: invisible costs to the area-scoring
     // playouts.
+    // vitalHere also exempts the move from the thin-stretch and
+    // low-line penalties below: vital points are inherently thin,
+    // low-line moves inside eyespaces, and the generic penalties
+    // were burying the bonus.
+    uint8_t vitalHere = 0;
     {
         uint8_t vital;
         uint8_t so = regionVital(pos, &vital);
-        if(so && vital == pos)
+        if(so && vital == pos) {
             bonus += PRIOR_VITAL;
-        else if(so && !sawCapture && !sawSave && !sawAtari)
+            vitalHere = 1;
+        } else if(so && !sawCapture && !sawSave && !sawAtari) {
             bonus -= (so == toMove) ? PRIOR_OWNFILL_PENALTY
                                     : PRIOR_INVADE_PENALTY;
+        }
     }
 
     // Urgent defense: reinforcing an own 2-liberty group in the zone
@@ -1249,7 +1303,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     // would raise the count anyway; a crosscut fight is legitimately
     // sharp). Patterned blocks at 2 libs still net above quiet moves;
     // outright self-atari sinks far below anything playable.
-    if(!sawCapture && !sawSave && !sawAtari) {
+    if(!sawCapture && !sawSave && !sawAtari && !vitalHere) {
         simBoard[pos] = toMove;
         uint8_t a, b;
         uint8_t libs = groupLibsFind(pos, &a, &b);
@@ -1323,7 +1377,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     // answer down there is still usually wrong, and pattern+local
     // (+5) was overpowering the line penalty.
     uint8_t lowLineBad = 0;
-    if(ed <= 1 && !sawCapture && !sawSave && !sawAtari) {
+    if(ed <= 1 && !sawCapture && !sawSave && !sawAtari && !vitalHere) {
         uint8_t nearEnemy = 0;
         if(ed == 1 && rootStones >= EARLY_STONES) {
             for(int8_t dy = -2; dy <= 2 && !nearEnemy; dy++)
@@ -1664,6 +1718,17 @@ void AI::think(Game &game) {
             rootLast = i;
     }
     if(caps == 1) rootKo = capPos;
+
+    // Scan the root board for eyespace vital points (see rootVitals)
+    for(uint8_t i = 0; i < BOARD_CELLS; i++)
+        simBoard[i] = packedGet(game.board, i);
+    nRootVitals = 0;
+    for(uint8_t i = 0; i < BOARD_CELLS && nRootVitals < 3; i++) {
+        if(simBoard[i] != EMPTY) continue;
+        uint8_t vital;
+        if(regionVital(i, &vital) && vital == i)
+            rootVitals[nRootVitals++] = i;
+    }
 
     memset(raveV, 0, BOARD_CELLS);
     memset(raveW, 0, BOARD_CELLS);
