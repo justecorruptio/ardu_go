@@ -137,6 +137,11 @@ void Display::renderScoring() {
 }
 
 void Display::renderGameOver() {
+    if(game.resignedBy) {
+        jay.drawPrompt(22, game.resignedBy == WHITE ? "WHITE RESIGNS!"
+                                                    : "BLACK RESIGNS!", 0);
+        return;
+    }
     uint8_t w = game.winner();
     jay.drawPrompt(22, w == BLACK ? "BLACK WINS!" : "WHITE WINS!", 0);
 }

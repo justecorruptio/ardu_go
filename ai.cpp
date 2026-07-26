@@ -28,6 +28,8 @@ void AI::reset() {
     for(uint8_t s = 0; s < 8; s++)
         bookPos[s] = 0;
     firstMove = 1;
+    resigned = 0;
+    resignCount = 0;
 }
 
 // Skip the node at p and its whole subtree; returns offset just past it
@@ -166,11 +168,14 @@ uint8_t AI::chooseMove(Game &game) {
 #define PRIOR_BIG 2         // big open point (far from every stone)
 #define PRIOR_OPEN_CORNER 4 // corner point of an untouched quadrant
 
-// Low-line discipline, positional rather than move-counted (a stone
-// count cutoff let the AI start crawling on the edge the moment it
-// expired): a non-tactical first-line move is always penalized; a
-// second-line move is penalized unless an enemy stone is within
-// distance 2 (which is what real endgame boundary plays look like).
+// Low-line discipline, two-layered: during the opening (below
+// EARLY_STONES stones) every non-tactical line-1/line-2 move is
+// penalized unconditionally — a 2-2 slide near a contested corner is
+// still an opening mistake even though an enemy is nearby. Past the
+// opening the rule turns positional: line 1 stays penalized, line 2
+// is exempt when an enemy stone is within distance 2, which is what
+// real boundary and endgame plays look like.
+#define EARLY_STONES 20
 #define PRIOR_EDGE_PENALTY 5    // first line
 #define PRIOR_LINE2_PENALTY 3   // second line
 
@@ -191,15 +196,41 @@ uint8_t AI::chooseMove(Game &game) {
 // burning fights. This is what makes it stay.
 #define PRIOR_URGENT 5
 
+// Connection and cutting, deliberately narrow: only when a candidate
+// touches two DISTINCT chains and the weakest of them has exactly 2
+// liberties — a chain in real danger of being split off (1-liberty
+// chains are handled by the ladder-verified save). Anything broader
+// misfires constantly: touching two chains does NOT mean they need
+// connecting (they are usually joined elsewhere), and a generic cut
+// bonus pays for suicidal wedges between healthy groups.
+#define PRIOR_CONNECT_WEAK 6
+#define PRIOR_CUT_WEAK 5
+
 // A candidate whose ONLY link to friendly stones is a knight's move,
 // with enemy support around the waist points, is an extension that
 // can be pushed through and cut immediately.
 #define PRIOR_KEIMA_PENALTY 4
 
+// Moves inside settled territory (see regionVital): filling one's
+// own loses a point; invading the opponent's gifts a prisoner. The
+// region's VITAL point is the opposite: it decides simple life and
+// death, and playouts cannot be trusted to find it on their own.
+#define PRIOR_OWNFILL_PENALTY 6
+#define PRIOR_INVADE_PENALTY 8
+#define PRIOR_VITAL 8
+
 // Only the first moves of a playout feed RAVE: a point that gets
 // filled successfully in the endgame of most playouts says nothing
 // about playing it NOW, and those stats were drowning the priors.
 #define RAVE_HORIZON 24
+
+// Resignation: real-playout win rate under ~8% (1/12) for this many
+// consecutive searches, past the opening. Light playouts keep a
+// 5-10% swindle floor even in dead positions, so a reading this low
+// means truly hopeless; the streak guards against one noisy search.
+#define RESIGN_DENOM 12
+#define RESIGN_STREAK 2
+#define RESIGN_MIN_STONES 25
 
 // Progressive widening (non-root): children allowed = 1 + visits/RATE
 #define WIDEN_RATE 6
@@ -305,6 +336,10 @@ static uint8_t rootKo;
 static uint8_t rootLast; // opponent's actual last move (0xFF = none)
 static uint8_t rootStones; // stones on the real board at think() time
 static uint8_t simKomi;
+// Real-playout tally for the whole search: the seed-free, average
+// (not max-biased) evaluation of the root position. Read by the host
+// test tools; costs two counters on-device.
+static uint16_t thinkSims, thinkSimWins;
 // Liberty carryover: a gated simPlay floods the placed group anyway;
 // the next playout move classifies that same group on an unchanged
 // board, so the result is cached instead of re-flooded.
@@ -487,6 +522,102 @@ static uint8_t groupLibsMax3(uint8_t start) {
     uint8_t a, b;
     uint8_t n = groupLibsFind(start, &a, &b);
     return n ? n : 1; // preserve old behavior: 0 liberties reads as 1
+}
+
+// Full-flood variant: marks the whole group into the CURRENT mark
+// epoch (so a caller can test same-group membership of other stones
+// afterward) and returns its distinct-liberty count capped at 3. No
+// early exit — partial marking would break the membership test.
+static uint8_t groupLibsMark(uint8_t start) {
+    uint8_t color = simBoard[start];
+    uint8_t nb[4];
+    uint8_t lib1 = 0xFF, lib2 = 0xFF;
+    uint8_t count = 0;
+    uint8_t sp = 0;
+    floodSlot(sp++) = start;
+    simMark[start] = markEpoch;
+    while(sp) {
+        uint8_t p = floodSlot(--sp);
+        uint8_t n = neighbors(p, nb);
+        for(uint8_t i = 0; i < n; i++) {
+            uint8_t q = nb[i];
+            if(simBoard[q] == EMPTY) {
+                if(count < 3 && q != lib1 && q != lib2) {
+                    if(lib1 == 0xFF) lib1 = q;
+                    else if(lib2 == 0xFF) lib2 = q;
+                    count++;
+                }
+            } else if(simBoard[q] == color && simMark[q] != markEpoch) {
+                simMark[q] = markEpoch;
+                floodSlot(sp++) = q;
+            }
+        }
+    }
+    return count;
+}
+
+// Flood the small empty region containing `seed` (a big region is
+// neither settled territory nor an eyespace). Returns the color of
+// the stones bordering it — 0 if it touches both colors or is too
+// open — and sets *vital to the region's vital point, 0xFF if none.
+//
+// The vital point is the unique cell with the most neighbors inside
+// the region (degree >= 2): center of a straight/bent three, center
+// of a T/pyramid four, center of a bulky/cross five. Uniqueness
+// makes the classics come out right by itself — square four and
+// line four have no single deciding point and correctly yield none.
+// Whoever plays the vital point decides the region's life: the owner
+// splits it into two eyes, the opponent reduces it to one.
+//
+// Non-vital moves inside a settled region are pointless-to-harmful
+// under the Japanese rules the game scores by (own fill: -1 point;
+// hopeless invasion: gifts a prisoner), but the area-scoring
+// playouts think they are free.
+#define SETTLED_REGION_MAX 8
+static uint8_t regionVital(uint8_t seed, uint8_t *vital) {
+    uint8_t region[SETTLED_REGION_MAX];
+    uint8_t cnt = 0, head = 0;
+    uint8_t owner = 0;
+    uint8_t nb[4];
+    *vital = 0xFF;
+    newMark();
+    region[cnt++] = seed;
+    simMark[seed] = markEpoch;
+    while(head < cnt) {
+        uint8_t n = neighbors(region[head++], nb);
+        for(uint8_t i = 0; i < n; i++) {
+            uint8_t q = nb[i];
+            uint8_t s = simBoard[q];
+            if(s != EMPTY) {
+                if(!owner) owner = s;
+                else if(owner != s) return 0;        // touches both colors
+                continue;
+            }
+            if(simMark[q] == markEpoch) continue;
+            if(cnt >= SETTLED_REGION_MAX) return 0;  // too open to be settled
+            simMark[q] = markEpoch;
+            region[cnt++] = q;
+        }
+    }
+    if(owner && cnt >= 3 && cnt <= 6) {
+        uint8_t bestDeg = 1, bestCell = 0xFF, ties = 0;
+        for(uint8_t j = 0; j < cnt; j++) {
+            uint8_t deg = 0;
+            uint8_t n = neighbors(region[j], nb);
+            for(uint8_t i = 0; i < n; i++)
+                if(simBoard[nb[i]] == EMPTY && simMark[nb[i]] == markEpoch)
+                    deg++;
+            if(deg > bestDeg) {
+                bestDeg = deg;
+                bestCell = region[j];
+                ties = 1;
+            } else if(deg == bestDeg) {
+                ties++;
+            }
+        }
+        if(bestCell != 0xFF && ties == 1) *vital = bestCell;
+    }
+    return owner;
 }
 
 // All orthogonal neighbors own color (or edge)
@@ -752,6 +883,39 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
             }
         }
 
+        // Simple life & death: if the last move borders a small
+        // one-color eyespace, its vital point decides life — take it
+        // (deny the second eye, or split own space into two). This
+        // is what makes dead shapes actually die in playouts instead
+        // of surviving on randomness.
+        if(last < BOARD_CELLS && (rnd16() & 3)) {
+            uint8_t vcand = 0xFF;
+            uint8_t nbv[4];
+            uint8_t nv = neighbors(last, nbv);
+            for(uint8_t i = 0; i < nv; i++) {
+                if(simBoard[nbv[i]] != EMPTY) continue;
+                uint8_t vital;
+                if(regionVital(nbv[i], &vital)) vcand = vital;
+                break; // only the first adjacent region
+            }
+            if(vcand != 0xFF && vcand != ko && !isOwnEye(vcand, toMove)) {
+                uint8_t nk = simPlay(vcand, toMove, ko, 1);
+                if(nk != ILLEGAL) {
+                    if(toMove == rootTurn && m < RAVE_HORIZON)
+                        raveMark(vcand);
+                    if(simCaptured) {
+                        if(toMove == BLACK) capB += simCaptured;
+                        else capW += simCaptured;
+                    }
+                    ko = nk;
+                    last = vcand;
+                    passes = 0;
+                    toMove = 3 - toMove;
+                    continue;
+                }
+            }
+        }
+
         // MoGo-style: 3x3 patterns at the 8 points around the last move
         if(last < BOARD_CELLS && (rnd16() & 15)) {
             int8_t lpx = last % BOARD_SIZE, lpy = last / BOARD_SIZE;
@@ -936,6 +1100,7 @@ static uint8_t reclaim() {
 // Checked BEFORE the prior scans in expand/widen, so a hopeless scan
 // is never paid for.
 uint8_t reclaimEnabled = 1; // A/B switch for the host test harness
+uint8_t resignStreak = RESIGN_STREAK; // 255 = never resign (harness A/B)
 static uint8_t allocReady() {
     if(freeHead != 0xFF || poolUsed < NODE_POOL) return 1;
     return reclaimEnabled && reclaim();
@@ -999,24 +1164,40 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     uint8_t hasOrthFriend = 0;
     uint8_t nb[4];
     uint8_t n = neighbors(pos, nb);
+
+    // Group-aware neighbor scan: count DISTINCT adjacent groups per
+    // color (mark-epoch membership collapses two neighbors of the
+    // same group) and their weakest liberty counts. Ladder reading is
+    // deferred past the scan — it runs simulations that trash the
+    // marks.
+    uint8_t fGroups = 0, eGroups = 0;
+    uint8_t fMinLibs = 0xFF, eMinLibs = 0xFF;
+    uint8_t doomCand[4];
+    uint8_t nDoom = 0;
+    newMark();
     for(uint8_t j = 0; j < n; j++) {
         uint8_t q = nb[j];
+        if(simBoard[q] == EMPTY) continue;
+        if(simMark[q] == markEpoch) continue; // same group as earlier neighbor
+        uint8_t l = groupLibsMark(q);
         if(simBoard[q] == opp) {
-            uint8_t l = groupLibsMax3(q);
+            eGroups++;
+            if(l < eMinLibs) eMinLibs = l;
             if(l == 1) sawCapture = 1;      // pos is its last liberty
             else if(l == 2) sawAtari = 1;
-        } else if(simBoard[q] == toMove) {
+        } else {
             hasOrthFriend = 1;
-            uint8_t l = groupLibsMax3(q);
-            // Only credit a save if the ladder actually works —
-            // extending a ladder-dead group just feeds stones
-            if(l == 1) {
-                if(ladderEscapes(q, pos)) sawSave = 1;
-                else sawDoomed = 1;
-            } else if(l == 2) {
-                sawWeakFriend = 1;
-            }
+            fGroups++;
+            if(l < fMinLibs) fMinLibs = l;
+            if(l == 1) doomCand[nDoom++] = q;
+            else if(l == 2) sawWeakFriend = 1;
         }
+    }
+    // Only credit a save if the ladder actually works — extending a
+    // ladder-dead group just feeds stones
+    for(uint8_t j = 0; j < nDoom; j++) {
+        if(ladderEscapes(doomCand[j], pos)) sawSave = 1;
+        else sawDoomed = 1;
     }
 
     int8_t bonus = sawCapture ? PRIOR_CAPTURE :
@@ -1029,6 +1210,30 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     // group). Countering captures are exempt.
     if(sawDoomed && !sawCapture && !sawSave)
         bonus -= PRIOR_FEED_PENALTY;
+
+    // Connection: this point joins a 2-liberty chain to another
+    // friendly chain — the rescue move for a group about to be split
+    // off and killed. Cutting is the mirror image. A hopeless
+    // connection into self-atari still gets sunk by the thin-stretch
+    // penalty below.
+    if(fGroups >= 2 && fMinLibs == 2) bonus += PRIOR_CONNECT_WEAK;
+    if(eGroups >= 2 && eMinLibs == 2) bonus += PRIOR_CUT_WEAK;
+
+    // Eyespaces and settled territory. The vital point of a small
+    // one-color region is simple life and death — make the second
+    // eye or deny it — and gets a strong bonus for either side. Any
+    // OTHER move inside a settled region is an own fill or a
+    // hopeless invasion: invisible costs to the area-scoring
+    // playouts.
+    {
+        uint8_t vital;
+        uint8_t so = regionVital(pos, &vital);
+        if(so && vital == pos)
+            bonus += PRIOR_VITAL;
+        else if(so && !sawCapture && !sawSave && !sawAtari)
+            bonus -= (so == toMove) ? PRIOR_OWNFILL_PENALTY
+                                    : PRIOR_INVADE_PENALTY;
+    }
 
     // Urgent defense: reinforcing an own 2-liberty group in the zone
     // of the opponent's last move — don't tenuki from a live fight
@@ -1111,17 +1316,16 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
         }
     }
 
-    // Low-line discipline (positional, all game long): a non-tactical
-    // first-line move is bad, period; a non-tactical second-line move
-    // is bad unless an enemy stone is within distance 2 — which is
-    // exactly what a real boundary or endgame play looks like. Such
-    // moves also lose their shape/locality bonuses: a correct-LOOKING
-    // contact answer down there is still usually wrong, and
-    // pattern+local (+5) was overpowering the line penalty.
+    // Low-line discipline (see the defines): opening low-line moves
+    // are penalized unconditionally; later, second-line moves near an
+    // enemy stone are legitimate boundary plays. Penalized moves also
+    // lose their shape/locality bonuses: a correct-LOOKING contact
+    // answer down there is still usually wrong, and pattern+local
+    // (+5) was overpowering the line penalty.
     uint8_t lowLineBad = 0;
     if(ed <= 1 && !sawCapture && !sawSave && !sawAtari) {
         uint8_t nearEnemy = 0;
-        if(ed == 1) {
+        if(ed == 1 && rootStones >= EARLY_STONES) {
             for(int8_t dy = -2; dy <= 2 && !nearEnemy; dy++)
                 for(int8_t dx = -2; dx <= 2; dx++) {
                     int8_t nx = x + dx, ny = y + dy;
@@ -1391,6 +1595,8 @@ static void mctsIterate(Game &game) {
 
     // Fold this simulation into the root RAVE tables
     uint8_t rootWin = (winner == rootTurn);
+    thinkSims++;
+    if(rootWin) thinkSimWins++;
     for(uint8_t i = 0; i < BOARD_CELLS; i++) {
         if(!(raveMask[i >> 3] & (1 << (i & 7)))) continue;
         if(raveV[i] == 255) { // saturate by halving, keeps the ratio
@@ -1413,8 +1619,25 @@ static void mctsIterate(Game &game) {
 }
 
 void AI::think(Game &game) {
+    // Opponent just passed: passing back ends the game right now, so
+    // if the game as it stands is already won, take it — no search.
+    // Dead enemy stones make computeScore undercount our territory,
+    // which only delays this trigger until they are actually captured
+    // (it can never pass into a loss by the game's own scoring).
+    passToWin = 0;
+    resigned = 0;
+    if(game.consecutivePasses == 1) {
+        game.computeScore();
+        if(game.winner() == game.turn) {
+            passToWin = 1;
+            resignCount = 0;
+            return;
+        }
+    }
+
     poolUsed = 0;
     freeHead = 0xFF;
+    thinkSims = thinkSimWins = 0;
     rootTurn = game.turn;
     simKomi = game.kpieces;
     rngState = random(0xFFFF) | 1;
@@ -1464,9 +1687,19 @@ void AI::think(Game &game) {
             if(top1 - top2 > mctsIterations - 1 - i) break;
         }
     }
+
+    // Resignation check (see RESIGN_* above)
+    if(rootStones >= RESIGN_MIN_STONES &&
+       thinkSimWins * RESIGN_DENOM < thinkSims)
+        resignCount++;
+    else
+        resignCount = 0;
+    resigned = (resignCount >= resignStreak);
 }
 
 uint8_t AI::bestMove(Game &game, uint8_t &x, uint8_t &y) {
+    if(passToWin) return 0; // ending the game now wins it
+
     // Root move by highest LOWER confidence bound on the win rate
     // (Leela-style): lcb = q - z*sqrt(q(1-q)/n), Q12 fixed point.
     // Beats most-visited when a visit-leader's win rate is decaying.
@@ -1507,6 +1740,25 @@ uint8_t AI::bestMove(Game &game, uint8_t &x, uint8_t &y) {
     }
     if(best == MOVE_PASS) best = backup;
     if(best == MOVE_PASS) return 0;
+
+    // The search's favorite landing inside settled territory — ours
+    // or theirs — means nothing meaningful is left on the board: an
+    // own fill loses a point, a hopeless invasion gifts a prisoner.
+    // Pass, but only while WINNING by the current count: the detector
+    // cannot tell settled territory from a living group's own
+    // eyespace, and a forced pass must never deny a losing position
+    // its defensive tries. (Hopeless games are handled by resignation
+    // now; real threats also re-enable moves automatically, since an
+    // invaded region touches both colors and stops counting as
+    // settled.)
+    for(uint8_t i = 0; i < BOARD_CELLS; i++)
+        simBoard[i] = packedGet(game.board, i);
+    uint8_t vital;
+    if(regionVital(best, &vital) && vital != best) {
+        game.computeScore();
+        if(game.winner() == game.turn) return 0;
+    }
+
     x = best % BOARD_SIZE;
     y = best / BOARD_SIZE;
     return 1;

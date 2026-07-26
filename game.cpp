@@ -9,6 +9,7 @@ void Game::reset() {
     cursorX = cursorY = 4;
     kpieces = 13; // 6.5 komi
     territory[0] = territory[1] = 0;
+    resignedBy = 0;
 }
 
 uint8_t Game::at(uint8_t x, uint8_t y) {
@@ -236,6 +237,7 @@ void Game::computeScore() {
 }
 
 uint8_t Game::winner() {
+    if(resignedBy) return 3 - resignedBy;
     // Japanese scoring: territory + captures
     // Black score = territory[0] + captures[0]
     // White score = territory[1] + captures[1] + komi

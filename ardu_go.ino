@@ -122,6 +122,12 @@ void loop() {
                     jay.smallPrint(66, 40, "THINKING...", 1);
                     jay.display();
                     ai.think(game);
+                    if(ai.resigned) {
+                        game.resignedBy = game.aiPlayer;
+                        stage = STAGE_GAME_OVER;
+                        jay.clear();
+                        break;
+                    }
                     uint8_t x, y;
                     if(ai.bestMove(game, x, y)) {
                         game.playMove(x, y);

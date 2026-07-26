@@ -49,6 +49,7 @@ class Game {
     // Scoring
     int8_t territory[2]; // territory[0]=black, territory[1]=white
     uint8_t kpieces;      // komi in half-points (default 13 = 6.5)
+    uint8_t resignedBy;   // 0 = none, else the color that resigned
 
     // Temp buffer for flood fill (values 0-2, packed like the boards)
     uint8_t visited[PACKED_BOARD_BYTES];
