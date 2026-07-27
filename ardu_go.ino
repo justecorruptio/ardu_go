@@ -6,6 +6,12 @@
 #include "display.h"
 
 Jaylib jay;
+// The bootloader magic key lives at RAM 0x800-0x801 and hardware can
+// stomp it; game/ai must never sit there (checkMagicKeyHazard halts
+// loudly if they do — it fired after a RAM-layout change). This
+// stomp-tolerant pad shifts them clear; retune the size if the
+// hazard screen ever reappears, and verify with test/checkmagic.sh.
+uint8_t magicPad[46] __attribute__((used));
 Game game;
 AI ai;
 Display display(jay, game);

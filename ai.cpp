@@ -147,7 +147,7 @@ uint8_t AI::chooseMove(Game &game) {
 // the UI strings to PROGMEM bought the budget back — keep total free
 // RAM >= ~250 for the stack. Total pool must stay < 255 (8-bit
 // links, 0xFF = null).
-#define NODE_POOL_EXT 96
+#define NODE_POOL_EXT 69
 #define NODE_POOL (NODE_POOL_SB + NODE_POOL_EXT) // must stay < 255 (8-bit links)
 #ifndef MCTS_ITERATIONS
 #define MCTS_ITERATIONS 400 // must stay under ~3400: 12-bit visit counters
@@ -515,6 +515,17 @@ static uint8_t cacheLibs, cacheL1, cacheL2;
 static uint8_t simCaptured;  // stones captured by the last simPlay
 static uint8_t simBoard[BOARD_CELLS];
 static uint8_t simMark[BOARD_CELLS];   // epoch marks for flood fill
+// Chain map, computed once per EXPANSION while the board is frozen.
+// One byte per cell: (libs << 6) | id — the capped 1/2/3+ liberty
+// class lives in the top 2 bits, the chain id in the low 6 (0 =
+// empty cell). Legal positions max out near ~40 chains (the safe
+// theoretical bound is ~64); ids saturate at 63, which degrades
+// identity precision in impossible positions instead of anything
+// worse. Replaces per-candidate chain floods (once ~38% of think
+// time). Valid only inside one expandNode/widenNode call.
+static uint8_t chainId[BOARD_CELLS];
+#define CHAIN_OF(b) ((b) & 0x3F)
+#define LIBS_OF(b) ((b) >> 6)
 static uint8_t markEpoch;
 static uint16_t rngState;
 // Host-harness tuning knobs. On the device they compile to constants
@@ -556,7 +567,8 @@ static void newMark() {
     }
 }
 
-static uint8_t groupLibsFind(uint8_t start, uint8_t *l1, uint8_t *l2);
+static uint8_t groupLibsCore(uint8_t start, uint8_t *l1, uint8_t *l2,
+                             uint8_t markAll, uint8_t cap);
 
 // Does the group at start have any liberty? Thin wrapper — the
 // shared flood's seed fast path handles the common case identically;
@@ -564,7 +576,7 @@ static uint8_t groupLibsFind(uint8_t start, uint8_t *l1, uint8_t *l2);
 // flash matter more than those cycles.
 static uint8_t hasLiberty(uint8_t start) {
     uint8_t a, b;
-    return groupLibsFind(start, &a, &b) != 0;
+    return groupLibsCore(start, &a, &b, 0, 1) != 0;
 }
 
 // Remove a group, using the board itself as the visited marker
@@ -597,33 +609,35 @@ static uint8_t groupLibsFind(uint8_t start, uint8_t *l1, uint8_t *l2);
 // bytes of flash matter more than those cycles.)
 static uint8_t soleLiberty(uint8_t start) {
     uint8_t a, b;
-    return groupLibsFind(start, &a, &b) == 1 ? a : 0xFF;
+    return groupLibsCore(start, &a, &b, 0, 2) == 1 ? a : 0xFF;
 }
 
-// Shared flood core for the two liberty finders below: counts
-// distinct liberties capped at 3. With markAll it floods the WHOLE
-// group into the CURRENT mark epoch (so a caller can test same-group
-// membership afterward — no early exit, partial marking would break
-// the test); without, it early-exits at 3 and runs a seed fast path.
+// Shared flood core for ALL the liberty finders: counts distinct
+// liberties, early-exiting once `cap` are found (1 = hasLiberty,
+// 2 = soleLiberty, 3 = full find — profiling showed hasLiberty
+// routed through a fixed cap-3 version was HALF of all search time).
+// With markAll it floods the WHOLE group into the CURRENT mark epoch
+// (membership tests need complete marking; cap is ignored).
 static uint8_t groupLibsCore(uint8_t start, uint8_t *l1, uint8_t *l2,
-                             uint8_t markAll) {
+                             uint8_t markAll, uint8_t cap) {
     uint8_t color = simBoard[start];
     uint8_t nb[4];
     uint8_t lib1 = 0xFF, lib2 = 0xFF;
     uint8_t count = 0;
 
     if(!markAll) {
-        // Seed fast path: three empty neighbors of the seed alone = 3+
+        // Seed fast path: enough empty neighbors of the seed settles
+        // it before paying for the flood setup — the common case.
         uint8_t n0 = neighbors(start, nb);
         for(uint8_t i = 0; i < n0; i++) {
             if(simBoard[nb[i]] != EMPTY) continue;
             if(lib1 == 0xFF) lib1 = nb[i];
             else if(lib2 == 0xFF) lib2 = nb[i];
             count++;
-            if(count >= 3) {
+            if(count >= cap) {
                 *l1 = lib1;
                 *l2 = lib2;
-                return 3;
+                return count;
             }
         }
         newMark();
@@ -632,7 +646,7 @@ static uint8_t groupLibsCore(uint8_t start, uint8_t *l1, uint8_t *l2,
     uint8_t sp = 0;
     floodSlot(sp++) = start;
     simMark[start] = markEpoch;
-    while(sp && (markAll || count < 3)) {
+    while(sp && (markAll || count < cap)) {
         uint8_t p = floodSlot(--sp);
         uint8_t n = neighbors(p, nb);
         for(uint8_t i = 0; i < n; i++) {
@@ -642,7 +656,7 @@ static uint8_t groupLibsCore(uint8_t start, uint8_t *l1, uint8_t *l2,
                     if(lib1 == 0xFF) lib1 = q;
                     else if(lib2 == 0xFF) lib2 = q;
                     count++;
-                    if(!markAll && count >= 3) break;
+                    if(!markAll && count >= cap) break;
                 }
             } else if(simBoard[q] == color && simMark[q] != markEpoch) {
                 simMark[q] = markEpoch;
@@ -658,7 +672,7 @@ static uint8_t groupLibsCore(uint8_t start, uint8_t *l1, uint8_t *l2,
 // Find a group's distinct liberties, early-exiting at 3. Fills l1/l2
 // with the first two (0xFF if fewer). Returns the count, 0-3.
 static uint8_t groupLibsFind(uint8_t start, uint8_t *l1, uint8_t *l2) {
-    return groupLibsCore(start, l1, l2, 0);
+    return groupLibsCore(start, l1, l2, 0, 3);
 }
 
 static uint8_t groupLibsMax3(uint8_t start) {
@@ -670,7 +684,59 @@ static uint8_t groupLibsMax3(uint8_t start) {
 // Full-flood variant of groupLibsFind (see groupLibsCore's markAll)
 static uint8_t groupLibsMark(uint8_t start) {
     uint8_t a, b;
-    return groupLibsCore(start, &a, &b, 1);
+    return groupLibsCore(start, &a, &b, 1, 3);
+}
+
+// Build the chain map: flood each chain to assign ids and count
+// liberties, then a second cheap walk stamps the libs bits (a live
+// chain always has libs >= 1, so zero top bits doubles as the
+// "not yet stamped" marker).
+static void buildChainMap() {
+    memset(chainId, 0, sizeof(chainId));
+    uint8_t nextId = 0;
+    uint8_t nb[4];
+    for(uint8_t s = 0; s < BOARD_CELLS; s++) {
+        if(simBoard[s] == EMPTY || chainId[s]) continue;
+        uint8_t color = simBoard[s];
+        uint8_t id = nextId < 63 ? ++nextId : 63;
+        uint8_t lib1 = 0xFF, lib2 = 0xFF, count = 0;
+        uint8_t sp = 0;
+        floodSlot(sp++) = s;
+        chainId[s] = id;
+        while(sp) {
+            uint8_t p = floodSlot(--sp);
+            uint8_t n = neighbors(p, nb);
+            for(uint8_t i = 0; i < n; i++) {
+                uint8_t q = nb[i];
+                if(simBoard[q] == EMPTY) {
+                    if(count < 3 && q != lib1 && q != lib2) {
+                        if(lib1 == 0xFF) lib1 = q;
+                        else if(lib2 == 0xFF) lib2 = q;
+                        count++;
+                    }
+                } else if(simBoard[q] == color && !chainId[q]) {
+                    chainId[q] = id;
+                    floodSlot(sp++) = q;
+                }
+            }
+        }
+        // stamp libs into the top bits of every member
+        uint8_t bits = count << 6;
+        sp = 0;
+        floodSlot(sp++) = s;
+        chainId[s] |= bits;
+        while(sp) {
+            uint8_t p = floodSlot(--sp);
+            uint8_t n = neighbors(p, nb);
+            for(uint8_t i = 0; i < n; i++) {
+                uint8_t q = nb[i];
+                if(chainId[q] == id) { // id match, libs not yet stamped
+                    chainId[q] |= bits;
+                    floodSlot(sp++) = q;
+                }
+            }
+        }
+    }
 }
 
 // pos touches two DISTINCT friendly chains (seeds fa, fb). Is it
@@ -681,25 +747,17 @@ static uint8_t groupLibsMark(uint8_t start) {
 // how an earlier connect prior over-concentrated and measurably
 // tanked. Distinct same-color chains are never adjacent, so the
 // second flood cannot leak into the first.
-static uint8_t soleConnector(uint8_t fa, uint8_t fb) {
+static uint8_t soleConnector(uint8_t idA, uint8_t idB) {
     uint8_t nb[4];
-    newMark();
-    if(markEpoch == 255) newMark(); // avoid wrap between the epochs
-    groupLibsMark(fa);
-    uint8_t eA = markEpoch;
-    newMark();
-    groupLibsMark(fb);
-    uint8_t eB = markEpoch;
     uint8_t connectors = 0;
     for(uint8_t p = 0; p < BOARD_CELLS; p++) {
         if(simBoard[p] != EMPTY) continue;
         uint8_t nearA = 0, nearB = 0;
         uint8_t n = neighbors(p, nb);
         for(uint8_t i = 0; i < n; i++) {
-            uint8_t q = nb[i];
-            if(simBoard[q] == EMPTY) continue;
-            if(simMark[q] == eA) nearA = 1;
-            else if(simMark[q] == eB) nearB = 1;
+            uint8_t id = CHAIN_OF(chainId[nb[i]]);
+            if(id == idA) nearA = 1;
+            else if(id == idB) nearB = 1;
         }
         if(nearA && nearB && ++connectors > 1) return 0;
     }
@@ -1384,25 +1442,31 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     uint8_t nb[4];
     uint8_t n = neighbors(pos, nb);
 
-    // Group-aware neighbor scan: count DISTINCT adjacent groups per
-    // color (mark-epoch membership collapses two neighbors of the
-    // same group) and their weakest liberty counts. Ladder reading is
-    // deferred past the scan — it runs simulations that trash the
-    // marks.
+    // Group-aware neighbor scan over the precomputed chain map
+    // (buildChainMap runs once per expansion): distinct chains per
+    // color and their weakest liberty classes — pure array reads,
+    // no floods (the per-candidate chain floods here were the
+    // biggest single cost in the whole search).
     uint8_t fGroups = 0, eGroups = 0;
     uint8_t fMinLibs = 0xFF, eMinLibs = 0xFF;
     uint8_t doomCand[4];
     uint8_t nDoom = 0;
-    uint8_t fSeed[2]; // seeds of the first two distinct friendly chains
+    uint8_t fIds[4];  // ids of the distinct friendly chains seen
+    uint8_t seen[4];
+    uint8_t nSeen = 0;
 #if PRIOR_RACE
     uint8_t raceCand = 0xFF; // enemy chain at 2-3 libs, race check later
 #endif
-    newMark();
     for(uint8_t j = 0; j < n; j++) {
         uint8_t q = nb[j];
-        if(simBoard[q] == EMPTY) continue;
-        if(simMark[q] == markEpoch) continue; // same group as earlier neighbor
-        uint8_t l = groupLibsMark(q);
+        uint8_t id = CHAIN_OF(chainId[q]);
+        if(!id) continue;
+        uint8_t dup = 0;
+        for(uint8_t k = 0; k < nSeen; k++)
+            if(seen[k] == id) { dup = 1; break; }
+        if(dup) continue;
+        seen[nSeen++] = id;
+        uint8_t l = LIBS_OF(chainId[q]);
         if(simBoard[q] == opp) {
             eGroups++;
             if(l < eMinLibs) eMinLibs = l;
@@ -1413,7 +1477,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
 #endif
         } else {
             hasOrthFriend = 1;
-            if(fGroups < 2) fSeed[fGroups] = q;
+            if(fGroups < 4) fIds[fGroups] = id;
             fGroups++;
             if(l < fMinLibs) fMinLibs = l;
             if(l == 1) doomCand[nDoom++] = q;
@@ -1442,9 +1506,11 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
                     if(nx < 0 || nx >= BOARD_SIZE ||
                        ny < 0 || ny >= BOARD_SIZE) continue;
                     uint8_t q = ny * BOARD_SIZE + nx;
-                    if(simBoard[q] == toMove && simMark[q] != markEpoch) {
-                        sawLink = 1;
-                        break;
+                    if(simBoard[q] == toMove) {
+                        uint8_t id = CHAIN_OF(chainId[q]), other = 1;
+                        for(uint8_t k = 0; k < fGroups && k < 4; k++)
+                            if(fIds[k] == id) { other = 0; break; }
+                        if(other) { sawLink = 1; break; }
                     }
                 }
         }
@@ -1492,7 +1558,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
             bonus += PRIOR_CONNECT_WEAK;
             connHere = 1;
         } else if(rootStones >= EARLY_STONES &&
-                  soleConnector(fSeed[0], fSeed[1])) {
+                  soleConnector(fIds[0], fIds[1])) {
             bonus += PRIOR_CONNECT;
             connHere = 1;
         }
@@ -1528,6 +1594,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     // corner form = diagonal friend + one corner friend + other
     // corner empty; elbow form = both corners friendly + diagonal
     // point empty.
+    uint8_t triHere = 0;
     if(!sawCapture && !sawSave && !sawAtari && !sawRace) {
         uint8_t tri = 0;
         uint8_t tx = pos % BOARD_SIZE, ty = pos / BOARD_SIZE;
@@ -1546,7 +1613,10 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
                     tri = 1;
                 if(tri) break;
             }
-        if(tri) bonus -= PRIOR_EMPTY_TRI;
+        if(tri) {
+            bonus -= PRIOR_EMPTY_TRI;
+            triHere = 1;
+        }
     }
 
     // Naked attachment to a healthy chain (see PRIOR_ATTACH_PENALTY)
@@ -1584,6 +1654,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     uint8_t ey = y < BOARD_SIZE - 1 - y ? y : BOARD_SIZE - 1 - y;
     uint8_t ed = ex < ey ? ex : ey;
     bonus += ed > PRIOR_CENTER_MAX ? PRIOR_CENTER_MAX : ed;
+    if(triHere && ed <= 2) bonus--; // edge-facing triangle: worse still
 
     // Opening knowledge: an untouched corner is the biggest thing on
     // the board — steer toward its classic points (3-3/3-4/4-4
@@ -1662,11 +1733,17 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
         }
     }
 
-    // Locality: adjacent or diagonal to the previous move
+    // Locality: adjacent or diagonal to the previous move. Empty-
+    // triangle candidates keep proximity credit ONLY when they touch
+    // the pusher orthogonally — a true contact block is classically
+    // excused its shape (and our block tests live there) — but a
+    // merely diagonal-near triangle is a self-inflicted wound with
+    // no answering duty, and with the credit the ugly connector of
+    // a diagonal pair beat the good one 7/10.
     if(!lowLineBad && last < BOARD_CELLS) {
         int8_t dx = x - last % BOARD_SIZE; if(dx < 0) dx = -dx;
         int8_t dy = y - last / BOARD_SIZE; if(dy < 0) dy = -dy;
-        if(dx <= 1 && dy <= 1) {
+        if(dx <= 1 && dy <= 1 && (!triHere || dx + dy == 1)) {
             bonus += PRIOR_LOCAL;
             // Contact-push block (see PRIOR_BLOCK): their stone
             // touches us, this candidate touches the pusher
@@ -1723,6 +1800,7 @@ static uint8_t childCount(uint8_t nodeIdx) {
 static void expandNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t last) {
     uint8_t near[11];
     uint8_t anyStone = buildNearMask(near);
+    buildChainMap();
 
     if(poolUsed < NODE_POOL) {
         uint8_t c = addChild(nodeIdx, MOVE_PASS, 0);
@@ -1762,6 +1840,7 @@ static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t la
 
     uint8_t near[11];
     uint8_t anyStone = buildNearMask(near);
+    buildChainMap();
 
     int8_t bestP = -128;
     uint8_t bestPos = 0xFF;

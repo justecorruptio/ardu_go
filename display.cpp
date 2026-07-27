@@ -55,7 +55,10 @@ void Display::renderBoard() {
 void Display::renderCursor() {
     uint8_t x = GRID_LEFT + game.cursorX * CELL_SIZE;
     uint8_t y = GRID_TOP + game.cursorY * CELL_SIZE;
-    uint8_t blink = (jay.counter >> 3) & 1;
+    // Wall-clock blink (~256 ms phase), NOT the frame counter: after
+    // a blocking think() the frame scheduler catches up in a burst of
+    // instant frames, which made a frame-based blink stutter.
+    uint8_t blink = (uint8_t)(millis() >> 8) & 1;
     if(blink) {
         // Top-left corner
         jay.drawPixel(x - 3, y - 3, 1);
