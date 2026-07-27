@@ -11,8 +11,11 @@ the code the device runs. The Arduino build ignores this directory.
     ./play_gui
 
 Native Cocoa window: click intersections to play, red ring marks the
-last move. Buttons: Pass, Undo, New Game, Play as White. The title
-bar shows the AI's move, think time, and its position/move win rates.
+last move. Buttons: Pass, Undo, New Game, Play as White, Save SGF
+(writes the full game record to test/saved_games/ardugo_<timestamp>.sgf —
+save whenever the AI does something wrong and hand over the file for
+analysis). The title bar shows the AI's move, think time, and its
+position/move win rates.
 
 ## play — interactive game in the terminal
 

@@ -1,27 +1,19 @@
 #include "utils.h"
 
-char itoa_buf[9] = "\0\0\0\0\0\0\0\0";
-char * itoa(int x, int base) {
-    uint8_t i = 7;
-    int neg = 0;
-    if(x < 0){
-        x = -x;
-        neg = 1;
-    }
+// Decimal, unsigned 0-255 only: every live caller prints small board
+// counts, and the old signed any-base version cost ~100 bytes of
+// flash for commented-out debug code.
+char itoa_buf[4];
+char * itoa(uint8_t x) {
+    char *p = itoa_buf + 3;
+    *p = 0;
     do {
-        char c = (x % base) + '0';
-        if (c > '9'){
-            c = c - '9' + 'A' - 1;
-        }
-        itoa_buf[i--] = c;
-        x /= base;
+        *--p = '0' + x % 10;
+        x /= 10;
     } while(x);
-    if(neg){
-        itoa_buf[i--] = '-';
-    }
 
     // Must immediately use this.
-    return itoa_buf + i + 1;
+    return p;
 }
 
 uint8_t strlen(const uint8_t* s) {

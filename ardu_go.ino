@@ -52,7 +52,7 @@ uint8_t spansMagicKey(const void *p, uint16_t len) {
 void checkMagicKeyHazard() {
     if(spansMagicKey(&game, sizeof(Game)) ||
        spansMagicKey(&ai, sizeof(AI))) {
-        jay.smallPrintPgm(10, 28, F("0800 HAZARD: SHUFFLE RAM"), 1);
+        jay.smallPrintPgm(10, 28, F("0800 HAZARD"), 1);
         jay.display();
         while(1) {}
     }

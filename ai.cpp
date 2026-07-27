@@ -155,8 +155,19 @@ uint8_t AI::chooseMove(Game &game) {
 #ifndef RAVE_K
 #define RAVE_K 300          // Gelly-Silver beta schedule constant
 #endif
+// Q8 sigma for the root LCB pick. 1.6 sigma (410): measured on a
+// 20-seed stability probe of a real misplay position, raising from
+// 1.28 sigma removed exactly the one unlucky under-sampled pick (a
+// pointless clamp) while leaving all 19 other picks unchanged —
+// the "even out the luck" knob. Higher added nothing; raising the
+// visit gate instead scattered picks.
 #ifndef LCB_Z
-#define LCB_Z 328           // Q8 (1.28 sigma): root move picked by LCB
+#define LCB_Z 410
+#endif
+// Minimum real visits before a child may win the LCB race: below
+// this, prior-seeded win rates are still mostly noise
+#ifndef LCB_GATE
+#define LCB_GATE 24
 #endif
 // Exploration term scaled down by this shift: at 400 iterations over
 // ~56 root moves, full UCB1-Tuned exploration (~0.3 at n=10) dwarfs
@@ -252,6 +263,15 @@ uint8_t AI::chooseMove(Game &game) {
 #define PRIOR_RACE 0
 #endif
 
+// Blocking a contact push (mid-game): the opponent's last stone
+// touches our stones and the candidate completes the wall. Playout
+// evaluation is blind to the 2-3 points each unanswered boundary
+// push costs — territorial games bled out one quiet push at a time —
+// so the tree gets steered to at least read the block.
+#ifndef PRIOR_BLOCK
+#define PRIOR_BLOCK 3
+#endif
+
 // Urgency: reinforcing an own 2-liberty group near the opponent's
 // last move. Playouts resolve fights by coin flip, so the tree sees a
 // fight move and a tenuki big-point as equal — and walks away from
@@ -260,18 +280,52 @@ uint8_t AI::chooseMove(Game &game) {
 #define PRIOR_URGENT 5
 #endif
 
-// Connection and cutting, deliberately narrow: only when a candidate
-// touches two DISTINCT chains and the weakest of them has exactly 2
-// liberties — a chain in real danger of being split off (1-liberty
-// chains are handled by the ladder-verified save). Anything broader
-// misfires constantly: touching two chains does NOT mean they need
-// connecting (they are usually joined elsewhere), and a generic cut
-// bonus pays for suicidal wedges between healthy groups.
+// Connection and cutting. The WEAK forms fire when the weakest chain
+// involved has exactly 2 liberties — real danger of being split off
+// (1-liberty chains are handled by the ladder-verified save). The
+// plain PRIOR_CONNECT fires earlier: mid-game, when the candidate is
+// the SOLE connector of two chains (see soleConnector) — defend the
+// cutting point BEFORE the cut. The miai test is what keeps this
+// from over-connecting (a generic two-chain bonus measurably
+// tanked); a generic cut bonus pays for suicidal wedges, so cutting
+// stays weak-only.
+#ifndef PRIOR_CONNECT
+#define PRIOR_CONNECT 4
+#endif
+// Knight-link defense: keima/ogeima/jump links have NO single point
+// adjacent to both chains (the waists each touch one stone), so the
+// sole-connector logic is structurally blind to them. This fires for
+// a candidate in the gap — adjacent to one chain, a DIFFERENT chain
+// within distance 2 — while an enemy stone touches the gap point:
+// the push-through is happening now.
+#ifndef PRIOR_LINK
+#define PRIOR_LINK 3
+#endif
 #ifndef PRIOR_CONNECT_WEAK
 #define PRIOR_CONNECT_WEAK 6
 #endif
 #ifndef PRIOR_CUT_WEAK
 #define PRIOR_CUT_WEAK 5
+#endif
+
+// Naked attachment: contact with a HEALTHY enemy chain (3+ libs)
+// with no orthogonal friendly support and no tactical purpose —
+// "don't attach to strong stones". Mild: legitimate attachments
+// carry support or a tactical tag. (Seen live: a pointless clamp
+// against a supported chain, picked from a marginal LCB race.)
+#ifndef PRIOR_ATTACH_PENALTY
+#define PRIOR_ATTACH_PENALTY 2
+#endif
+
+// Empty triangle: the candidate completes three stones on a 2x2
+// square whose fourth point is EMPTY — the classic inefficient
+// shape ("the devil's own shape for wasting a move"). Exempt when
+// tactical; a square whose fourth point holds an ENEMY stone is a
+// fighting shape and never matches (the emptiness check is the
+// classical exemption for free). Seen live: a blocking move played
+// as the ugly-triangle variant when better-shaped blocks existed.
+#ifndef PRIOR_EMPTY_TRI
+#define PRIOR_EMPTY_TRI 2
 #endif
 
 // A candidate whose ONLY link to friendly stones is a knight's move,
@@ -502,34 +556,15 @@ static void newMark() {
     }
 }
 
-// Iterative flood with early exit on first liberty found
+static uint8_t groupLibsFind(uint8_t start, uint8_t *l1, uint8_t *l2);
+
+// Does the group at start have any liberty? Thin wrapper — the
+// shared flood's seed fast path handles the common case identically;
+// only big-group floods do modestly more work, and the ~180 bytes of
+// flash matter more than those cycles.
 static uint8_t hasLiberty(uint8_t start) {
-    uint8_t color = simBoard[start];
-    uint8_t nb[4];
-
-    // Seed fast path: an empty neighbor of the seed itself settles it
-    // before paying for the flood setup — the common case.
-    uint8_t n0 = neighbors(start, nb);
-    for(uint8_t i = 0; i < n0; i++)
-        if(simBoard[nb[i]] == EMPTY) return 1;
-
-    newMark();
-    uint8_t sp = 0;
-    floodSlot(sp++) = start;
-    simMark[start] = markEpoch;
-    while(sp) {
-        uint8_t p = floodSlot(--sp);
-        uint8_t n = neighbors(p, nb);
-        for(uint8_t i = 0; i < n; i++) {
-            uint8_t q = nb[i];
-            if(simBoard[q] == EMPTY) return 1;
-            if(simBoard[q] == color && simMark[q] != markEpoch) {
-                simMark[q] = markEpoch;
-                floodSlot(sp++) = q;
-            }
-        }
-    }
-    return 0;
+    uint8_t a, b;
+    return groupLibsFind(start, &a, &b) != 0;
 }
 
 // Remove a group, using the board itself as the visited marker
@@ -636,6 +671,39 @@ static uint8_t groupLibsMax3(uint8_t start) {
 static uint8_t groupLibsMark(uint8_t start) {
     uint8_t a, b;
     return groupLibsCore(start, &a, &b, 1);
+}
+
+// pos touches two DISTINCT friendly chains (seeds fa, fb). Is it
+// their ONLY connecting point? Re-flood each under its own mark
+// epoch, then count empty points adjacent to both chains: exactly
+// one (pos itself) means the opponent playing here splits us for
+// real. Two or more means miai — no urgency, and bonusing those was
+// how an earlier connect prior over-concentrated and measurably
+// tanked. Distinct same-color chains are never adjacent, so the
+// second flood cannot leak into the first.
+static uint8_t soleConnector(uint8_t fa, uint8_t fb) {
+    uint8_t nb[4];
+    newMark();
+    if(markEpoch == 255) newMark(); // avoid wrap between the epochs
+    groupLibsMark(fa);
+    uint8_t eA = markEpoch;
+    newMark();
+    groupLibsMark(fb);
+    uint8_t eB = markEpoch;
+    uint8_t connectors = 0;
+    for(uint8_t p = 0; p < BOARD_CELLS; p++) {
+        if(simBoard[p] != EMPTY) continue;
+        uint8_t nearA = 0, nearB = 0;
+        uint8_t n = neighbors(p, nb);
+        for(uint8_t i = 0; i < n; i++) {
+            uint8_t q = nb[i];
+            if(simBoard[q] == EMPTY) continue;
+            if(simMark[q] == eA) nearA = 1;
+            else if(simMark[q] == eB) nearB = 1;
+        }
+        if(nearA && nearB && ++connectors > 1) return 0;
+    }
+    return connectors == 1;
 }
 
 // Flood the small empty region containing `seed` (a big region is
@@ -1077,27 +1145,36 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                     pos = cy * BOARD_SIZE + cx;
             } else if(rootStones + m >= EARLY_STONES &&
                       (p & LONE_ANSWER_MASK << 1) != 0) {
-                // (gated: in the opening EVERY stone is "lone" — the
-                // invader rule only means something once territory
-                // has shape, and ungated it turned rollout openings
-                // into wall-to-wall contact brawls)
+                // (gated: in the opening EVERY stone is "lone" and
+                // every attachment is normal — these answer rules
+                // only mean something once territory has shape)
+                // Answer a stone that CONTACTS us (a boundary push)
+                // or one with no support within 2 (an invasion);
+                // either way the reply is a contact move.
                 uint8_t lastColor = simBoard[last];
-                uint8_t lone = 1;
-                for(int8_t dy = -2; dy <= 2 && lone; dy++)
-                    for(int8_t dx = -2; dx <= 2; dx++) {
-                        if(!dx && !dy) continue;
-                        int8_t nx = lx + dx, ny = ly + dy;
-                        if(nx < 0 || nx >= BOARD_SIZE ||
-                           ny < 0 || ny >= BOARD_SIZE) continue;
-                        if(simBoard[ny * BOARD_SIZE + nx] == lastColor) {
-                            lone = 0;
-                            break;
-                        }
+                uint8_t nbl[4];
+                uint8_t nl = neighbors(last, nbl);
+                uint8_t answer = 0;
+                for(uint8_t j = 0; j < nl; j++)
+                    if(simBoard[nbl[j]] == toMove) {
+                        answer = 1; // contact push
+                        break;
                     }
-                if(lone) {
-                    uint8_t nbl[4];
-                    pos = nbl[rnd(neighbors(last, nbl))];
+                if(!answer) {
+                    answer = 1; // lone unless support found
+                    for(int8_t dy = -2; dy <= 2 && answer; dy++)
+                        for(int8_t dx = -2; dx <= 2; dx++) {
+                            if(!dx && !dy) continue;
+                            int8_t nx = lx + dx, ny = ly + dy;
+                            if(nx < 0 || nx >= BOARD_SIZE ||
+                               ny < 0 || ny >= BOARD_SIZE) continue;
+                            if(simBoard[ny * BOARD_SIZE + nx] == lastColor) {
+                                answer = 0;
+                                break;
+                            }
+                        }
                 }
+                if(answer) pos = nbl[rnd(nl)];
             }
             if(pos != 0xFF && playoutTry(pos, toMove, &ko, &last, m)) {
                 passes = 0;
@@ -1316,7 +1393,10 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     uint8_t fMinLibs = 0xFF, eMinLibs = 0xFF;
     uint8_t doomCand[4];
     uint8_t nDoom = 0;
+    uint8_t fSeed[2]; // seeds of the first two distinct friendly chains
+#if PRIOR_RACE
     uint8_t raceCand = 0xFF; // enemy chain at 2-3 libs, race check later
+#endif
     newMark();
     for(uint8_t j = 0; j < n; j++) {
         uint8_t q = nb[j];
@@ -1328,16 +1408,48 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
             if(l < eMinLibs) eMinLibs = l;
             if(l == 1) sawCapture = 1;      // pos is its last liberty
             else if(l == 2) sawAtari = 1;
-            if(PRIOR_RACE && l >= 2 && l <= 3 && raceCand == 0xFF)
-                raceCand = q;
+#if PRIOR_RACE
+            if(l >= 2 && l <= 3 && raceCand == 0xFF) raceCand = q;
+#endif
         } else {
             hasOrthFriend = 1;
+            if(fGroups < 2) fSeed[fGroups] = q;
             fGroups++;
             if(l < fMinLibs) fMinLibs = l;
             if(l == 1) doomCand[nDoom++] = q;
             else if(l == 2) sawWeakFriend = 1;
         }
     }
+    // Knight-link defense (see PRIOR_LINK). Must run while the scan's
+    // marks are fresh: the adjacent chains are whole-chain marked, so
+    // an UNMARKED friendly stone within distance 2 is a genuinely
+    // different chain — a keima/ogeima/jump partner across the gap.
+    uint8_t sawLink = 0;
+    if(fGroups >= 1 && last < BOARD_CELLS) {
+        uint8_t px = pos % BOARD_SIZE, py = pos / BOARD_SIZE;
+        // The pressure must be the CURRENT push, and the candidate
+        // must TOUCH the pushing stone orthogonally: the junction
+        // point does, the adjacent near-misses only diagonal it —
+        // in a real cut-through game both scored alike until this.
+        // (No stone-count gate: contact + existing structure is
+        // self-gating; the opening-brawl bug was playout-side.)
+        int8_t pdx = px - last % BOARD_SIZE; if(pdx < 0) pdx = -pdx;
+        int8_t pdy = py - last / BOARD_SIZE; if(pdy < 0) pdy = -pdy;
+        if(pdx + pdy == 1) {
+            for(int8_t ldy = -2; ldy <= 2 && !sawLink; ldy++)
+                for(int8_t ldx = -2; ldx <= 2; ldx++) {
+                    int8_t nx = px + ldx, ny = py + ldy;
+                    if(nx < 0 || nx >= BOARD_SIZE ||
+                       ny < 0 || ny >= BOARD_SIZE) continue;
+                    uint8_t q = ny * BOARD_SIZE + nx;
+                    if(simBoard[q] == toMove && simMark[q] != markEpoch) {
+                        sawLink = 1;
+                        break;
+                    }
+                }
+        }
+    }
+
     // Only credit a save if the ladder actually works — extending a
     // ladder-dead group just feeds stones
     for(uint8_t j = 0; j < nDoom; j++) {
@@ -1352,8 +1464,6 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
 #if PRIOR_RACE
     if(raceCand != 0xFF && !sawCapture && raceWin(raceCand))
         sawRace = 1;
-#else
-    (void)raceCand;
 #endif
 
     int8_t bonus = sawCapture ? PRIOR_CAPTURE :
@@ -1373,8 +1483,22 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     // off and killed. Cutting is the mirror image. A hopeless
     // connection into self-atari still gets sunk by the thin-stretch
     // penalty below.
-    if(fGroups >= 2 && fMinLibs == 2) bonus += PRIOR_CONNECT_WEAK;
+    // connHere also exempts the point from the settled-territory
+    // penalty below: a sole connector often sits inside what reads
+    // as own territory, and -6 was cancelling the bonus.
+    uint8_t connHere = 0;
+    if(fGroups >= 2) {
+        if(fMinLibs == 2) {
+            bonus += PRIOR_CONNECT_WEAK;
+            connHere = 1;
+        } else if(rootStones >= EARLY_STONES &&
+                  soleConnector(fSeed[0], fSeed[1])) {
+            bonus += PRIOR_CONNECT;
+            connHere = 1;
+        }
+    }
     if(eGroups >= 2 && eMinLibs == 2) bonus += PRIOR_CUT_WEAK;
+    if(sawLink && !connHere) bonus += PRIOR_LINK;
 
     // Eyespaces and settled territory. The vital point of a small
     // one-color region is simple life and death — make the second
@@ -1393,11 +1517,42 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
         if(so && vital == pos) {
             bonus += PRIOR_VITAL;
             vitalHere = 1;
-        } else if(so && !sawCapture && !sawSave && !sawAtari) {
+        } else if(so && !sawCapture && !sawSave && !sawAtari &&
+                  !connHere) {
             bonus -= (so == toMove) ? PRIOR_OWNFILL_PENALTY
                                     : PRIOR_INVADE_PENALTY;
         }
     }
+
+    // Empty triangle in either orientation (see PRIOR_EMPTY_TRI):
+    // corner form = diagonal friend + one corner friend + other
+    // corner empty; elbow form = both corners friendly + diagonal
+    // point empty.
+    if(!sawCapture && !sawSave && !sawAtari && !sawRace) {
+        uint8_t tri = 0;
+        uint8_t tx = pos % BOARD_SIZE, ty = pos / BOARD_SIZE;
+        for(int8_t tdy = -1; tdy <= 1 && !tri; tdy += 2)
+            for(int8_t tdx = -1; tdx <= 1; tdx += 2) {
+                int8_t fx = tx + tdx, fy = ty + tdy;
+                if(fx < 0 || fx >= BOARD_SIZE ||
+                   fy < 0 || fy >= BOARD_SIZE) continue;
+                uint8_t sd = simBoard[fy * BOARD_SIZE + fx];
+                uint8_t s1 = simBoard[ty * BOARD_SIZE + fx];
+                uint8_t s2 = simBoard[fy * BOARD_SIZE + tx];
+                if(sd == toMove &&
+                   ((s1 == toMove && s2 == EMPTY) ||
+                    (s2 == toMove && s1 == EMPTY))) tri = 1;
+                else if(sd == EMPTY && s1 == toMove && s2 == toMove)
+                    tri = 1;
+                if(tri) break;
+            }
+        if(tri) bonus -= PRIOR_EMPTY_TRI;
+    }
+
+    // Naked attachment to a healthy chain (see PRIOR_ATTACH_PENALTY)
+    if(!sawCapture && !sawSave && !sawAtari && !sawRace &&
+       !hasOrthFriend && eGroups && eMinLibs >= 3)
+        bonus -= PRIOR_ATTACH_PENALTY;
 
     // Urgent defense: reinforcing an own 2-liberty group in the zone
     // of the opponent's last move — don't tenuki from a live fight
@@ -1511,7 +1666,22 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     if(!lowLineBad && last < BOARD_CELLS) {
         int8_t dx = x - last % BOARD_SIZE; if(dx < 0) dx = -dx;
         int8_t dy = y - last / BOARD_SIZE; if(dy < 0) dy = -dy;
-        if(dx <= 1 && dy <= 1) bonus += PRIOR_LOCAL;
+        if(dx <= 1 && dy <= 1) {
+            bonus += PRIOR_LOCAL;
+            // Contact-push block (see PRIOR_BLOCK): their stone
+            // touches us, this candidate touches the pusher
+            // ORTHOGONALLY (the junction does; diagonal near-misses
+            // scored alike in a real cut-through game until this)
+            if(hasOrthFriend && dx + dy == 1) {
+                uint8_t nbp[4];
+                uint8_t np = neighbors(last, nbp);
+                for(uint8_t j = 0; j < np; j++)
+                    if(simBoard[nbp[j]] == toMove) {
+                        bonus += PRIOR_BLOCK;
+                        break;
+                    }
+            }
+        }
     }
 
     // Local shape: the same 3x3 patterns the playouts use. This is what
@@ -1911,7 +2081,7 @@ uint8_t AI::bestMove(Game &game, uint8_t &x, uint8_t &y) {
 
         // Gate: prior-seeded children carry inflated q at tiny n and
         // would fake a strong LCB — demand real sampling first
-        if(v < 24) continue;
+        if(v < LCB_GATE) continue;
 
         uint16_t q = ((uint32_t)nWins(c) << 12) / v;
         uint32_t var = ((uint32_t)q * (4096 - q)) >> 12; // q(1-q), Q12

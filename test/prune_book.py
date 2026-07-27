@@ -4,7 +4,7 @@
 # SGF is KataGo policy order — first child = best move — which the
 # walker relies on, so order is preserved verbatim).
 #
-# Usage: prune_book.py [rank-budget]   (default 5)
+# Usage: prune_book.py [rank-budget] [depth-cap]   (default 99 6)
 import re
 import sys
 
@@ -59,7 +59,7 @@ def parse_sgf(text):
     return root
 
 
-def prune(node, depth, cost, budget):
+def prune(node, depth, cost, budget, cap):
     # Keep a node while the summed policy rank along its path stays
     # within budget (first child costs 0, k-th child costs k-1), the
     # depth stays <= 10, and the move is interior (the trie encoding
@@ -71,9 +71,9 @@ def prune(node, depth, cost, budget):
         if not (1 <= x <= 7 and 1 <= y <= 7):
             continue
         ccost = cost + (0 if depth == 0 else i)
-        if ccost > budget or depth + 1 > 10:
+        if ccost > budget or depth + 1 > cap:
             continue
-        prune(ch, depth + 1, ccost, budget)
+        prune(ch, depth + 1, ccost, budget, cap)
         kept.append(ch)
     node.children = kept
 
@@ -125,17 +125,18 @@ def same(a, b):
     return all(same(x, y) for x, y in zip(a.children, b.children))
 
 
-budget = int(sys.argv[1]) if len(sys.argv) > 1 else 5
+budget = int(sys.argv[1]) if len(sys.argv) > 1 else 99
+cap = int(sys.argv[2]) if len(sys.argv) > 2 else 6
 tree = parse_sgf(open(SGF).read())
 full = count(tree)
-prune(tree, 0, 0, budget)
+prune(tree, 0, 0, budget, cap)
 kept = count(tree)
 assert len(tree.children) == 6, f"root options: {len(tree.children)}"
 
 out = []
 emit(tree, out)
 assert same(tree, reparse(out)), "round-trip mismatch"
-print(f"budget {budget}: {full} -> {kept} nodes ({len(out)} bytes)")
+print(f"budget {budget} depth {cap}: {full} -> {kept} nodes ({len(out)} bytes)")
 
 # Preserve the existing root weights verbatim
 old = open(HEADER).read()
@@ -149,10 +150,11 @@ rows = ",\n    ".join(
 open(HEADER, "w").write(f"""#pragma once
 #include <avr/pgmspace.h>
 
-// KataGo 9x9 Japanese-rules opening book, moves 1-10, PRUNED to a
-// summed policy-rank budget of {budget} along each path (first child
-// free, k-th child costs k-1): full breadth near the root, junk-rank
-// tails cut. Regenerate with test/prune_book.py from opening_book.sgf.
+// KataGo 9x9 Japanese-rules opening book, depth {cap}, rank budget
+// {budget}. Shallow-and-wide by measurement: the deep tail was 90% of
+// the bytes and human play deviates from book by move ~5, so depth 6
+// keeps the full crawled breadth at a tenth of the size. Regenerate
+// with test/prune_book.py from opening_book.sgf.
 // Trie, DFS order, 1 byte per node:
 //   bit7 = leaf (no children), bit6 = last sibling
 //   bits5-0 = move index on interior 7x7: (y-1)*7 + (x-1)

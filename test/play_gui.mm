@@ -4,6 +4,7 @@
 #import <Cocoa/Cocoa.h>
 
 #include <vector>
+#include <utility>
 #include <time.h>
 
 #include "../game.cpp"
@@ -17,8 +18,11 @@ static int lastPos = -1;
 static uint8_t humanColor = BLACK;
 static BOOL thinking = NO;
 
-struct Snap { Game g; AI a; int last; };
+struct Snap { Game g; AI a; int last; size_t logLen; };
 static std::vector<Snap> history;
+
+// Full move record for SGF export: (color, pos), pos -1 = pass
+static std::vector<std::pair<uint8_t, int>> sgfLog;
 
 static const CGFloat kMargin = 36;
 static const CGFloat kCell = 46;
@@ -36,7 +40,11 @@ static NSString *vertexName(int pos) {
 }
 
 static void setStatus(NSString *s) {
-    gWindow.title = [NSString stringWithFormat:@"ArduGo — %@", s];
+    // Build stamp in the title: a long-lived window keeps playing the
+    // engine it launched with, which has repeatedly caused stale-build
+    // ghost-bug reports. Now the vintage is always visible.
+    gWindow.title = [NSString stringWithFormat:@"ArduGo [%s %s] — %@",
+                     __DATE__, __TIME__, s];
 }
 
 static void showScore() {
@@ -130,7 +138,7 @@ static void aiMoveIfNeeded();
     if(fabs(p.x - (kMargin + gx * kCell)) > kCell * 0.45 ||
        fabs(p.y - (kMargin + gy * kCell)) > kCell * 0.45) return;
 
-    history.push_back({game, ai, lastPos});
+    history.push_back({game, ai, lastPos, sgfLog.size()});
     if(!game.playMove(gx, gy)) {
         history.pop_back();
         NSBeep();
@@ -138,6 +146,7 @@ static void aiMoveIfNeeded();
     }
     ai.notifyMove(gx, gy);
     lastPos = gy * BOARD_SIZE + gx;
+    sgfLog.push_back({humanColor, lastPos});
     [self setNeedsDisplay:YES];
     aiMoveIfNeeded();
 }
@@ -160,6 +169,7 @@ static void aiMoveIfNeeded() {
             for(uint8_t i = 0; i < BOARD_CELLS; i++)
                 if(packedGet(game.board, i) != EMPTY &&
                    packedGet(before, i) == EMPTY) lastPos = i;
+            sgfLog.push_back({3 - humanColor, lastPos});
             info = [NSString stringWithFormat:@"AI: %@ (book)", vertexName(lastPos)];
         } else {
             clock_t t0 = clock();
@@ -173,6 +183,7 @@ static void aiMoveIfNeeded() {
                 game.playMove(x, y);
                 ai.notifyMove(x, y);
                 lastPos = y * BOARD_SIZE + x;
+                sgfLog.push_back({3 - humanColor, lastPos});
                 // Leader stats for the title readout
                 uint16_t bestV = 0, bestW = 0;
                 for(uint8_t c = node(0).firstChild; c != 0xFF; c = node(c).nextSibling) {
@@ -190,6 +201,7 @@ static void aiMoveIfNeeded() {
                 game.pass();
                 ai.notifyPass();
                 lastPos = -1;
+                sgfLog.push_back({(uint8_t)(3 - humanColor), -1});
                 info = @"AI passes";
             }
         }
@@ -206,6 +218,7 @@ static void startNewGame() {
     game.reset();
     ai.reset();
     history.clear();
+    sgfLog.clear();
     lastPos = -1;
     [gBoard setNeedsDisplay:YES];
     aiMoveIfNeeded();
@@ -218,8 +231,9 @@ static void startNewGame() {
 - (void)pass:(id)s {
     if(thinking || game.isGameOver() || game.resignedBy ||
        game.turn != humanColor) return;
-    history.push_back({game, ai, lastPos});
+    history.push_back({game, ai, lastPos, sgfLog.size()});
     game.pass();
+    sgfLog.push_back({humanColor, -1});
     ai.notifyPass();
     lastPos = -1;
     [gBoard setNeedsDisplay:YES];
@@ -231,6 +245,7 @@ static void startNewGame() {
     game = history.back().g;
     ai = history.back().a;
     lastPos = history.back().last;
+    sgfLog.resize(history.back().logLen);
     history.pop_back();
     [gBoard setNeedsDisplay:YES];
     setStatus(@"undone — your move");
@@ -246,6 +261,37 @@ static void startNewGame() {
     humanColor = 3 - humanColor;
     [(NSButton *)s setTitle:humanColor == BLACK ? @"Play as White" : @"Play as Black"];
     startNewGame();
+}
+
+- (void)saveSgf:(id)s {
+    time_t now = time(NULL);
+    char stamp[32];
+    strftime(stamp, sizeof stamp, "%Y%m%d_%H%M%S", localtime(&now));
+    // Save next to the binary in saved_games/ (works from any cwd)
+    NSString *dir = [[NSProcessInfo.processInfo.arguments[0]
+                      stringByDeletingLastPathComponent]
+                     stringByAppendingPathComponent:@"saved_games"];
+    [[NSFileManager defaultManager] createDirectoryAtPath:dir
+                              withIntermediateDirectories:YES
+                                               attributes:nil
+                                                    error:nil];
+    NSString *path = [NSString stringWithFormat:@"%@/ardugo_%s.sgf",
+                      dir, stamp];
+    FILE *f = fopen(path.UTF8String, "w");
+    if(!f) { setStatus(@"SGF save failed"); return; }
+    fprintf(f, "(;GM[1]FF[4]SZ[9]KM[6.5]PB[%s]PW[%s]",
+            humanColor == BLACK ? "HUMAN" : "ARDUGO",
+            humanColor == WHITE ? "HUMAN" : "ARDUGO");
+    for(auto &m : sgfLog) {
+        fprintf(f, ";%c[", m.first == BLACK ? 'B' : 'W');
+        if(m.second >= 0)
+            fprintf(f, "%c%c", 'a' + m.second % BOARD_SIZE,
+                    'a' + m.second / BOARD_SIZE);
+        fprintf(f, "]");
+    }
+    fprintf(f, ")\n");
+    fclose(f);
+    setStatus([NSString stringWithFormat:@"saved %@", path.lastPathComponent]);
 }
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)a {
@@ -295,10 +341,11 @@ int main() {
             initWithFrame:NSMakeRect(0, kBarH, kBoardSpan, kBoardSpan + 14)];
         [gWindow.contentView addSubview:gBoard];
 
-        makeButton(@"Pass", 10, 70, ctl, @selector(pass:), gWindow.contentView);
-        makeButton(@"Undo", 86, 70, ctl, @selector(undo:), gWindow.contentView);
-        makeButton(@"New Game", 162, 100, ctl, @selector(newGame:), gWindow.contentView);
-        makeButton(@"Play as White", 268, 120, ctl, @selector(swapSides:), gWindow.contentView);
+        makeButton(@"Pass", 6, 58, ctl, @selector(pass:), gWindow.contentView);
+        makeButton(@"Undo", 66, 58, ctl, @selector(undo:), gWindow.contentView);
+        makeButton(@"New Game", 126, 88, ctl, @selector(newGame:), gWindow.contentView);
+        makeButton(@"Play as White", 216, 108, ctl, @selector(swapSides:), gWindow.contentView);
+        makeButton(@"Save SGF", 326, 86, ctl, @selector(saveSgf:), gWindow.contentView);
 
         startNewGame();
         [NSApp activateIgnoringOtherApps:YES];
