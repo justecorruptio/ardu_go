@@ -1,1 +1,95 @@
-== done: 2 games, 0 blunders logged
+== blunder 1: game 1001 mv 7 white played H6 (drop 13.5: W+6.2 -> B+7.3, gnugo wanted C7)
+    .........
+    .........
+    ....X....
+    .......O.
+    ....X.O..
+    ..O.XO...
+    ....X....
+    .........
+    .........
+     F7    v=73   q=49%
+     C2    v=48   q=50%
+     C6    v=46   q=52%
+     H4    v=40   q=48%
+     C7    v=40   q=52%
+     J3    v=39   q=44%
+    >H6    v=39   q=54%
+     D6    v=39   q=54%
+     C3    v=39   q=51%
+     F6    v=38   q=47%
+     C5    v=34   q=62%
+     D5    v=33   q=42%
+     B6    v=27   q=37%
+     H7    v=25   q=40%
+     G6    v=25   q=40%
+     D8    v=23   q=39%
+== blunder 2: game 1007 mv 67 white played H2 (drop 4.0: B+70.5 -> B+74.5, gnugo wanted PASS)
+    .....OXXO
+    .OX.OXOX.
+    .XXXXXO.X
+    .XOOOXXX.
+    OX.OXXOX.
+    XOOOOXOXX
+    XX.OXXOOX
+    X.XOOOOOO
+    .X.X...X.
+     A6    v=87   q=5%
+    >H2    v=68   q=22%
+     E1    v=55   q=20%
+     C3    v=46   q=17%
+     C5    v=44   q=18%
+     J5    v=36   q=11%
+     J6    v=36   q=11%
+     F1    v=36   q=11%
+     D8    v=36   q=11%
+     J1    v=34   q=12%
+     C9    v=31   q=13%
+     A8    v=31   q=16%
+     A7    v=30   q=13%
+     D9    v=28   q=14%
+     G1    v=26   q=15%
+     B9    v=26   q=15%
+== blunder 3: game 1031 mv 57 white played H7 (drop 16.9: B+57.6 -> B+74.5, gnugo wanted G2)
+    O.XO...X.
+    .OOXXXXO.
+    O.OOX.OO.
+    OXXO.X.O.
+    X.XOOXOO.
+    .XOOXXXXO
+    X.XOOX.O.
+    .XXOXX...
+    ..OXX....
+     G9    v=75   q=59%
+    >H7    v=62   q=65%
+     H2    v=52   q=52%
+     J8    v=47   q=49%
+     J3    v=47   q=40%
+     E6    v=45   q=56%
+     J7    v=39   q=49%
+     H1    v=36   q=36%
+     G2    v=33   q=52%
+     J5    v=32   q=31%
+     E9    v=27   q=15%
+     F1    v=27   q=15%
+     B1    v=27   q=15%
+     A2    v=27   q=15%
+     J2    v=25   q=36%
+     B9    v=25   q=72%
+== blunder 4: game 1031 mv 75 white played J6 (drop 34.9: B+39.6 -> B+74.5, gnugo wanted PASS)
+    OOX.X.XX.
+    .OOXXXXOX
+    OOOOXOOOX
+    OXXOOXXOO
+    XXXOOXOOO
+    .XOOXXXXO
+    X.XOOX.O.
+    .XXOXXXOO
+    ..OXX.XO.
+     A2    v=128  q=11%
+     B1    v=98   q=11%
+     pass  v=96   q=9%
+    >J6    v=84   q=17%
+     G3    v=60   q=13%
+     A1    v=19   q=21%
+== done: 40 games, 4 blunders logged
