@@ -170,6 +170,13 @@ uint8_t AI::chooseMove(Game &game) {
 #ifndef LCB_GATE
 #define LCB_GATE 24
 #endif
+// Relative gate: an LCB candidate also needs visits >= maxVisits /
+// LCB_REL_DIV. The absolute gate alone let a 28-visit child with a
+// lucky-streak q beat an 84-visit leader and throw away a won game;
+// siblings within 2x of the leader are sampled well enough to compare.
+#ifndef LCB_REL_DIV
+#define LCB_REL_DIV 2
+#endif
 // Exploration term scaled down by this shift: at 400 iterations over
 // ~56 root moves, full UCB1-Tuned exploration (~0.3 at n=10) dwarfs
 // the real q spread (~0.1) and the search polls uniformly instead of
@@ -2183,8 +2190,12 @@ uint8_t AI::bestMove(Game &game, uint8_t &x, uint8_t &y) {
     // real-rules validation (full ko) stays lazy: an invalid favorite
     // falls through to the next-best instead of turning into a pass.
     int16_t bestL = -32768;
-    uint16_t backV = 0;
+    uint16_t backV = 0, maxV = 0;
     uint8_t best = MOVE_PASS, backup = MOVE_PASS;
+    for(uint8_t c = node(0).firstChild; c != 0xFF; c = node(c).nextSibling) {
+        uint16_t v = nVisits(c);
+        if(v < POISONED && v > maxV) maxV = v;
+    }
     for(uint8_t c = node(0).firstChild; c != 0xFF; c = node(c).nextSibling) {
         uint16_t v = nVisits(c);
         if(v >= POISONED) continue;
@@ -2201,7 +2212,7 @@ uint8_t AI::bestMove(Game &game, uint8_t &x, uint8_t &y) {
 
         // Gate: prior-seeded children carry inflated q at tiny n and
         // would fake a strong LCB — demand real sampling first
-        if(v < LCB_GATE) continue;
+        if(v < LCB_GATE || v * LCB_REL_DIV < maxV) continue;
 
         uint16_t q = ((uint32_t)nWins(c) << 12) / v;
         uint32_t var = ((uint32_t)q * (4096 - q)) >> 12; // q(1-q), Q12
