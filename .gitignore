@@ -1,0 +1,17 @@
+# host tool binaries (rebuild with make in test/)
+test/harness
+test/play
+test/play_gui
+test/bench
+test/parity_test
+test/test_lnd
+test/test_ladder
+test/clamp_test
+test/stability_test
+test/tri_test
+test/tri2_test
+test/line2_test
+test/*.dSYM
+test/game_*.sgf
+test/hunt_*.sgf
+test/hunt_report.txt
