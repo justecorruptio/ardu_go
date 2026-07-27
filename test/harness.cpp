@@ -131,6 +131,10 @@ static void printBoard(Game &g) {
 // The whole AI is one translation unit here, so the tree statics are
 // directly visible. Print the root's top children after a think().
 static bool showStats = false;
+static bool huntMode = false;
+static double huntThresh = 6.0;
+static FILE *huntLog = NULL;
+static int huntCount = 0;
 
 static void debugRootStats(int moveNo, uint8_t toMove) {
     struct Row { uint16_t v, w; uint8_t m; };
@@ -158,6 +162,26 @@ static void debugRootStats(int moveNo, uint8_t toMove) {
                100.0 * top[i].w / top[i].v);
     }
     printf("\n");
+}
+
+// Parse "B+12.3"/"W+4.5" into a margin from `color`'s perspective
+static double estMargin(const std::string &est, uint8_t color) {
+    if(est.size() < 2 || (est[0] != 'B' && est[0] != 'W')) return 0;
+    double v = atof(est.c_str() + 2);
+    double black = est[0] == 'B' ? v : -v;
+    return color == BLACK ? black : -black;
+}
+
+static void dumpTree(FILE *f, uint8_t chosen) {
+    for(uint8_t c = node(0).firstChild; c != 0xFF; c = node(c).nextSibling) {
+        uint16_t v = nVisits(c);
+        if(v >= POISONED || v < 10) continue;
+        uint8_t m = node(c).move;
+        fprintf(f, "    %s%-5s v=%-4u q=%.0f%%\n",
+                m == chosen ? ">" : " ",
+                m == MOVE_PASS ? "pass" : toVertex(m % 9, m / 9).c_str(),
+                v, 100.0 * nWins(c) / v);
+    }
 }
 
 // ---------- game driver ----------
@@ -254,6 +278,7 @@ static int playGame(int gameNo, int level, uint8_t aiColor, bool verbose) {
 
         if(color == aiColor) {
             uint8_t x = 0xFF, y = 0xFF;
+            std::string preEst, gnugoSuggest;
             // Book move? chooseMove plays internally; diff to find it.
             uint8_t before[PACKED_BOARD_BYTES];
             memcpy(before, game.board, sizeof before);
@@ -265,6 +290,11 @@ static int playGame(int gameNo, int level, uint8_t aiColor, bool verbose) {
                         y = i / BOARD_SIZE;
                     }
             } else {
+                if(huntMode && useGnugo) {
+                    gtpCmd("estimate_score", preEst);
+                    preEst = preEst.substr(0, preEst.find(' '));
+                    gtpCmd(std::string("reg_genmove ") + cname, gnugoSuggest);
+                }
                 if(showStats && useGnugo) {
                     std::string est;
                     gtpCmd("estimate_score", est);
@@ -292,7 +322,50 @@ static int playGame(int gameNo, int level, uint8_t aiColor, bool verbose) {
             }
             if(x != 0xFF) {
                 sgfAdd(color, x, y);
-                if(useGnugo &&
+                if(huntMode && useGnugo && !preEst.empty()) {
+                    // play, then ask gnugo what our move did to us
+                    if(gtpCmd(std::string("play ") + cname + " " +
+                              toVertex(x, y), resp)) {
+                        std::string postEst;
+                        gtpCmd("estimate_score", postEst);
+                        postEst = postEst.substr(0, postEst.find(' '));
+                        double drop = estMargin(preEst, color) -
+                                      estMargin(postEst, color);
+                        if(drop >= huntThresh) {
+                            huntCount++;
+                            fprintf(huntLog,
+                                "== blunder %d: game %d mv %d %s played %s"
+                                " (drop %.1f: %s -> %s, gnugo wanted %s)\n",
+                                huntCount, gameNo, moves, cname,
+                                toVertex(x, y).c_str(), drop,
+                                preEst.c_str(), postEst.c_str(),
+                                gnugoSuggest.c_str());
+                            for(int by = 0; by < 9; by++) {
+                                fprintf(huntLog, "    ");
+                                for(int bx = 0; bx < 9; bx++) {
+                                    uint8_t cc = game.at(bx, by);
+                                    fputc(cc == BLACK ? 'X' :
+                                          cc == WHITE ? 'O' : '.', huntLog);
+                                }
+                                fputc('\n', huntLog);
+                            }
+                            dumpTree(huntLog, y * 9 + x);
+                            char fn[64];
+                            snprintf(fn, sizeof fn, "hunt_%03d.sgf",
+                                     huntCount);
+                            FILE *hf = fopen(fn, "w");
+                            fprintf(hf, "(;GM[1]FF[4]SZ[9]KM[6.5]%s)\n",
+                                    sgfMoves.c_str());
+                            fclose(hf);
+                            fflush(huntLog);
+                        }
+                    } else {
+                        printf("game %d: gnugo REJECTED our %s %s\n",
+                               gameNo, cname, toVertex(x, y).c_str());
+                        rc = -2;
+                        break;
+                    }
+                } else if(useGnugo &&
                    !gtpCmd(std::string("play ") + cname + " " + toVertex(x, y), resp)) {
                     printf("game %d: gnugo REJECTED our %s %s (%s)\n",
                            gameNo, cname, toVertex(x, y).c_str(), resp.c_str());
@@ -432,6 +505,25 @@ static int evalBench(const char *path) {
 }
 
 int main(int argc, char **argv) {
+    if(argc > 2 && std::string(argv[1]) == "hunt") {
+        huntMode = true;
+        int games = atoi(argv[2]);
+        int level = argc > 3 ? atoi(argv[3]) : 0;
+        if(argc > 4) huntThresh = atof(argv[4]);
+        huntLog = fopen("hunt_report.txt", "w");
+        srand(4242);
+        int w = 0, l = 0;
+        for(int g = 0; g < games; g++) {
+            int r = playGame(g, level, (g & 1) ? WHITE : BLACK, false);
+            if(r > 0) w++; else l++;
+        }
+        fprintf(huntLog, "== done: %d games, %d blunders logged\n",
+                games, huntCount);
+        fclose(huntLog);
+        printf("hunt done: %d games (%d-%d), %d blunders -> hunt_report.txt\n",
+               games, w, l, huntCount);
+        return 0;
+    }
     if(argc > 2 && std::string(argv[1]) == "eval") {
         srand(12345);
         if(argc > 3) mctsIterations = atoi(argv[3]);

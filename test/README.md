@@ -35,5 +35,10 @@ here, judge SPEED on the device.
     ./harness 1 0 1            # one game with per-move root statistics
     ./harness 10 0 0 2000      # iteration-count override
     ./harness eval game_000.sgf  # per-move gnugo estimate vs raw playout eval
+    ./harness hunt 40 0 6      # blunder hunt: 40 games at level 0; every AI
+                               # move that drops >=6 pts in gnugo's estimate
+                               # gets a forensic record (board, search tree,
+                               # gnugo's preferred move) in hunt_report.txt
+                               # plus a replay SGF per blunder
 
 Writes one `game_NNN.sgf` per game into the working directory.

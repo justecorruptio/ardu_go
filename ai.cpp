@@ -356,6 +356,17 @@ uint8_t AI::chooseMove(Game &game) {
 #define RAVE_HORIZON 24
 #endif
 
+// Uncertainty extension: if the visit leader has not reached this
+// many visits when the budget runs out, the root is FLAT — too many
+// live candidates sharing too few visits — and the LCB pick becomes
+// a raffle among whichever few crossed the gate by luck. The blunder
+// hunt's biggest drops (-14 to -28 pts) all came from flat roots,
+// with the winning move sometimes nearly unvisited. One extra
+// half-budget, granted once, self-targets exactly those positions.
+#ifndef UNCERTAIN_MIN
+#define UNCERTAIN_MIN 48
+#endif
+
 // Resignation: real-playout win rate under ~8% (1/12) for this many
 // consecutive searches, past the opening. Light playouts keep a
 // 5-10% swindle floor even in dead positions, so a reading this low
@@ -2104,8 +2115,21 @@ void AI::think(Game &game) {
     newNode(0xFF); // root
     uint16_t iters = mctsIterations;
     if(rootStones < OPENING_BOOST_STONES) iters += iters / 2;
-    for(uint16_t i = 0; i < iters; i++) {
+    uint16_t total = iters;
+    uint8_t extended = 0;
+    for(uint16_t i = 0; i < total; i++) {
         mctsIterate(game);
+        // Flat-root check at budget end (see UNCERTAIN_MIN)
+        if(i + 1 == total && !extended) {
+            extended = 1;
+            uint16_t lead = 0;
+            for(uint8_t c = node(0).firstChild; c != 0xFF;
+                c = node(c).nextSibling) {
+                uint16_t v = nVisits(c);
+                if(v < POISONED && v > lead) lead = v;
+            }
+            if(lead < UNCERTAIN_MIN) total += iters / 2;
+        }
 
         // Early stop when the visit leader's margin exceeds the
         // remaining budget. With LCB move selection this is an
@@ -2119,7 +2143,7 @@ void AI::think(Game &game) {
                 if(v > top1) { top2 = top1; top1 = v; }
                 else if(v > top2) top2 = v;
             }
-            if(top1 - top2 > iters - 1 - i) break;
+            if(top1 - top2 > total - 1 - i) break;
         }
     }
 
