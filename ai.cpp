@@ -16,6 +16,17 @@ static uint8_t rnd(uint8_t n);
 #define SYS_RNDW(n)  random(n)
 #endif
 
+// Dynamic-komi state for graceful losing — adapted at the end of
+// each think, applied to playout scoring (see scoreWinner /
+// vKomiWinner / the adaptation block in think).
+#ifndef VKOMI_STEP2
+#define VKOMI_STEP2 4   // adaptation step, half-points (= 2 points)
+#endif
+#ifndef VKOMI_MAX2
+#define VKOMI_MAX2 24   // spot at most 12 points before giving up
+#endif
+static uint8_t vKomi2;
+
 // ==================== Opening book ====================
 
 // The trie stores moves in book coordinates. A candidate symmetry s maps
@@ -44,6 +55,7 @@ void AI::reset() {
     resigned = 0;
     resignCount = 0;
     resignCount2 = 0;
+    vKomi2 = 0;
 }
 
 // Skip the node at p and its whole subtree; returns offset just past it
@@ -1066,7 +1078,16 @@ static uint8_t patternMatch(int8_t cx, int8_t cy, uint8_t color) {
     return (pgm_read_byte(PAT3_BITS + off + (idx >> 3)) >> (idx & 7)) & 1;
 }
 
-// Area scoring; returns winning color
+// Dynamic komi for graceful losing (see think): when behind, the
+// tree learns from playouts scored with this many HALF-POINTS
+// spotted to the root player, so "lose by less" reads as winning
+// and the search plays normal margin-preserving moves instead of
+// maximizing the tiny chance of an opponent collapse (the flail).
+// True-komi results still drive resignation, passing, and the eval.
+
+// Area scoring; returns winning color and leaves the raw doubled
+// margin (black - white, komi not applied) for the virtual verdict
+static int16_t lastMargin2;
 static uint8_t scoreWinner() {
     uint8_t black = 0, white = 0;
     uint8_t nb[4];
@@ -1082,7 +1103,17 @@ static uint8_t scoreWinner() {
         if(tb && !tw) black++;
         else if(tw && !tb) white++;
     }
-    return ((uint16_t)black * 2 > (uint16_t)white * 2 + simKomi) ? BLACK : WHITE;
+    lastMargin2 = (int16_t)black * 2 - (int16_t)white * 2;
+    return lastMargin2 > (int16_t)simKomi ? BLACK : WHITE;
+}
+
+// The same playout under the virtual komi: the root player wins if
+// within vKomi2 half-points of the real bar
+static uint8_t vKomiWinner() {
+    int16_t bar = (int16_t)simKomi;
+    if(rootTurn == BLACK) bar -= vKomi2;
+    else bar += vKomi2;
+    return lastMargin2 > bar ? BLACK : WHITE;
 }
 
 // Playout capture tallies (statics so the shared move helper can
@@ -2174,10 +2205,14 @@ static void mctsIterate(Game &game) {
 
     uint8_t winner = playout(toMove, ko, lastMove);
 
+    // True-komi result feeds the eval (resignation, passing, stats);
+    // the tree and RAVE learn under the virtual komi (see vKomi2)
+    thinkSims++;
+    if(winner == rootTurn) thinkSimWins++;
+    if(vKomi2) winner = vKomiWinner();
+
     // Fold this simulation into the root RAVE tables
     uint8_t rootWin = (winner == rootTurn);
-    thinkSims++;
-    if(rootWin) thinkSimWins++;
     for(uint8_t i = 0; i < BOARD_CELLS; i++) {
         if(!(raveMask[i >> 3] & (1 << (i & 7)))) continue;
         if(raveV[i] == 255) { // saturate by halving, keeps the ratio
@@ -2316,6 +2351,20 @@ void AI::think(Game &game) {
         resignCount2 = 0;
     resigned = (resignCount >= resignStreak) ||
                (resignCount2 >= RESIGN2_STREAK);
+
+    // Dynamic-komi adaptation for the NEXT search (see vKomi2):
+    // clearly losing -> ask for two points less, so the tree fights
+    // for margin instead of miracle collapses; healthy -> tighten
+    // back toward the real game. The cap keeps truly lost games
+    // reading lost, so resignation still fires on the true eval.
+    if(thinkSims) {
+        uint32_t w20 = (uint32_t)thinkSimWins * 20;
+        if(w20 < (uint32_t)thinkSims * 7) {
+            if(vKomi2 < VKOMI_MAX2) vKomi2 += VKOMI_STEP2;
+        } else if(w20 > (uint32_t)thinkSims * 11 && vKomi2) {
+            vKomi2 -= VKOMI_STEP2;
+        }
+    }
 }
 
 // Root self-atari veto: a move that leaves its own merged group at
