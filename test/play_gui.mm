@@ -28,10 +28,14 @@ static const CGFloat kMargin = 36;
 static const CGFloat kCell = 46;
 static const CGFloat kBoardSpan = kMargin * 2 + kCell * 8;
 static const CGFloat kBarH = 40;
+static const CGFloat kInfoH = 24;
+static const CGFloat kTreeW = 220;
 
 @class BoardView;
 static BoardView *gBoard;
 static NSWindow *gWindow;
+static NSTextField *gInfo;
+static NSTextView *gTree;
 
 static NSString *vertexName(int pos) {
     char col = 'A' + pos % BOARD_SIZE;
@@ -40,11 +44,11 @@ static NSString *vertexName(int pos) {
 }
 
 static void setStatus(NSString *s) {
-    // Build stamp in the title: a long-lived window keeps playing the
-    // engine it launched with, which has repeatedly caused stale-build
-    // ghost-bug reports. Now the vintage is always visible.
-    gWindow.title = [NSString stringWithFormat:@"ArduGo [%s %s] — %@",
-                     __DATE__, __TIME__, s];
+    // Dedicated info pane: the title bar was too short for the
+    // win-rate readouts. The title keeps only the build stamp (a
+    // long-lived window plays the engine it launched with, which
+    // repeatedly caused stale-build ghost-bug reports).
+    gInfo.stringValue = s;
 }
 
 static void showScore() {
@@ -152,6 +156,47 @@ static void aiMoveIfNeeded();
 }
 @end
 
+// Root search table: top children by visits, with the same LCB the
+// move choice uses — makes "why did it pick that" visible at a
+// glance. Called right after think() while the tree is intact.
+static NSString *treeTable(uint8_t chosenMove) {
+    if(!poolUsed || !thinkSims) return @"(no search)";
+    struct Row { uint16_t v, w; uint8_t m; };
+    Row rows[16];
+    int n = 0;
+    for(uint8_t c = node(0).firstChild; c != 0xFF; c = node(c).nextSibling) {
+        uint16_t v = nVisits(c);
+        if(v >= POISONED) continue;
+        Row r = {v, nWins(c), node(c).move};
+        int i = n < 16 ? n : 15;
+        while(i > 0 && rows[i - 1].v < r.v) {
+            if(i < 16) rows[i] = rows[i - 1];
+            i--;
+        }
+        if(i < 16) rows[i] = r;
+        if(n < 16) n++;
+    }
+    NSMutableString *s = [NSMutableString stringWithFormat:
+        @"eval %d%%  (%u sims)\n\n%5s%6s%5s%6s\n",
+        thinkSims ? (int)(100L * thinkSimWins / thinkSims) : 50,
+        thinkSims, "move", "vis", "q%", "lcb%"];
+    for(int i = 0; i < n && i < 14; i++) {
+        double q = (double)rows[i].w / rows[i].v;
+        char lcb[8] = "-";
+        if(rows[i].v >= LCB_GATE) {
+            double bound = q - (LCB_Z / 256.0) *
+                           sqrt(q * (1 - q) / rows[i].v);
+            snprintf(lcb, sizeof lcb, "%.0f", bound * 100);
+        }
+        NSString *mv = rows[i].m == MOVE_PASS ? @"pass"
+                                              : vertexName(rows[i].m);
+        [s appendFormat:@"%@%4s%6u%5.0f%6s\n",
+         rows[i].m == chosenMove ? @"▶" : @" ", mv.UTF8String,
+         rows[i].v, q * 100, lcb];
+    }
+    return s;
+}
+
 static void aiMoveIfNeeded() {
     if(game.isGameOver()) { showScore(); return; }
     if(game.turn == humanColor) {
@@ -171,6 +216,9 @@ static void aiMoveIfNeeded() {
                    packedGet(before, i) == EMPTY) lastPos = i;
             sgfLog.push_back({3 - humanColor, lastPos});
             info = [NSString stringWithFormat:@"AI: %@ (book)", vertexName(lastPos)];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                gTree.string = @"(book move — no search)";
+            });
         } else {
             clock_t t0 = clock();
             ai.think(game);
@@ -204,6 +252,11 @@ static void aiMoveIfNeeded() {
                 sgfLog.push_back({(uint8_t)(3 - humanColor), -1});
                 info = @"AI passes";
             }
+            NSString *table = treeTable(lastPos < 0 ? 0xFF
+                                                    : (uint8_t)lastPos);
+            dispatch_async(dispatch_get_main_queue(), ^{
+                gTree.string = table;
+            });
         }
         dispatch_async(dispatch_get_main_queue(), ^{
             thinking = NO;
@@ -328,7 +381,8 @@ int main() {
         appItem.submenu = appMenu;
         [NSApp setMainMenu:bar];
 
-        NSRect content = NSMakeRect(0, 0, kBoardSpan, kBoardSpan + kBarH + 14);
+        NSRect content = NSMakeRect(0, 0, kBoardSpan + kTreeW,
+                                    kBoardSpan + kBarH + kInfoH + 14);
         gWindow = [[NSWindow alloc]
             initWithContentRect:content
                       styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
@@ -336,10 +390,33 @@ int main() {
                         backing:NSBackingStoreBuffered
                           defer:NO];
         [gWindow center];
+        gWindow.title = [NSString stringWithFormat:@"ArduGo [built %s %s]",
+                         __DATE__, __TIME__];
 
         gBoard = [[BoardView alloc]
-            initWithFrame:NSMakeRect(0, kBarH, kBoardSpan, kBoardSpan + 14)];
+            initWithFrame:NSMakeRect(0, kBarH + kInfoH,
+                                     kBoardSpan, kBoardSpan + 14)];
         [gWindow.contentView addSubview:gBoard];
+
+        gTree = [[NSTextView alloc]
+            initWithFrame:NSMakeRect(kBoardSpan + 6, kBarH + kInfoH + 8,
+                                     kTreeW - 12, kBoardSpan)];
+        gTree.editable = NO;
+        gTree.drawsBackground = NO;
+        gTree.font = [NSFont monospacedSystemFontOfSize:11
+                                                 weight:NSFontWeightRegular];
+        gTree.string = @"(no search yet)";
+        [gWindow.contentView addSubview:gTree];
+
+        gInfo = [[NSTextField alloc]
+            initWithFrame:NSMakeRect(8, kBarH + 2, kBoardSpan - 16, 18)];
+        gInfo.editable = NO;
+        gInfo.bezeled = NO;
+        gInfo.drawsBackground = NO;
+        gInfo.selectable = YES;
+        gInfo.font = [NSFont monospacedDigitSystemFontOfSize:11
+                                                      weight:NSFontWeightRegular];
+        [gWindow.contentView addSubview:gInfo];
 
         makeButton(@"Pass", 6, 58, ctl, @selector(pass:), gWindow.contentView);
         makeButton(@"Undo", 66, 58, ctl, @selector(undo:), gWindow.contentView);
