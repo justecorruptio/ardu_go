@@ -20,6 +20,10 @@ class AI {
     // and end the game as a resignation.
     void think(Game &game);
     uint8_t bestMove(Game &game, uint8_t &x, uint8_t &y);
+
+    // Game-over scoring: playout-vote dead stones off the board
+    // (mutates game: removes them as captures), then computeScore.
+    void scoreDead(Game &game);
     uint8_t resigned;
 
     // Filled by bestMove for the info panel: chosen move's win rate

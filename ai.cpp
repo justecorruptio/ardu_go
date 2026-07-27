@@ -582,6 +582,8 @@ static uint8_t chainId[BOARD_CELLS];
 #define CHAIN_OF(b) ((b) & 0x3F)
 #define LIBS_OF(b) ((b) >> 6)
 static uint8_t markEpoch;
+// Set only inside scoreDead's vote playouts (see playoutTry)
+static uint8_t scoreMode;
 // xorshift16 state; 0 is sticky, so every seeding path must |1.
 // On the DEVICE this is seeded once at boot (see setup()) and
 // free-runs — routing every random draw through it lets the AVR
@@ -832,8 +834,9 @@ static uint8_t soleConnector(uint8_t idA, uint8_t idB) {
 // The vital point is the unique cell with the most neighbors inside
 // the region (degree >= 2): center of a straight/bent three, center
 // of a T/pyramid four, center of a bulky/cross five. Uniqueness
-// makes the classics come out right by itself — square four and
-// line four have no single deciding point and correctly yield none.
+// makes the classics come out right by itself — line four has no
+// single deciding point and correctly yields none; square four
+// (dead from any entry) is special-cased below.
 // Whoever plays the vital point decides the region's life: the owner
 // splits it into two eyes, the opponent reduces it to one.
 //
@@ -884,6 +887,17 @@ static uint8_t regionVital(uint8_t seed, uint8_t *vital) {
             }
         }
         if(bestCell != 0xFF && ties == 1) *vital = bestCell;
+        // Square four: the one shape the unique-max rule misses.
+        // All four cells tie at degree 2 (a straight four has two
+        // degree-1 ends, so this signature is unambiguous). It is a
+        // DEAD shape — any cell starts the kill, and what remains
+        // is a bent three whose center the unique-max rule then
+        // finds. SCORING ONLY: in live play a 2x2 pocket usually
+        // belongs to a group with eyes elsewhere, and treating it
+        // as vital invited gift-stone invasions and own-eye fills
+        // (160-game referee dropped 26 -> 17 before this gate).
+        else if(scoreMode && cnt == 4 && bestDeg == 2 && ties == 4)
+            *vital = bestCell;
     }
     return owner;
 }
@@ -1078,12 +1092,17 @@ static uint8_t capB, capW;
 // Attempt one playout move at pos (0xFF = none): the legality gate,
 // gated play, and bookkeeping shared by every playout heuristic.
 // Returns 1 when the move was played; caller flips toMove.
+// Scoring playouts (see scoreDead) allow self-atari: killing an
+// eyespaced-but-dead group needs throw-in sacrifices, and with the
+// gate on, playouts defended square four successfully (3/64 kills)
+// while any correct line captures the sacrifices right back — so
+// ownership tallies stay honest. (scoreMode is declared up top.)
 __attribute__((noinline))
 static uint8_t playoutTry(uint8_t pos, uint8_t toMove, uint8_t *ko,
                           uint8_t *last, uint8_t m) {
     if(pos >= BOARD_CELLS || pos == *ko || simBoard[pos] != EMPTY ||
        isOwnEye(pos, toMove)) return 0;
-    uint8_t nk = simPlay(pos, toMove, *ko, 1);
+    uint8_t nk = simPlay(pos, toMove, *ko, !scoreMode);
     if(nk == ILLEGAL) return 0;
     if(toMove == rootTurn && m < RAVE_HORIZON) raveMark(pos);
     if(simCaptured) {
@@ -1362,6 +1381,81 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
         toMove = 3 - toMove;
     }
     return scoreWinner();
+}
+
+// ==================== Dead-stone scoring ====================
+// The static scorer counts any one-color-bordered region as
+// territory, so a dead group whose eyespace can never be two eyes
+// (a square four in a real game) scores as alive — flipping the
+// game result. At the end, vote with light playouts: a stone whose
+// cell finishes opponent-owned in most of them is dead; remove it
+// as a capture, then score the cleaned board statically. The
+// scoring screen also gets the cleaned board, so dead stones
+// visibly come off at the count.
+#ifndef SCORE_PLAYOUTS
+#define SCORE_PLAYOUTS 64
+#endif
+// Fill simBoard from the game and collect the eyespace vital points.
+// Shared by think() and scoreDead().
+static void loadRootBoard(Game &game) {
+    for(uint8_t i = 0; i < BOARD_CELLS; i++)
+        simBoard[i] = packedGet(game.board, i);
+    nRootVitals = 0;
+    for(uint8_t i = 0; i < BOARD_CELLS && nRootVitals < 3; i++) {
+        if(simBoard[i] != EMPTY) continue;
+        uint8_t vital;
+        if(regionVital(i, &vital) && vital == i)
+            rootVitals[nRootVitals++] = i;
+    }
+}
+
+void AI::scoreDead(Game &game) {
+    uint8_t *own = Arduboy2Base::sBuffer; // free once the game is over
+    for(uint8_t i = 0; i < BOARD_CELLS; i++) own[i] = 0;
+
+    rootTurn = game.turn;
+    simKomi = game.kpieces;
+    rootLast = 0xFF;
+    rootKo = NO_KO;
+    scoreMode = 1; // before loadRootBoard: square-four vitals apply
+    loadRootBoard(game);
+    rootStones = 0;
+    for(uint8_t i = 0; i < BOARD_CELLS; i++)
+        if(simBoard[i] != EMPTY) rootStones++;
+
+    for(uint8_t p = 0; p < SCORE_PLAYOUTS; p++) {
+        for(uint8_t i = 0; i < BOARD_CELLS; i++)
+            simBoard[i] = packedGet(game.board, i);
+        playout(game.turn, NO_KO, 0xFF);
+        // Per-cell black ownership, same rules as scoreWinner
+        uint8_t nb[4];
+        for(uint8_t i = 0; i < BOARD_CELLS; i++) {
+            uint8_t s = simBoard[i];
+            if(s == WHITE) continue;
+            if(s == BLACK) { own[i]++; continue; }
+            uint8_t tb = 0, tw = 0;
+            uint8_t n = neighbors(i, nb);
+            for(uint8_t j = 0; j < n; j++) {
+                if(simBoard[nb[j]] == BLACK) tb = 1;
+                if(simBoard[nb[j]] == WHITE) tw = 1;
+            }
+            if(tb && !tw) own[i]++;
+        }
+    }
+    scoreMode = 0;
+
+    for(uint8_t i = 0; i < BOARD_CELLS; i++) {
+        uint8_t s = packedGet(game.board, i);
+        uint8_t blackOwned = own[i] >= SCORE_PLAYOUTS / 2;
+        if(s == BLACK && !blackOwned) {
+            game.set(i % BOARD_SIZE, i / BOARD_SIZE, EMPTY);
+            game.captures[1]++;
+        } else if(s == WHITE && blackOwned) {
+            game.set(i % BOARD_SIZE, i / BOARD_SIZE, EMPTY);
+            game.captures[0]++;
+        }
+    }
+    game.computeScore();
 }
 
 static uint8_t newNode(uint8_t move) {
@@ -2119,8 +2213,12 @@ void AI::think(Game &game) {
         // computeScore miscount in both directions, and a massacre
         // position full of our corpses can neutralize enough enemy
         // territory to read as a "win" — passing then gifts the game.
+        // Floor raised 30% -> 55%: the static count this pass relies
+        // on scores dead-but-eyespaced groups as alive (see
+        // scoreDead), so near-even evals must keep playing instead
+        // of passing into a miscounted "win".
         uint8_t evalOK = !thinkSims ||
-            (uint32_t)thinkSimWins * 10 >= (uint32_t)thinkSims * 3;
+            (uint32_t)thinkSimWins * 20 >= (uint32_t)thinkSims * 11;
         if(evalOK) {
             game.computeScore();
             if(game.winner() == game.turn) {
@@ -2165,16 +2263,7 @@ void AI::think(Game &game) {
     }
     if(caps == 1) rootKo = capPos;
 
-    // Scan the root board for eyespace vital points (see rootVitals)
-    for(uint8_t i = 0; i < BOARD_CELLS; i++)
-        simBoard[i] = packedGet(game.board, i);
-    nRootVitals = 0;
-    for(uint8_t i = 0; i < BOARD_CELLS && nRootVitals < 3; i++) {
-        if(simBoard[i] != EMPTY) continue;
-        uint8_t vital;
-        if(regionVital(i, &vital) && vital == i)
-            rootVitals[nRootVitals++] = i;
-    }
+    loadRootBoard(game);
 
     memset(raveV, 0, BOARD_CELLS);
     memset(raveW, 0, BOARD_CELLS);

@@ -52,7 +52,7 @@ static void setStatus(NSString *s) {
 }
 
 static void showScore() {
-    game.computeScore();
+    ai.scoreDead(game);
     int b2 = game.territory[0] * 2 + game.captures[0] * 2;
     int w2 = game.territory[1] * 2 + game.captures[1] * 2 + game.kpieces;
     setStatus([NSString stringWithFormat:@"%s WINS  B %d+%d=%d  W %d+%d+6.5=%d.5",

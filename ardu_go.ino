@@ -68,7 +68,7 @@ void renderGameView() {
 
 void endTurnCheck() {
     if(game.isGameOver()) {
-        game.computeScore();
+        ai.scoreDead(game); // playout-vote dead stones off, then score
         stage = STAGE_SCORING;
     }
 }

@@ -88,7 +88,7 @@ static void showBelief() {
 }
 
 static void score() {
-    game.computeScore();
+    ai.scoreDead(game);
     int b2 = game.territory[0] * 2 + game.captures[0] * 2;
     int w2 = game.territory[1] * 2 + game.captures[1] * 2 + game.kpieces;
     printf("\n  B: %d territory + %d captures = %d\n",
