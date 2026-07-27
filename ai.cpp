@@ -2229,6 +2229,35 @@ void AI::think(Game &game) {
                (resignCount2 >= RESIGN2_STREAK);
 }
 
+// Root self-atari veto: a move that leaves its own merged group at
+// one liberty while capturing nothing is a gift stone. The prior
+// penalty discourages it, but playouts approve the "trap" whenever
+// the answering side fumbles locally — a real game shipped one
+// (7/10 seeds reproduced it). The root choice skips such children
+// and the LCB race falls through to the next-best. Cost: the rare
+// legitimate throw-in tesuji, which this engine never follows up
+// anyway. Reads the root position from simBoard.
+__attribute__((noinline))
+static uint8_t rootSelfAtari(uint8_t pos, uint8_t toMove) {
+    simBoard[pos] = toMove;
+    uint8_t a, b;
+    uint8_t r = 0;
+    if(groupLibsCore(pos, &a, &b, 0, 2) <= 1) {
+        r = 1;
+        // ...unless the stone captures: with it placed, a doomed
+        // enemy neighbor chain reads zero liberties
+        uint8_t nb[4];
+        uint8_t n = neighbors(pos, nb);
+        for(uint8_t j = 0; j < n; j++)
+            if(simBoard[nb[j]] == 3 - toMove && !hasLiberty(nb[j])) {
+                r = 0;
+                break;
+            }
+    }
+    simBoard[pos] = EMPTY;
+    return r;
+}
+
 __attribute__((noinline))
 static uint8_t pct100(uint16_t w, uint16_t n) {
     return n ? (uint8_t)((uint32_t)w * 100 / n) : 0;
@@ -2252,10 +2281,14 @@ uint8_t AI::bestMove(Game &game, uint8_t &x, uint8_t &y) {
     int16_t bestL = -32768;
     uint16_t backV = 0, maxV = 0;
     uint8_t best = MOVE_PASS, backup = MOVE_PASS;
+    uint8_t bestC = 0xFF, backC = 0xFF;
     for(uint8_t c = node(0).firstChild; c != 0xFF; c = node(c).nextSibling) {
         uint16_t v = nVisits(c);
         if(v < POISONED && v > maxV) maxV = v;
     }
+    // Root position for rootSelfAtari and the settled-territory check
+    for(uint8_t i = 0; i < BOARD_CELLS; i++)
+        simBoard[i] = packedGet(game.board, i);
     for(uint8_t c = node(0).firstChild; c != 0xFF; c = node(c).nextSibling) {
         uint16_t v = nVisits(c);
         if(v >= POISONED) continue;
@@ -2264,9 +2297,11 @@ uint8_t AI::bestMove(Game &game, uint8_t &x, uint8_t &y) {
         // Fallback: most-visited, in case no child clears the LCB gate
         if(v > backV) {
             if(m == MOVE_PASS ||
-               game.isValidMove(m % BOARD_SIZE, m / BOARD_SIZE)) {
+               (game.isValidMove(m % BOARD_SIZE, m / BOARD_SIZE) &&
+                !rootSelfAtari(m, game.turn))) {
                 backV = v;
                 backup = m;
+                backC = c;
             }
         }
 
@@ -2280,18 +2315,18 @@ uint8_t AI::bestMove(Game &game, uint8_t &x, uint8_t &y) {
         uint16_t term = isqrt32(((uint32_t)var << 12) / v);
         int16_t lcb = (int16_t)q - (int16_t)(((uint32_t)term * LCB_Z) >> 8);
         if(lcb <= bestL) continue;
-        if(m != MOVE_PASS && !game.isValidMove(m % BOARD_SIZE, m / BOARD_SIZE))
+        if(m != MOVE_PASS &&
+           (!game.isValidMove(m % BOARD_SIZE, m / BOARD_SIZE) ||
+            rootSelfAtari(m, game.turn)))
             continue;
         bestL = lcb;
         best = m;
+        bestC = c;
     }
-    if(best == MOVE_PASS) best = backup;
-    for(uint8_t c = node(0).firstChild; c != 0xFF; c = node(c).nextSibling) {
-        uint16_t v = nVisits(c);
-        if(node(c).move != best || v >= POISONED) continue;
-        statVisits = v;
-        if(v) statPct = pct100(nWins(c), v);
-        break;
+    if(best == MOVE_PASS) { best = backup; bestC = backC; }
+    if(bestC != 0xFF) {
+        statVisits = nVisits(bestC);
+        if(statVisits) statPct = pct100(nWins(bestC), statVisits);
     }
     if(best == MOVE_PASS) return 0;
 
@@ -2305,9 +2340,7 @@ uint8_t AI::bestMove(Game &game, uint8_t &x, uint8_t &y) {
     // now; real threats also re-enable moves automatically, since an
     // invaded region touches both colors and stops counting as
     // settled.)
-    for(uint8_t i = 0; i < BOARD_CELLS; i++)
-        simBoard[i] = packedGet(game.board, i);
-    uint8_t vital;
+    uint8_t vital; // simBoard still holds the root position from above
     if(regionVital(best, &vital) && vital != best) {
         game.computeScore();
         if(game.winner() == game.turn) return 0;
