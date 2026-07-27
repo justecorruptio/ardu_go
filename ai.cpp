@@ -385,6 +385,18 @@ uint8_t AI::chooseMove(Game &game) {
 #ifndef WIDEN_RATE
 #define WIDEN_RATE 6
 #endif
+// Root progressive widening: start with the best ROOT_INIT prior
+// candidates (plus pass) and widen by visits. Full root expansion
+// diluted 400-600 iterations over 25-40 candidates (~15 visits each)
+// — the blunder hunt showed flat roots picking raffle winners while
+// the actual best move sat under 10 visits, twice with the winning
+// move absent from the >=10-visit table entirely.
+#ifndef ROOT_INIT
+#define ROOT_INIT 8
+#endif
+#ifndef ROOT_WIDEN_RATE
+#define ROOT_WIDEN_RATE 12
+#endif
 #ifndef WIDEN_CAP
 #define WIDEN_CAP 16
 #endif
@@ -1805,38 +1817,18 @@ static uint8_t childCount(uint8_t nodeIdx) {
     return n;
 }
 
-// Root expansion: ALL pruned candidates at once — a move never created
-// can never be chosen, so the root must cover everything. Non-root
-// nodes grow one child at a time via widenNode instead.
-static void expandNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t last) {
-    uint8_t near[11];
-    uint8_t anyStone = buildNearMask(near);
-    buildChainMap();
+// Root expansion, PROGRESSIVE (see ROOT_INIT): pass plus the top
+// prior candidates; the rest arrive via widening as visits grow, so
+// early visits concentrate instead of spreading over everything.
+static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t last);
 
+static void expandNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t last) {
     if(poolUsed < NODE_POOL) {
         uint8_t c = addChild(nodeIdx, MOVE_PASS, 0);
         nSetStats(c, PRIOR_BASE_V, 0); // passing is a last resort
     }
-
-    uint8_t startPos = rnd(BOARD_CELLS);
-    for(uint8_t i = 0; i < BOARD_CELLS && poolUsed < NODE_POOL; i++) {
-        uint8_t pos = startPos + i;
-        if(pos >= BOARD_CELLS) pos -= BOARD_CELLS;
-        if(simBoard[pos] != EMPTY || pos == ko) continue;
-        uint8_t isFar = 0;
-        if(anyStone && !(near[pos >> 3] & (1 << (pos & 7)))) {
-            // Far from every stone: admit as a big point if it is on
-            // the third line or higher — otherwise territory-staking
-            // moves are unreachable and their RAVE evidence is wasted
-            uint8_t bx = pos % BOARD_SIZE, by = pos / BOARD_SIZE;
-            uint8_t bex = bx < BOARD_SIZE - 1 - bx ? bx : BOARD_SIZE - 1 - bx;
-            uint8_t bey = by < BOARD_SIZE - 1 - by ? by : BOARD_SIZE - 1 - by;
-            if((bex < bey ? bex : bey) < 2) continue;
-            isFar = 1;
-        }
-        if(isOwnEye(pos, toMove)) continue;
-        addChild(nodeIdx, pos, candidatePrior(pos, toMove, last, isFar));
-    }
+    for(uint8_t k = 0; k < ROOT_INIT; k++)
+        if(!widenNode(nodeIdx, toMove, ko, last)) break;
 }
 
 // Progressive widening: add the single best not-yet-present candidate.
@@ -1991,10 +1983,17 @@ static void mctsIterate(Game &game) {
                 else fresh = widenNode(cur, toMove, ko, lastMove);
             }
             if(node(cur).firstChild == 0xFF) break; // terminal or pool dry
-        } else if(cur != 0) {
+        } else {
             // Progressive widening: one more candidate as visits grow
-            uint8_t maxKids = 1 + nVisits(cur) / WIDEN_RATE;
-            if(maxKids > WIDEN_CAP) maxKids = WIDEN_CAP;
+            // (the root has its own, wider schedule)
+            uint8_t maxKids;
+            if(cur == 0) {
+                uint16_t mk = ROOT_INIT + nVisits(0) / ROOT_WIDEN_RATE;
+                maxKids = mk > 80 ? 80 : (uint8_t)mk;
+            } else {
+                maxKids = 1 + nVisits(cur) / WIDEN_RATE;
+                if(maxKids > WIDEN_CAP) maxKids = WIDEN_CAP;
+            }
             if(childCount(cur) < maxKids && allocReady())
                 widenNode(cur, toMove, ko, lastMove);
         }
