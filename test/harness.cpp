@@ -173,15 +173,29 @@ static double estMargin(const std::string &est, uint8_t color) {
 }
 
 static void dumpTree(FILE *f, uint8_t chosen) {
+    // sorted by visits: sibling order is push-front (junk-last-added
+    // first) and once hid the chosen move below a truncated view
+    struct Row { uint16_t v, w; uint8_t m; };
+    Row rows[24];
+    int n = 0;
     for(uint8_t c = node(0).firstChild; c != 0xFF; c = node(c).nextSibling) {
         uint16_t v = nVisits(c);
-        if(v >= POISONED || v < 10) continue;
-        uint8_t m = node(c).move;
-        fprintf(f, "    %s%-5s v=%-4u q=%.0f%%\n",
-                m == chosen ? ">" : " ",
-                m == MOVE_PASS ? "pass" : toVertex(m % 9, m / 9).c_str(),
-                v, 100.0 * nWins(c) / v);
+        if(v >= POISONED || v < 8) continue;
+        Row r = {v, nWins(c), node(c).move};
+        int i = n < 24 ? n : 23;
+        while(i > 0 && rows[i - 1].v < r.v) {
+            if(i < 24) rows[i] = rows[i - 1];
+            i--;
+        }
+        if(i < 24) rows[i] = r;
+        if(n < 24) n++;
     }
+    for(int i = 0; i < n && i < 16; i++)
+        fprintf(f, "    %s%-5s v=%-4u q=%.0f%%\n",
+                rows[i].m == chosen ? ">" : " ",
+                rows[i].m == MOVE_PASS ? "pass"
+                    : toVertex(rows[i].m % 9, rows[i].m / 9).c_str(),
+                rows[i].v, 100.0 * rows[i].w / rows[i].v);
 }
 
 // ---------- game driver ----------
@@ -331,6 +345,11 @@ static int playGame(int gameNo, int level, uint8_t aiColor, bool verbose) {
                         postEst = postEst.substr(0, postEst.find(' '));
                         double drop = estMargin(preEst, color) -
                                       estMargin(postEst, color);
+                        // False-positive filter: if we played the very
+                        // move gnugo recommends, any estimate swing is
+                        // evaluator noise, not a blunder (seen live:
+                        // a "22.5-point drop" on gnugo's own choice).
+                        if(gnugoSuggest == toVertex(x, y)) drop = 0;
                         if(drop >= huntThresh) {
                             huntCount++;
                             fprintf(huntLog,

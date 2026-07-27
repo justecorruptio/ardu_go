@@ -82,8 +82,8 @@ void Display::renderCursor() {
 void Display::renderInfo() {
     uint8_t ix = 66; // clear of the board: stones/cursor reach x=63
     // Turn indicator
-    jay.smallPrintPgm(ix, 1, game.turn == BLACK ? F("BLACK") : F("WHITE"), 1);
-    jay.smallPrintPgm(ix, 7, F("TO PLAY"), 1);
+    jay.smallPrintPgm(ix, 1, game.turn == BLACK ? F("BLACK TO PLAY")
+                                                : F("WHITE TO PLAY"), 1);
 
     // Captures
     jay.smallPrintPgm(ix, 19, F("CAPTURES"), 1);
