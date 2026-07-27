@@ -79,69 +79,69 @@ void Display::renderCursor() {
 void Display::renderInfo() {
     uint8_t ix = 66; // clear of the board: stones/cursor reach x=63
     // Turn indicator
-    jay.smallPrint(ix, 1, game.turn == BLACK ? "BLACK" : "WHITE", 1);
-    jay.smallPrint(ix, 7, "TO PLAY", 1);
+    jay.smallPrintPgm(ix, 1, game.turn == BLACK ? F("BLACK") : F("WHITE"), 1);
+    jay.smallPrintPgm(ix, 7, F("TO PLAY"), 1);
 
     // Captures
-    jay.smallPrint(ix, 19, "CAPTURES", 1);
-    jay.smallPrint(ix, 25, "B:", 1);
+    jay.smallPrintPgm(ix, 19, F("CAPTURES"), 1);
+    jay.smallPrintPgm(ix, 25, F("B:"), 1);
     jay.smallPrint(ix + 8, 25, itoa(game.captures[0]), 1);
-    jay.smallPrint(ix, 31, "W:", 1);
+    jay.smallPrintPgm(ix, 31, F("W:"), 1);
     jay.smallPrint(ix + 8, 31, itoa(game.captures[1]), 1);
 
     // Controls hint
-    jay.smallPrint(ix, 49, "A:PLACE", 1);
-    jay.smallPrint(ix, 55, "B:PASS", 1);
+    jay.smallPrintPgm(ix, 49, F("A:PLACE"), 1);
+    jay.smallPrintPgm(ix, 55, F("B:PASS"), 1);
 }
 
 void Display::renderTitle(uint8_t menuCursor) {
-    jay.largePrint(46, 10, "ARDUGO", 1);
+    jay.largePrintPgm(46, 10, F("ARDUGO"), 1);
     jay.drawFastHLine(46, 18, 35);
     jay.drawFastHLine(50, 20, 27);
 
-    jay.smallPrint(39, 28, "PLAY VS AI", 1);
-    jay.smallPrint(39, 34, "PLAY VS HUMAN", 1);
-    jay.smallPrint(39, 40, "SHOW RULES", 1);
-    jay.smallPrint(39, 46, "INVERT SCREEN", 1);
+    jay.smallPrintPgm(39, 28, F("PLAY VS AI"), 1);
+    jay.smallPrintPgm(39, 34, F("PLAY VS HUMAN"), 1);
+    jay.smallPrintPgm(39, 40, F("SHOW RULES"), 1);
+    jay.smallPrintPgm(39, 46, F("INVERT SCREEN"), 1);
 
-    jay.smallPrint(
+    jay.smallPrintPgm(
         30 + (jay.counter / 4) % 4,
-        28 + menuCursor * 6, ">", 1
+        28 + menuCursor * 6, F(">"), 1
     );
 }
 
 void Display::renderHelp() {
-    jay.largePrint(49, 1, "RULES", 1);
+    jay.largePrintPgm(49, 1, F("RULES"), 1);
     jay.drawFastHLine(49, 9, 29);
-    jay.smallPrint(1, 15, "SURROUND TERRITORY WITH STONES.", 1);
-    jay.smallPrint(1, 21, "CAPTURE BY REMOVING LIBERTIES.", 1);
-    jay.smallPrint(1, 27, "NO SUICIDE. KO RULE APPLIES.", 1);
-    jay.smallPrint(1, 33, "PASS WHEN NO GOOD MOVES.", 1);
-    jay.smallPrint(1, 39, "TWO PASSES ENDS THE GAME.", 1);
-    jay.smallPrint(1, 45, "SCORE = TERRITORY + CAPTURES.", 1);
-    jay.smallPrint(1, 51, "WHITE GETS 6.5 KOMI.", 1);
+    jay.smallPrintPgm(1, 15, F("SURROUND TERRITORY WITH STONES."), 1);
+    jay.smallPrintPgm(1, 21, F("CAPTURE BY REMOVING LIBERTIES."), 1);
+    jay.smallPrintPgm(1, 27, F("NO SUICIDE. KO RULE APPLIES."), 1);
+    jay.smallPrintPgm(1, 33, F("PASS WHEN NO GOOD MOVES."), 1);
+    jay.smallPrintPgm(1, 39, F("TWO PASSES ENDS THE GAME."), 1);
+    jay.smallPrintPgm(1, 45, F("SCORE = TERRITORY + CAPTURES."), 1);
+    jay.smallPrintPgm(1, 51, F("WHITE GETS 6.5 KOMI."), 1);
 }
 
 void Display::renderScoring() {
-    jay.smallPrint(66, 1, "SCORING", 1);
-    jay.smallPrint(66, 13, "B TERR:", 1);
+    jay.smallPrintPgm(66, 1, F("SCORING"), 1);
+    jay.smallPrintPgm(66, 13, F("B TERR:"), 1);
     jay.smallPrint(94, 13, itoa(game.territory[0]), 1);
-    jay.smallPrint(66, 19, "B CAPT:", 1);
+    jay.smallPrintPgm(66, 19, F("B CAPT:"), 1);
     jay.smallPrint(94, 19, itoa(game.captures[0]), 1);
-    jay.smallPrint(66, 31, "W TERR:", 1);
+    jay.smallPrintPgm(66, 31, F("W TERR:"), 1);
     jay.smallPrint(94, 31, itoa(game.territory[1]), 1);
-    jay.smallPrint(66, 37, "W CAPT:", 1);
+    jay.smallPrintPgm(66, 37, F("W CAPT:"), 1);
     jay.smallPrint(94, 37, itoa(game.captures[1]), 1);
-    jay.smallPrint(66, 43, "W KOMI:", 1);
-    jay.smallPrint(94, 43, "6.5", 1);
+    jay.smallPrintPgm(66, 43, F("W KOMI:"), 1);
+    jay.smallPrintPgm(94, 43, F("6.5"), 1);
 }
 
 void Display::renderGameOver() {
     if(game.resignedBy) {
-        jay.drawPrompt(22, game.resignedBy == WHITE ? "WHITE RESIGNS!"
-                                                    : "BLACK RESIGNS!", 0);
+        jay.drawPromptPgm(22, game.resignedBy == WHITE ? F("WHITE RESIGNS!")
+                                                       : F("BLACK RESIGNS!"), 0);
         return;
     }
     uint8_t w = game.winner();
-    jay.drawPrompt(22, w == BLACK ? "BLACK WINS!" : "WHITE WINS!", 0);
+    jay.drawPromptPgm(22, w == BLACK ? F("BLACK WINS!") : F("WHITE WINS!"), 0);
 }

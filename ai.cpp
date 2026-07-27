@@ -141,11 +141,13 @@ uint8_t AI::chooseMove(Game &game) {
 
 #define NODE_POOL_SB 143    // nodes in the borrowed screen buffer
 // Extension nodes in ordinary statics. RAM here trades directly
-// against stack headroom: at EXT 33 the globals reached 2,383 bytes
-// and think()'s call chain smashed the stack into them (the board
-// filled with diagonal garbage). Subtree recycling makes pool size
-// cheap to give up — keep total free RAM >= ~230 for the stack.
-#define NODE_POOL_EXT 23
+// against stack headroom: at EXT 33 with UI strings in RAM the
+// globals reached 2,383 bytes and think()'s call chain smashed the
+// stack into them (the board filled with diagonal garbage). Moving
+// the UI strings to PROGMEM bought the budget back — keep total free
+// RAM >= ~250 for the stack. Total pool must stay < 255 (8-bit
+// links, 0xFF = null).
+#define NODE_POOL_EXT 96
 #define NODE_POOL (NODE_POOL_SB + NODE_POOL_EXT) // must stay < 255 (8-bit links)
 #ifndef MCTS_ITERATIONS
 #define MCTS_ITERATIONS 400 // must stay under ~3400: 12-bit visit counters
@@ -240,6 +242,16 @@ uint8_t AI::chooseMove(Game &game) {
 #define PRIOR_FEED_PENALTY 6
 #endif
 
+// Capture race: filling a liberty of a low-liberty enemy chain that
+// is racing one of our own low-liberty chains (see raceWin). Default
+// ZERO: measured strength-neutral vs gnugo (36 vs 34 of 640), and in
+// the OPENING every contact exchange sits at 2-3 liberties, so the
+// bonus made early play contact-crazy — Jay reported the opening
+// felt clearly worse with it on. Re-enable via -D for experiments.
+#ifndef PRIOR_RACE
+#define PRIOR_RACE 0
+#endif
+
 // Urgency: reinforcing an own 2-liberty group near the opponent's
 // last move. Playouts resolve fights by coin flip, so the tree sees a
 // fight move and a tenuki big-point as equal — and walks away from
@@ -324,6 +336,19 @@ uint8_t AI::chooseMove(Game &game) {
 // while staying affordable on the device.
 #ifndef PLAYOUT_CAP
 #define PLAYOUT_CAP 160
+#endif
+// Lone-invader answer probability mask (3 = fire 3/4 of the time,
+// stacking with the local-answer step to ~7/8; 0 disables)
+#ifndef LONE_ANSWER_MASK
+#define LONE_ANSWER_MASK 3
+#endif
+// Extra search on the first out-of-book moves: below this many
+// stones, iterations get a +50% boost. The board is at its most open
+// exactly where playout evaluation is flattest, and the first search
+// move after book exit was a measured, repeated 14-26 point blunder.
+// 0 disables.
+#ifndef OPENING_BOOST_STONES
+#define OPENING_BOOST_STONES 14
 #endif
 #ifndef MERCY_MARGIN
 #define MERCY_MARGIN 25     // capture lead that ends a playout early
@@ -529,79 +554,60 @@ static uint8_t removeGroup(uint8_t start) {
     return count;
 }
 
-// If the group at start has exactly one liberty, return it; else 0xFF
+static uint8_t groupLibsFind(uint8_t start, uint8_t *l1, uint8_t *l2);
+
+// If the group at start has exactly one liberty, return it; else 0xFF.
+// (Thin wrapper: groupLibsFind's early-exit-at-3 does the same flood
+// with marginally more work than a dedicated exit-at-2 — the ~150
+// bytes of flash matter more than those cycles.)
 static uint8_t soleLiberty(uint8_t start) {
-    uint8_t color = simBoard[start];
-    uint8_t nb[4];
-
-    // Seed fast path: two empty neighbors (distinct by construction)
-    // means not in atari — skip the flood
-    uint8_t lib = 0xFF;
-    uint8_t n0 = neighbors(start, nb);
-    for(uint8_t i = 0; i < n0; i++) {
-        if(simBoard[nb[i]] != EMPTY) continue;
-        if(lib == 0xFF) lib = nb[i];
-        else return 0xFF;
-    }
-
-    newMark();
-    uint8_t sp = 0;
-    floodSlot(sp++) = start;
-    simMark[start] = markEpoch;
-    while(sp) {
-        uint8_t p = floodSlot(--sp);
-        uint8_t n = neighbors(p, nb);
-        for(uint8_t i = 0; i < n; i++) {
-            uint8_t q = nb[i];
-            if(simBoard[q] == EMPTY) {
-                if(lib == 0xFF) lib = q;
-                else if(lib != q) return 0xFF; // a second liberty
-            } else if(simBoard[q] == color && simMark[q] != markEpoch) {
-                simMark[q] = markEpoch;
-                floodSlot(sp++) = q;
-            }
-        }
-    }
-    return lib;
+    uint8_t a, b;
+    return groupLibsFind(start, &a, &b) == 1 ? a : 0xFF;
 }
 
-// Find a group's distinct liberties, early-exiting at 3. Fills l1/l2
-// with the first two (0xFF if fewer). Returns the count, 0-3.
-static uint8_t groupLibsFind(uint8_t start, uint8_t *l1, uint8_t *l2) {
+// Shared flood core for the two liberty finders below: counts
+// distinct liberties capped at 3. With markAll it floods the WHOLE
+// group into the CURRENT mark epoch (so a caller can test same-group
+// membership afterward — no early exit, partial marking would break
+// the test); without, it early-exits at 3 and runs a seed fast path.
+static uint8_t groupLibsCore(uint8_t start, uint8_t *l1, uint8_t *l2,
+                             uint8_t markAll) {
     uint8_t color = simBoard[start];
     uint8_t nb[4];
-
-    // Seed fast path: three empty neighbors of the seed alone = 3+
     uint8_t lib1 = 0xFF, lib2 = 0xFF;
     uint8_t count = 0;
-    uint8_t n0 = neighbors(start, nb);
-    for(uint8_t i = 0; i < n0; i++) {
-        if(simBoard[nb[i]] != EMPTY) continue;
-        if(lib1 == 0xFF) lib1 = nb[i];
-        else if(lib2 == 0xFF) lib2 = nb[i];
-        count++;
-        if(count >= 3) {
-            *l1 = lib1;
-            *l2 = lib2;
-            return 3;
+
+    if(!markAll) {
+        // Seed fast path: three empty neighbors of the seed alone = 3+
+        uint8_t n0 = neighbors(start, nb);
+        for(uint8_t i = 0; i < n0; i++) {
+            if(simBoard[nb[i]] != EMPTY) continue;
+            if(lib1 == 0xFF) lib1 = nb[i];
+            else if(lib2 == 0xFF) lib2 = nb[i];
+            count++;
+            if(count >= 3) {
+                *l1 = lib1;
+                *l2 = lib2;
+                return 3;
+            }
         }
+        newMark();
     }
 
-    newMark();
     uint8_t sp = 0;
     floodSlot(sp++) = start;
     simMark[start] = markEpoch;
-    while(sp && count < 3) {
+    while(sp && (markAll || count < 3)) {
         uint8_t p = floodSlot(--sp);
         uint8_t n = neighbors(p, nb);
         for(uint8_t i = 0; i < n; i++) {
             uint8_t q = nb[i];
             if(simBoard[q] == EMPTY) {
-                if(q != lib1 && q != lib2) {
+                if(count < 3 && q != lib1 && q != lib2) {
                     if(lib1 == 0xFF) lib1 = q;
                     else if(lib2 == 0xFF) lib2 = q;
                     count++;
-                    if(count >= 3) break;
+                    if(!markAll && count >= 3) break;
                 }
             } else if(simBoard[q] == color && simMark[q] != markEpoch) {
                 simMark[q] = markEpoch;
@@ -614,42 +620,22 @@ static uint8_t groupLibsFind(uint8_t start, uint8_t *l1, uint8_t *l2) {
     return count;
 }
 
+// Find a group's distinct liberties, early-exiting at 3. Fills l1/l2
+// with the first two (0xFF if fewer). Returns the count, 0-3.
+static uint8_t groupLibsFind(uint8_t start, uint8_t *l1, uint8_t *l2) {
+    return groupLibsCore(start, l1, l2, 0);
+}
+
 static uint8_t groupLibsMax3(uint8_t start) {
     uint8_t a, b;
     uint8_t n = groupLibsFind(start, &a, &b);
     return n ? n : 1; // preserve old behavior: 0 liberties reads as 1
 }
 
-// Full-flood variant: marks the whole group into the CURRENT mark
-// epoch (so a caller can test same-group membership of other stones
-// afterward) and returns its distinct-liberty count capped at 3. No
-// early exit — partial marking would break the membership test.
+// Full-flood variant of groupLibsFind (see groupLibsCore's markAll)
 static uint8_t groupLibsMark(uint8_t start) {
-    uint8_t color = simBoard[start];
-    uint8_t nb[4];
-    uint8_t lib1 = 0xFF, lib2 = 0xFF;
-    uint8_t count = 0;
-    uint8_t sp = 0;
-    floodSlot(sp++) = start;
-    simMark[start] = markEpoch;
-    while(sp) {
-        uint8_t p = floodSlot(--sp);
-        uint8_t n = neighbors(p, nb);
-        for(uint8_t i = 0; i < n; i++) {
-            uint8_t q = nb[i];
-            if(simBoard[q] == EMPTY) {
-                if(count < 3 && q != lib1 && q != lib2) {
-                    if(lib1 == 0xFF) lib1 = q;
-                    else if(lib2 == 0xFF) lib2 = q;
-                    count++;
-                }
-            } else if(simBoard[q] == color && simMark[q] != markEpoch) {
-                simMark[q] = markEpoch;
-                floodSlot(sp++) = q;
-            }
-        }
-    }
-    return count;
+    uint8_t a, b;
+    return groupLibsCore(start, &a, &b, 1);
 }
 
 // Flood the small empty region containing `seed` (a big region is
@@ -899,11 +885,35 @@ static uint8_t scoreWinner() {
     return ((uint16_t)black * 2 > (uint16_t)white * 2 + simKomi) ? BLACK : WHITE;
 }
 
+// Playout capture tallies (statics so the shared move helper can
+// update them; reset at each playout start)
+static uint8_t capB, capW;
+
+// Attempt one playout move at pos (0xFF = none): the legality gate,
+// gated play, and bookkeeping shared by every playout heuristic.
+// Returns 1 when the move was played; caller flips toMove.
+__attribute__((noinline))
+static uint8_t playoutTry(uint8_t pos, uint8_t toMove, uint8_t *ko,
+                          uint8_t *last, uint8_t m) {
+    if(pos >= BOARD_CELLS || pos == *ko || simBoard[pos] != EMPTY ||
+       isOwnEye(pos, toMove)) return 0;
+    uint8_t nk = simPlay(pos, toMove, *ko, 1);
+    if(nk == ILLEGAL) return 0;
+    if(toMove == rootTurn && m < RAVE_HORIZON) raveMark(pos);
+    if(simCaptured) {
+        if(toMove == BLACK) capB += simCaptured;
+        else capW += simCaptured;
+    }
+    *ko = nk;
+    *last = pos;
+    return 1;
+}
+
 // Random playout from current simBoard; returns winning color.
 // `last` = the previous move (0xFF/pass = none).
 static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
     uint8_t passes = 0;
-    uint8_t capB = 0, capW = 0;
+    capB = capW = 0;
     for(uint8_t m = 0; m < PLAYOUT_CAP && passes < 2; m++) {
         // Mercy rule: a lopsided capture balance has decided the game;
         // the area score already reflects it, skip the remaining fill
@@ -933,7 +943,9 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                 // Capture the atari'd group
                 tac = l1;
             } else if(libs == 2 && (rnd16() & 1)) {
-                // Squeeze a 2-liberty group: fill one of its liberties.
+                // Squeeze a 2-liberty group: fill one of its
+                // liberties. (A 3/4 rate was tried with the race
+                // reader and made opening rollouts contact-crazy.)
                 // This is what actually kills disconnected stones in
                 // playouts — without it, cut-off groups survive by
                 // randomness and thin extensions look safe.
@@ -994,21 +1006,10 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                 if(regionVital(nbv[i], &vital)) vcand = vital;
                 break; // only the first adjacent region
             }
-            if(vcand != 0xFF && vcand != ko && !isOwnEye(vcand, toMove)) {
-                uint8_t nk = simPlay(vcand, toMove, ko, 1);
-                if(nk != ILLEGAL) {
-                    if(toMove == rootTurn && m < RAVE_HORIZON)
-                        raveMark(vcand);
-                    if(simCaptured) {
-                        if(toMove == BLACK) capB += simCaptured;
-                        else capW += simCaptured;
-                    }
-                    ko = nk;
-                    last = vcand;
-                    passes = 0;
-                    toMove = 3 - toMove;
-                    continue;
-                }
+            if(playoutTry(vcand, toMove, &ko, &last, m)) {
+                passes = 0;
+                toMove = 3 - toMove;
+                continue;
             }
         }
 
@@ -1024,21 +1025,10 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                     vp = rootVitals[i];
                     break;
                 }
-            if(vp != 0xFF && vp != ko && !isOwnEye(vp, toMove)) {
-                uint8_t nk = simPlay(vp, toMove, ko, 1);
-                if(nk != ILLEGAL) {
-                    if(toMove == rootTurn && m < RAVE_HORIZON)
-                        raveMark(vp);
-                    if(simCaptured) {
-                        if(toMove == BLACK) capB += simCaptured;
-                        else capW += simCaptured;
-                    }
-                    ko = nk;
-                    last = vp;
-                    passes = 0;
-                    toMove = 3 - toMove;
-                    continue;
-                }
+            if(playoutTry(vp, toMove, &ko, &last, m)) {
+                passes = 0;
+                toMove = 3 - toMove;
+                continue;
             }
         }
 
@@ -1060,54 +1050,59 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                         matches[nMatches++] = pos;
                 }
             }
-            if(nMatches) {
-                uint8_t pos = matches[rnd(nMatches)];
-                uint8_t nk = simPlay(pos, toMove, ko, 1);
-                if(nk != ILLEGAL) {
-                    if(toMove == rootTurn && m < RAVE_HORIZON) raveMark(pos);
-                    if(simCaptured) {
-                        if(toMove == BLACK) capB += simCaptured;
-                        else capW += simCaptured;
-                    }
-                    ko = nk;
-                    last = pos;
-                    passes = 0;
-                    toMove = 3 - toMove;
-                    continue;
-                }
+            if(nMatches &&
+               playoutTry(matches[rnd(nMatches)], toMove, &ko, &last, m)) {
+                passes = 0;
+                toMove = 3 - toMove;
+                continue;
             }
         }
 
-        // Local answer: half the time, try one random point around the
-        // last move before the global probe. Patterns only cover good
-        // SHAPES; this covers plain contact resistance — without it a
-        // lone invader inside settled territory gets free moves while
-        // the "defender" replies at random across the board, which is
-        // how playouts evaporate a settled 30-point lead into a coin
-        // flip.
-        if(last < BOARD_CELLS && (rnd16() & 1)) {
+        // Local answer: half the time, try one random point around
+        // the last move before the global probe — plain contact
+        // resistance the patterns can't express. A LONE last stone
+        // (no support within distance 2 — an invasion or deep
+        // reduction) additionally gets a contact reply on 3/4 of the
+        // remaining coin, ~7/8 total: without that, random invasions
+        // of settled territory live far too often, the single
+        // biggest playout evaluation bias.
+        if(last < BOARD_CELLS && simBoard[last] != EMPTY) {
+            uint16_t p = rnd16();
+            uint8_t pos = 0xFF;
             int8_t lx = last % BOARD_SIZE, ly = last / BOARD_SIZE;
-            int8_t cx = lx + (int8_t)rnd(3) - 1;
-            int8_t cy = ly + (int8_t)rnd(3) - 1;
-            if(cx >= 0 && cx < BOARD_SIZE && cy >= 0 && cy < BOARD_SIZE) {
-                uint8_t pos = cy * BOARD_SIZE + cx;
-                if(simBoard[pos] == EMPTY && pos != ko &&
-                   !isOwnEye(pos, toMove)) {
-                    uint8_t nk = simPlay(pos, toMove, ko, 1);
-                    if(nk != ILLEGAL) {
-                        if(toMove == rootTurn && m < RAVE_HORIZON)
-                            raveMark(pos);
-                        if(simCaptured) {
-                            if(toMove == BLACK) capB += simCaptured;
-                            else capW += simCaptured;
+            if(p & 1) {
+                int8_t cx = lx + (int8_t)rnd(3) - 1;
+                int8_t cy = ly + (int8_t)rnd(3) - 1;
+                if(cx >= 0 && cx < BOARD_SIZE && cy >= 0 && cy < BOARD_SIZE)
+                    pos = cy * BOARD_SIZE + cx;
+            } else if(rootStones + m >= EARLY_STONES &&
+                      (p & LONE_ANSWER_MASK << 1) != 0) {
+                // (gated: in the opening EVERY stone is "lone" — the
+                // invader rule only means something once territory
+                // has shape, and ungated it turned rollout openings
+                // into wall-to-wall contact brawls)
+                uint8_t lastColor = simBoard[last];
+                uint8_t lone = 1;
+                for(int8_t dy = -2; dy <= 2 && lone; dy++)
+                    for(int8_t dx = -2; dx <= 2; dx++) {
+                        if(!dx && !dy) continue;
+                        int8_t nx = lx + dx, ny = ly + dy;
+                        if(nx < 0 || nx >= BOARD_SIZE ||
+                           ny < 0 || ny >= BOARD_SIZE) continue;
+                        if(simBoard[ny * BOARD_SIZE + nx] == lastColor) {
+                            lone = 0;
+                            break;
                         }
-                        ko = nk;
-                        last = pos;
-                        passes = 0;
-                        toMove = 3 - toMove;
-                        continue;
                     }
+                if(lone) {
+                    uint8_t nbl[4];
+                    pos = nbl[rnd(neighbors(last, nbl))];
                 }
+            }
+            if(pos != 0xFF && playoutTry(pos, toMove, &ko, &last, m)) {
+                passes = 0;
+                toMove = 3 - toMove;
+                continue;
             }
         }
 
@@ -1132,16 +1127,7 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                 if(!contact) continue;
             }
 
-            if(isOwnEye(pos, toMove)) continue;
-            uint8_t nk = simPlay(pos, toMove, ko, 1);
-            if(nk == ILLEGAL) continue;
-            if(toMove == rootTurn && m < RAVE_HORIZON) raveMark(pos);
-            if(simCaptured) {
-                if(toMove == BLACK) capB += simCaptured;
-                else capW += simCaptured;
-            }
-            ko = nk;
-            last = pos;
+            if(!playoutTry(pos, toMove, &ko, &last, m)) continue;
             played = 1;
             passes = 0;
             break;
@@ -1264,6 +1250,38 @@ static uint8_t buildNearMask(uint8_t *near) {
     return anyStone;
 }
 
+// Light capture-race reader. The enemy chain at eStart has few
+// liberties; a race is on if it also touches a low-liberty friendly
+// chain. Flood the enemy chain (fresh epoch), then scan its stones'
+// friendly neighbors for the weakest adjacent friendly chain — all
+// marks share the epoch, so nothing is counted twice. The mover wins
+// equal races (fill their outside liberties, they fill ours, we land
+// first), so filling is winning iff enemyLibs <= friendMinLibs.
+// Shared liberties count for both sides and roughly cancel — this is
+// a tempo counter, not a seki solver.
+#if PRIOR_RACE
+static uint8_t raceWin(uint8_t eStart) {
+    uint8_t eColor = simBoard[eStart];
+    uint8_t nb[4];
+    newMark();
+    uint8_t eLibs = groupLibsMark(eStart);
+    if(eLibs > 3) return 0;
+    uint8_t fMin = 0xFF;
+    for(uint8_t p = 0; p < BOARD_CELLS; p++) {
+        if(simBoard[p] != eColor || simMark[p] != markEpoch) continue;
+        uint8_t n = neighbors(p, nb);
+        for(uint8_t i = 0; i < n; i++) {
+            uint8_t q = nb[i];
+            if(simBoard[q] == 3 - eColor && simMark[q] != markEpoch) {
+                uint8_t fl = groupLibsMark(q); // joins the same epoch
+                if(fl < fMin) fMin = fl;
+            }
+        }
+    }
+    return fMin <= 3 && eLibs <= fMin;
+}
+#endif
+
 // Any enemy stone in the 3x3 around (cx,cy)?
 static uint8_t oppNear(int8_t cx, int8_t cy, uint8_t opp) {
     for(int8_t dy = -1; dy <= 1; dy++)
@@ -1298,6 +1316,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     uint8_t fMinLibs = 0xFF, eMinLibs = 0xFF;
     uint8_t doomCand[4];
     uint8_t nDoom = 0;
+    uint8_t raceCand = 0xFF; // enemy chain at 2-3 libs, race check later
     newMark();
     for(uint8_t j = 0; j < n; j++) {
         uint8_t q = nb[j];
@@ -1309,6 +1328,8 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
             if(l < eMinLibs) eMinLibs = l;
             if(l == 1) sawCapture = 1;      // pos is its last liberty
             else if(l == 2) sawAtari = 1;
+            if(PRIOR_RACE && l >= 2 && l <= 3 && raceCand == 0xFF)
+                raceCand = q;
         } else {
             hasOrthFriend = 1;
             fGroups++;
@@ -1324,8 +1345,20 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
         else sawDoomed = 1;
     }
 
+    // Capture race (see raceWin): fill their liberties while ahead
+    // on tempo. Skipped when the capture is already immediate.
+    // PRIOR_RACE is a compile-time constant; at 0 this folds away.
+    uint8_t sawRace = 0;
+#if PRIOR_RACE
+    if(raceCand != 0xFF && !sawCapture && raceWin(raceCand))
+        sawRace = 1;
+#else
+    (void)raceCand;
+#endif
+
     int8_t bonus = sawCapture ? PRIOR_CAPTURE :
                    sawSave    ? PRIOR_SAVE :
+                   sawRace    ? PRIOR_RACE :
                    sawAtari   ? PRIOR_ATARI : 0;
 
     // Feeding a lost ladder: the single most expensive habit the
@@ -1820,7 +1853,9 @@ void AI::think(Game &game) {
     memset(raveW, 0, BOARD_CELLS);
 
     newNode(0xFF); // root
-    for(uint16_t i = 0; i < mctsIterations; i++) {
+    uint16_t iters = mctsIterations;
+    if(rootStones < OPENING_BOOST_STONES) iters += iters / 2;
+    for(uint16_t i = 0; i < iters; i++) {
         mctsIterate(game);
 
         // Early stop when the visit leader's margin exceeds the
@@ -1835,7 +1870,7 @@ void AI::think(Game &game) {
                 if(v > top1) { top2 = top1; top1 = v; }
                 else if(v > top2) top2 = v;
             }
-            if(top1 - top2 > mctsIterations - 1 - i) break;
+            if(top1 - top2 > iters - 1 - i) break;
         }
     }
 

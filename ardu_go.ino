@@ -52,7 +52,7 @@ uint8_t spansMagicKey(const void *p, uint16_t len) {
 void checkMagicKeyHazard() {
     if(spansMagicKey(&game, sizeof(Game)) ||
        spansMagicKey(&ai, sizeof(AI))) {
-        jay.smallPrint(10, 28, "0800 HAZARD: SHUFFLE RAM", 1);
+        jay.smallPrintPgm(10, 28, F("0800 HAZARD: SHUFFLE RAM"), 1);
         jay.display();
         while(1) {}
     }
@@ -119,7 +119,7 @@ void loop() {
                     // No cursor: it would sit frozen mid-blink.
                     display.renderBoard();
                     display.renderInfo();
-                    jay.smallPrint(66, 40, "THINKING...", 1);
+                    jay.smallPrintPgm(66, 40, F("THINKING..."), 1);
                     jay.display();
                     ai.think(game);
                     if(ai.resigned) {
@@ -163,7 +163,7 @@ void loop() {
 
     case STAGE_PASS_CONFIRM:
         renderGameView();
-        jay.drawPrompt(22, "PASS?", 0);
+        jay.drawPromptPgm(22, F("PASS?"), 0);
         if(jay.justPressed(A_BUTTON)) {
             game.pass();
             ai.notifyPass();

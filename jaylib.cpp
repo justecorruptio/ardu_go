@@ -100,6 +100,16 @@ void Jaylib::largePrint(uint8_t x, uint8_t y, const uint8_t * str, uint8_t kern,
     }
 }
 
+void Jaylib::largePrintPgm(uint8_t x, uint8_t y, const __FlashStringHelper * str, uint8_t kern, uint8_t color) {
+    char c;
+    uint8_t * ptr = (uint8_t *) str;
+    for(;c = pgm_read_byte(ptr ++);) {
+        c -= 32;
+        drawBand(x, y, PRINTABLE_CHARS_LARGE + 5 * c, 5, color);
+        x += 5 + kern;
+    }
+}
+
 void Jaylib::drawFastVLine(uint8_t x, uint8_t y, uint8_t h, uint8_t color) {
     uint8_t i;
     for(i = h; i --;)
@@ -187,4 +197,17 @@ void Jaylib::drawPrompt(uint8_t y, const uint8_t * str, uint8_t color=1) {
     drawFastHLine(x - 5, y, w + 6, color);
     drawFastHLine(x - 5, y + 16, w + 6, color);
     largePrint(x, y + 5, str, 1, color);
+}
+
+void Jaylib::drawPromptPgm(uint8_t y, const __FlashStringHelper * str, uint8_t color) {
+    uint8_t w = strlen_P((PGM_P)str) * 6 - 1;
+    uint8_t x = (128 - w) / 2;
+    for(int i = x - 4; i < x + w + 4; i++) {
+        drawFastVLine(i, y + 1, 15, !color);
+    }
+    drawFastVLine(x - 5, y, 17, color);
+    drawFastVLine(x + w + 4, y, 17, color);
+    drawFastHLine(x - 5, y, w + 6, color);
+    drawFastHLine(x - 5, y + 16, w + 6, color);
+    largePrintPgm(x, y + 5, str, 1, color);
 }
