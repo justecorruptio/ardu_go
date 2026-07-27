@@ -27,7 +27,8 @@ class AI {
     uint8_t bookAlive;   // bitmask of surviving candidates
     uint8_t firstMove;   // 1 until any stone has been played
     uint8_t passToWin;   // set by think(): pass now to end a won game
-    uint8_t resignCount; // consecutive hopeless searches
+    uint8_t resignCount; // consecutive hopeless searches (strict tier)
+    uint8_t resignCount2; // consecutive bad searches (mild tier)
 
     uint16_t trieSkip(uint16_t p);
     int16_t trieFindChild(uint16_t p, uint8_t moveIdx);

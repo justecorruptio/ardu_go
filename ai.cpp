@@ -30,6 +30,7 @@ void AI::reset() {
     firstMove = 1;
     resigned = 0;
     resignCount = 0;
+    resignCount2 = 0;
 }
 
 // Skip the node at p and its whole subtree; returns offset just past it
@@ -373,6 +374,17 @@ uint8_t AI::chooseMove(Game &game) {
 // means truly hopeless; the streak guards against one noisy search.
 #ifndef RESIGN_DENOM
 #define RESIGN_DENOM 12
+#endif
+// Second tier: a milder floor held for LONGER. Some dead positions
+// keep a swindle-floor eval above the strict 1/12 forever and the
+// AI flails on for 20+ moves — the blunder hunt's largest class by
+// count was moves in such games. Five consecutive sub-1/6 reads is
+// a corpse, not a fight.
+#ifndef RESIGN2_DENOM
+#define RESIGN2_DENOM 6
+#endif
+#ifndef RESIGN2_STREAK
+#define RESIGN2_STREAK 5
 #endif
 #ifndef RESIGN_STREAK
 #define RESIGN_STREAK 2
@@ -2146,13 +2158,19 @@ void AI::think(Game &game) {
         }
     }
 
-    // Resignation check (see RESIGN_* above)
+    // Resignation check (see RESIGN_* above), two tiers
     if(rootStones >= RESIGN_MIN_STONES &&
        thinkSimWins * RESIGN_DENOM < thinkSims)
         resignCount++;
     else
         resignCount = 0;
-    resigned = (resignCount >= resignStreak);
+    if(rootStones >= RESIGN_MIN_STONES &&
+       thinkSimWins * RESIGN2_DENOM < thinkSims)
+        resignCount2++;
+    else
+        resignCount2 = 0;
+    resigned = (resignCount >= resignStreak) ||
+               (resignCount2 >= RESIGN2_STREAK);
 }
 
 uint8_t AI::bestMove(Game &game, uint8_t &x, uint8_t &y) {
