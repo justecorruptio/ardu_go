@@ -629,8 +629,14 @@ static uint8_t rnd(uint8_t n) {
 static uint8_t neighbors(uint8_t pos, uint8_t *nb) {
     const uint8_t *e = NEIGHBOR_TABLE + pos * 5;
     uint8_t n = pgm_read_byte(e);
-    for(uint8_t i = 0; i < n; i++)
-        nb[i] = pgm_read_byte(e + 1 + i);
+    // Unconditional 4-slot copy: every caller's buffer is nb[4] and
+    // only nb[0..n-1] is read. The variable-length loop compiled to
+    // a libc memmove CALL on the host — ~15% of think time spent
+    // moving <= 4 bytes. Fixed size folds to plain loads.
+    nb[0] = pgm_read_byte(e + 1);
+    nb[1] = pgm_read_byte(e + 2);
+    nb[2] = pgm_read_byte(e + 3);
+    nb[3] = pgm_read_byte(e + 4);
     return n;
 }
 
