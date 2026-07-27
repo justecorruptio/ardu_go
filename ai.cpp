@@ -2429,8 +2429,16 @@ uint8_t AI::bestMove(Game &game, uint8_t &x, uint8_t &y) {
     // now; real threats also re-enable moves automatically, since an
     // invaded region touches both colors and stops counting as
     // settled.)
+    // Endgame only (>= 45 stones) and only with the search agreeing
+    // we are winning (55%, same floor as passToWin): early on the
+    // whole empty space is ONE mixed region, so the static count
+    // "wins" by bare komi from move zero — and a noise favorite
+    // poking a 1-point enemy pocket once turned that into a
+    // mid-game free pass (real game, move 18).
     uint8_t vital; // simBoard still holds the root position from above
-    if(regionVital(best, &vital) && vital != best) {
+    if(rootStones >= 45 &&
+       (uint32_t)thinkSimWins * 20 >= (uint32_t)thinkSims * 11 &&
+       regionVital(best, &vital) && vital != best) {
         game.computeScore();
         if(game.winner() == game.turn) return 0;
     }
