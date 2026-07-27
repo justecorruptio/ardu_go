@@ -510,11 +510,12 @@ int main(int argc, char **argv) {
         int games = atoi(argv[2]);
         int level = argc > 3 ? atoi(argv[3]) : 0;
         if(argc > 4) huntThresh = atof(argv[4]);
+        int off = argc > 5 ? atoi(argv[5]) : 0; // fresh games per cycle
         huntLog = fopen("hunt_report.txt", "w");
-        srand(4242);
+        srand(4242 + off);
         int w = 0, l = 0;
         for(int g = 0; g < games; g++) {
-            int r = playGame(g, level, (g & 1) ? WHITE : BLACK, false);
+            int r = playGame(g + off, level, (g & 1) ? WHITE : BLACK, false);
             if(r > 0) w++; else l++;
         }
         fprintf(huntLog, "== done: %d games, %d blunders logged\n",
