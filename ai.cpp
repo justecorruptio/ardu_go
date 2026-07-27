@@ -3,6 +3,19 @@
 #include "neighbor_table.h"
 #include "pattern_table.h"
 
+// Random draws: the device uses the engine's own xorshift (seeded at
+// boot) so libc random() never links; the host keeps libc random()
+// for per-game srand determinism in the harness. (see rngState)
+static uint16_t rnd16();
+static uint8_t rnd(uint8_t n);
+#ifdef ARDUINO
+#define SYS_RND(n)   rnd((uint8_t)(n))
+#define SYS_RNDW(n)  (int16_t)(rnd16() % (uint16_t)(n))
+#else
+#define SYS_RND(n)   random(n)
+#define SYS_RNDW(n)  random(n)
+#endif
+
 // ==================== Opening book ====================
 
 // The trie stores moves in book coordinates. A candidate symmetry s maps
@@ -99,7 +112,7 @@ uint8_t AI::bookLookup(uint8_t &x, uint8_t &y) {
         for(uint8_t i = 0; i < OPENING_BOOK_ROOT_OPTIONS; i++)
             total += pgm_read_byte(OPENING_ROOT_WEIGHTS + i);
 
-        int16_t r = random(total);
+        int16_t r = SYS_RNDW(total);
         uint16_t p = 0;
         for(uint8_t i = 0; ; i++) {
             r -= pgm_read_byte(OPENING_ROOT_WEIGHTS + i);
@@ -110,7 +123,7 @@ uint8_t AI::bookLookup(uint8_t &x, uint8_t &y) {
         uint8_t idx = pgm_read_byte(OPENING_BOOK_TRIE + p) & 0x3F;
         x = idx % 7 + 1;
         y = idx / 7 + 1;
-        applyInvSym(x, y, random(8));
+        applyInvSym(x, y, SYS_RND(8));
         return 1;
     }
 
@@ -569,7 +582,12 @@ static uint8_t chainId[BOARD_CELLS];
 #define CHAIN_OF(b) ((b) & 0x3F)
 #define LIBS_OF(b) ((b) >> 6)
 static uint8_t markEpoch;
-static uint16_t rngState;
+// xorshift16 state; 0 is sticky, so every seeding path must |1.
+// On the DEVICE this is seeded once at boot (see setup()) and
+// free-runs — routing every random draw through it lets the AVR
+// build drop libc random_r (~400 bytes of flash). The host harness
+// keeps libc random() so per-game srand determinism is unchanged.
+uint16_t rngState = 1;
 // Host-harness tuning knobs. On the device they compile to constants
 // and cost neither RAM nor cycles.
 #ifdef ARDUINO
@@ -2118,7 +2136,11 @@ void AI::think(Game &game) {
     thinkSims = thinkSimWins = 0;
     rootTurn = game.turn;
     simKomi = game.kpieces;
+#ifndef ARDUINO
+    // Host: fresh libc-derived state per think, downstream of the
+    // harness's per-run srand. Device state free-runs from boot.
     rngState = random(0xFFFF) | 1;
+#endif
 
     // Real ko point: if the last move captured exactly one of our
     // stones, forbid the immediate recapture in search. Slightly
@@ -2207,7 +2229,18 @@ void AI::think(Game &game) {
                (resignCount2 >= RESIGN2_STREAK);
 }
 
+__attribute__((noinline))
+static uint8_t pct100(uint16_t w, uint16_t n) {
+    return n ? (uint8_t)((uint32_t)w * 100 / n) : 0;
+}
+
 uint8_t AI::bestMove(Game &game, uint8_t &x, uint8_t &y) {
+    // Stats default to the whole-root eval; the chosen child's own
+    // numbers overwrite them below once it is known
+    statTotal = thinkSims;
+    statVisits = 0;
+    statPct = pct100(thinkSimWins, thinkSims);
+
     if(passToWin) return 0; // ending the game now wins it
 
     // Root move by highest LOWER confidence bound on the win rate
@@ -2253,6 +2286,13 @@ uint8_t AI::bestMove(Game &game, uint8_t &x, uint8_t &y) {
         best = m;
     }
     if(best == MOVE_PASS) best = backup;
+    for(uint8_t c = node(0).firstChild; c != 0xFF; c = node(c).nextSibling) {
+        uint16_t v = nVisits(c);
+        if(node(c).move != best || v >= POISONED) continue;
+        statVisits = v;
+        if(v) statPct = pct100(nWins(c), v);
+        break;
+    }
     if(best == MOVE_PASS) return 0;
 
     // The search's favorite landing inside settled territory — ours

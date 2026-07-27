@@ -1,11 +1,11 @@
 #include "utils.h"
 
-// Decimal, unsigned 0-255 only: every live caller prints small board
-// counts, and the old signed any-base version cost ~100 bytes of
-// flash for commented-out debug code.
-char itoa_buf[4];
-char * itoa(uint8_t x) {
-    char *p = itoa_buf + 3;
+// Decimal, unsigned. The 16-bit version exists for the AI stats
+// panel (visit counts, think ms); itoa forwards to it so there is
+// only one division loop in flash.
+char itoa_buf[6];
+char * itoa16(uint16_t x) {
+    char *p = itoa_buf + 5;
     *p = 0;
     do {
         *--p = '0' + x % 10;
@@ -14,6 +14,10 @@ char * itoa(uint8_t x) {
 
     // Must immediately use this.
     return p;
+}
+
+char * itoa(uint8_t x) {
+    return itoa16(x);
 }
 
 uint8_t strlen(const uint8_t* s) {

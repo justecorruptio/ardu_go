@@ -20,6 +20,7 @@ uint8_t stage = STAGE_TITLE;
 uint8_t menuCursor = 0;
 uint8_t inverted = 1;
 uint8_t aiTimer = 0;
+uint16_t aiThinkMs = 0; // 0 = no search stats to show
 
 uint8_t isAITurn() {
     return game.mode == MODE_VS_AI && game.turn == game.aiPlayer;
@@ -29,13 +30,40 @@ void startGame() {
     game.reset();
     ai.reset();
     aiTimer = 30;
+    aiThinkMs = 0;
     stage = STAGE_PLAY;
+}
+
+// Print a number, return the x just past its last digit
+__attribute__((noinline))
+uint8_t prNum(uint8_t x, uint8_t y, uint16_t v) {
+    char *p = itoa16(v);
+    jay.smallPrint(x, y, p, 1);
+    return x + 4 * strlen((uint8_t *)p);
 }
 
 void renderGameView() {
     display.renderBoard();
     display.renderCursor();
     display.renderInfo();
+
+    // Middle info section: last search's stats (replaces the
+    // AI THINKING... message once the search is done):
+    // "WIN:64% 62 SEC" / "VISITS:64/600". Panel fits 15 chars, so
+    // 100% displays as 99.
+    if(game.mode == MODE_VS_AI && aiThinkMs) {
+        jay.smallPrintPgm(66, 35, F("WIN:"), 1);
+        uint8_t x = prNum(66 + 16, 35,
+                          ai.statPct > 99 ? 99 : ai.statPct);
+        jay.smallPrintPgm(x, 35, F("%"), 1);
+        x = prNum(x + 8, 35, (aiThinkMs + 500) / 1000);
+        jay.smallPrintPgm(x, 35, F(" SEC"), 1);
+
+        jay.smallPrintPgm(66, 41, F("VISITS:"), 1);
+        x = prNum(66 + 28, 41, ai.statVisits);
+        jay.smallPrintPgm(x, 41, F("/"), 1);
+        prNum(x + 4, 41, ai.statTotal);
+    }
 }
 
 void endTurnCheck() {
@@ -72,7 +100,10 @@ void setup() {
     jay.flashlight();
     jay.invert(1);
     jay.clear();
-    jay.initRandomSeed();
+    // Seed the engine's xorshift directly instead of initRandomSeed():
+    // no libc random() user remains, dropping random_r from flash
+    extern uint16_t rngState;
+    rngState = (uint16_t)jay.generateRandomSeed() | 1;
 
     checkMagicKeyHazard();
 
@@ -119,15 +150,20 @@ void loop() {
         if(isAITurn()) {
             if(--aiTimer == 0) {
                 aiTimer = 30;
-                if(!ai.chooseMove(game)) {
+                if(ai.chooseMove(game)) {
+                    aiThinkMs = 0; // book move: no search, no stats
+                } else {
                     // Blocking search borrows the screen buffer as its
                     // node pool; the OLED keeps showing this frame.
                     // No cursor: it would sit frozen mid-blink.
                     display.renderBoard();
                     display.renderInfo();
-                    jay.smallPrintPgm(66, 40, F("THINKING..."), 1);
+                    // Top of the middle info section (HRs at y=31/52)
+                    jay.smallPrintPgm(66, 35, F("AI THINKING..."), 1);
                     jay.display();
+                    uint16_t t0 = (uint16_t)millis();
                     ai.think(game);
+                    aiThinkMs = (uint16_t)millis() - t0;
                     if(ai.resigned) {
                         game.resignedBy = game.aiPlayer;
                         stage = STAGE_GAME_OVER;
@@ -170,6 +206,13 @@ void loop() {
     case STAGE_PASS_CONFIRM:
         renderGameView();
         jay.drawPromptPgm(22, F("PASS?"), 0);
+        // Key hint under the prompt (box ends y=38), on a cleared
+        // band so it reads over the board; prompt interior is 1,
+        // prompt text 0 — match.
+        // 12 glyphs x4 + 2 spaces x2 - 1 = 51 px (spaces advance 2)
+        for(uint8_t i = 36; i < 91; i++)
+            jay.drawFastVLine(i, 39, 9, 1);
+        jay.smallPrintPgm(38, 41, F("A:OK  B:CANCEL"), 0);
         if(jay.justPressed(A_BUTTON)) {
             game.pass();
             ai.notifyPass();

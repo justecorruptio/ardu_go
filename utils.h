@@ -8,6 +8,7 @@ PROGMEM const int8_t GRID_DEBRUIJN_16 [] = {
 };
 
 char * itoa(uint8_t x);
+char * itoa16(uint16_t x);
 uint8_t strlen(const uint8_t* s);
 uint8_t popcount(uint8_t n);
 uint8_t log2(uint16_t v);

@@ -22,6 +22,12 @@ class AI {
     uint8_t bestMove(Game &game, uint8_t &x, uint8_t &y);
     uint8_t resigned;
 
+    // Filled by bestMove for the info panel: chosen move's win rate
+    // (percent) and visits, plus the search's total simulations.
+    uint8_t statPct;
+    uint16_t statVisits;
+    uint16_t statTotal;
+
     private:
     uint16_t bookPos[8]; // child-list offset per symmetry candidate
     uint8_t bookAlive;   // bitmask of surviving candidates

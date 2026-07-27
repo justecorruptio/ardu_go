@@ -82,19 +82,23 @@ void Display::renderCursor() {
 void Display::renderInfo() {
     uint8_t ix = 66; // clear of the board: stones/cursor reach x=63
     // Turn indicator
-    jay.smallPrintPgm(ix, 1, game.turn == BLACK ? F("BLACK TO PLAY")
+    jay.smallPrintPgm(ix, 4, game.turn == BLACK ? F("BLACK TO PLAY")
                                                 : F("WHITE TO PLAY"), 1);
 
-    // Captures
-    jay.smallPrintPgm(ix, 19, F("CAPTURES"), 1);
-    jay.smallPrintPgm(ix, 25, F("B:"), 1);
-    jay.smallPrint(ix + 8, 25, itoa(game.captures[0]), 1);
-    jay.smallPrintPgm(ix, 31, F("W:"), 1);
-    jay.smallPrint(ix + 8, 31, itoa(game.captures[1]), 1);
+    // Captures, 3 px under the turn line (which spans y=4..8)
+    jay.smallPrintPgm(ix, 12, F("CAPTURES"), 1);
+    jay.smallPrintPgm(ix, 18, F("B:"), 1);
+    jay.smallPrint(ix + 8, 18, itoa(game.captures[0]), 1);
+    jay.smallPrintPgm(ix, 24, F("W:"), 1);
+    const char *wc = itoa(game.captures[1]);
+    jay.smallPrint(ix + 8, 24, wc, 1);
+    jay.smallPrintPgm(ix + 8 + 4 * strlen(wc) + 4, 24, F("+6.5"), 1);
+    jay.drawFastHLine(ix, 31, 59);
 
-    // Controls hint
-    jay.smallPrintPgm(ix, 49, F("A:PLACE"), 1);
-    jay.smallPrintPgm(ix, 55, F("B:PASS"), 1);
+    // Controls hint: one line, 3 px margin below (font is 5 tall,
+    // screen 64: 64 - 3 - 5 = 56)
+    jay.drawFastHLine(ix, 52, 59);
+    jay.smallPrintPgm(ix, 56, F("A:PLACE  B:PASS"), 1);
 }
 
 void Display::renderTitle(uint8_t menuCursor) {
