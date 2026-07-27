@@ -1304,6 +1304,33 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                 if(!contact) continue;
             }
 
+            // Territory bias: filling deep empty space at random
+            // splits open areas 50/50 no matter who holds the
+            // boundary, hiding the value of quiet boundary moves
+            // from the eval. Past the opening, 3/4 of the time defer
+            // isolated points (no stone in the 8-neighborhood) and
+            // grow from existing structure instead.
+#ifndef PLAYOUT_GROW_MASK
+#define PLAYOUT_GROW_MASK 3
+#endif
+            if(nn == 4 && rootStones + m >= EARLY_STONES &&
+               (rnd16() & PLAYOUT_GROW_MASK)) {
+                uint8_t bx = pos % BOARD_SIZE, by = pos / BOARD_SIZE;
+                uint8_t touch = 0;
+                for(int8_t tdy = -1; tdy <= 1 && !touch; tdy++)
+                    for(int8_t tdx = -1; tdx <= 1; tdx++) {
+                        if(!tdx && !tdy) continue;
+                        int8_t tx = bx + tdx, ty = by + tdy;
+                        if(tx < 0 || tx >= BOARD_SIZE ||
+                           ty < 0 || ty >= BOARD_SIZE) continue;
+                        if(simBoard[ty * BOARD_SIZE + tx] != EMPTY) {
+                            touch = 1;
+                            break;
+                        }
+                    }
+                if(!touch) continue;
+            }
+
             if(!playoutTry(pos, toMove, &ko, &last, m)) continue;
             played = 1;
             passes = 0;
