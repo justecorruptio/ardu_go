@@ -632,11 +632,14 @@ static uint8_t neighbors(uint8_t pos, uint8_t *nb) {
     // Unconditional 4-slot copy: every caller's buffer is nb[4] and
     // only nb[0..n-1] is read. The variable-length loop compiled to
     // a libc memmove CALL on the host — ~15% of think time spent
-    // moving <= 4 bytes. Fixed size folds to plain loads.
-    nb[0] = pgm_read_byte(e + 1);
-    nb[1] = pgm_read_byte(e + 2);
-    nb[2] = pgm_read_byte(e + 3);
-    nb[3] = pgm_read_byte(e + 4);
+    // moving <= 4 bytes. One dword read: on AVR the four separate
+    // pgm_read_byte asm blocks each redid the Z-pointer setup; a
+    // single pgm_read_dword is four lpm Z+ in one block.
+    uint32_t four = pgm_read_dword(e + 1);
+    nb[0] = (uint8_t)four;
+    nb[1] = (uint8_t)(four >> 8);
+    nb[2] = (uint8_t)(four >> 16);
+    nb[3] = (uint8_t)(four >> 24);
     return n;
 }
 
