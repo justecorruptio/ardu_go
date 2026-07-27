@@ -40,5 +40,10 @@ here, judge SPEED on the device.
                                # gets a forensic record (board, search tree,
                                # gnugo's preferred move) in hunt_report.txt
                                # plus a replay SGF per blunder
+                               #
+                               # Hunt workflow: harvest -> diagnose the
+                               # recurring pattern from the tree tables ->
+                               # fix -> re-hunt to verify -> git commit
+                               # with message "[HUNT]: <what was fixed>"
 
 Writes one `game_NNN.sgf` per game into the working directory.
