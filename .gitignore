@@ -15,3 +15,6 @@ test/*.dSYM
 test/game_*.sgf
 test/hunt_*.sgf
 test/hunt_report.txt
+
+# AVR emulator benchmark build output
+/tmp/ardugo_avrbench/
