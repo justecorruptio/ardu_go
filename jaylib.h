@@ -25,4 +25,7 @@ class Jaylib: public Arduboy2Base {
     void drawPromptPgm(uint8_t y, const __FlashStringHelper * str, uint8_t color=1);
 
     void display();
+
+    private:
+    void smallPrintImpl(int x, int y, const uint8_t * str, uint8_t color, uint8_t pgm);
 };

@@ -25,10 +25,15 @@ void Jaylib::drawBand(int16_t x, int16_t y, const uint8_t * sprite, uint8_t cols
     }
 }
 
-void Jaylib::smallPrint(int x, int y, const uint8_t * str, uint8_t color) {
+// Shared core for the RAM and PROGMEM variants: identical apart from
+// how the next character is fetched (pgm != 0 -> flash).
+void Jaylib::smallPrintImpl(int x, int y, const uint8_t * str, uint8_t color, uint8_t pgm) {
     int x0 = x;
     char c;
-    for(;c = *str ++;) {
+    for(;;) {
+        c = pgm ? pgm_read_byte(str) : *str;
+        str++;
+        if(!c) break;
         if(c == '\n') {
             x = x0;
             y += 6;
@@ -44,24 +49,12 @@ void Jaylib::smallPrint(int x, int y, const uint8_t * str, uint8_t color) {
     }
 }
 
+void Jaylib::smallPrint(int x, int y, const uint8_t * str, uint8_t color) {
+    smallPrintImpl(x, y, str, color, 0);
+}
+
 void Jaylib::smallPrintPgm(int x, int y, const __FlashStringHelper * str, uint8_t color) {
-    int x0 = x;
-    char c;
-    uint8_t * ptr = (uint8_t *) str;
-    for(;c = pgm_read_byte(ptr ++);) {
-        if(c == '\n') {
-            x = x0;
-            y += 6;
-            continue;
-        }
-        if(c == ' ') {
-            x += 2;
-            continue;
-        }
-        c -= 32;
-        drawBand(x, y, PRINTABLE_CHARS + 3 * c, 3, color);
-        x += 4;
-    }
+    smallPrintImpl(x, y, (const uint8_t *) str, color, 1);
 }
 
 void Jaylib::smallPrintWrapped(uint8_t x, uint8_t y, uint8_t w, const uint8_t * str, uint8_t color) {
