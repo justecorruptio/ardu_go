@@ -620,15 +620,17 @@ static uint8_t rnd(uint8_t n) {
     return rnd16() % n;
 }
 
-static uint8_t neighbors(uint8_t pos, uint8_t *nb) {
+// ALWAYS_INLINE is the whole optimization here: this is the single
+// most-called function in the engine (every flood step), and the
+// CALL/RET plus register save/restore at each of ~20 sites cost more
+// than the body. Emulator A/B: inlining is -4.5% device cycles for
+// +492 B flash — the store/count shape is irrelevant next to that
+// (dword-store variants measured SLOWER; gcc's byte copy uses
+// call-clobbered registers). One dword read = four lpm Z+.
+__attribute__((always_inline)) static inline
+uint8_t neighbors(uint8_t pos, uint8_t *nb) {
     const uint8_t *e = NEIGHBOR_TABLE + pos * 5;
     uint8_t n = pgm_read_byte(e);
-    // Unconditional 4-slot copy: every caller's buffer is nb[4] and
-    // only nb[0..n-1] is read. The variable-length loop compiled to
-    // a libc memmove CALL on the host — ~15% of think time spent
-    // moving <= 4 bytes. One dword read: on AVR the four separate
-    // pgm_read_byte asm blocks each redid the Z-pointer setup; a
-    // single pgm_read_dword is four lpm Z+ in one block.
     uint32_t four = pgm_read_dword(e + 1);
     nb[0] = (uint8_t)four;
     nb[1] = (uint8_t)(four >> 8);
