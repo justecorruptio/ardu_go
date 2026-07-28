@@ -173,7 +173,7 @@ uint8_t AI::chooseMove(Game &game) {
 // the UI strings to PROGMEM bought the budget back — keep total free
 // RAM >= ~250 for the stack. Total pool must stay < 255 (8-bit
 // links, 0xFF = null).
-#define NODE_POOL_EXT 56   
+#define NODE_POOL_EXT 69
 #define NODE_POOL (NODE_POOL_SB + NODE_POOL_EXT) // must stay < 255 (8-bit links)
 #ifndef MCTS_ITERATIONS
 #define MCTS_ITERATIONS 400 // must stay under ~3400: 12-bit visit counters
@@ -620,13 +620,14 @@ static uint8_t rnd(uint8_t n) {
     return rnd16() % n;
 }
 
-// Inline HINT only (was always_inline for -4.5%, +492 B flash): the
-// LGR playout short-circuit reclaimed that speed and more (net -5.6%
-// vs the forced-inline build), and its table needed the flash back,
-// so gcc's -Os call/inline choice wins now. One dword read = four
-// lpm Z+; the byte copy uses call-clobbered registers (dword-store
-// variants measured slower).
-static inline
+// ALWAYS_INLINE is the whole optimization here: this is the single
+// most-called function in the engine (every flood step), and the
+// CALL/RET plus register save/restore at each of ~20 sites cost more
+// than the body. Emulator A/B: inlining is -4.5% device cycles for
+// +492 B flash — the store/count shape is irrelevant next to that
+// (dword-store variants measured SLOWER; gcc's byte copy uses
+// call-clobbered registers). One dword read = four lpm Z+.
+__attribute__((always_inline)) static inline
 uint8_t neighbors(uint8_t pos, uint8_t *nb) {
     const uint8_t *e = NEIGHBOR_TABLE + pos * 5;
     uint8_t n = pgm_read_byte(e);
@@ -1133,29 +1134,6 @@ static uint8_t capB, capW;
 // while any correct line captures the sacrifices right back — so
 // ownership tallies stay honest. (scoreMode is declared up top.)
 __attribute__((noinline))
-// Last-Good-Reply (LGRF-1). lgrReply[replierColor-1][triggerMove] = the
-// move that replied to triggerMove in a WON playout; consulted first in
-// rollouts so proven local answers get replayed. Reset per think.
-// Host test form (unpacked 2x81 + full move/flag buffer); the device
-// form packs color+move and reuses chainId for the buffer.
-// Reply table: one byte per trigger square = (color-1)<<7 | reply(0-80),
-// 0xFF = none. A black and a white trigger on the same square share the
-// slot; the color tag makes a mismatched lookup a miss (a small accuracy
-// cost for half the RAM). The per-ply move buffer reuses chainId[] (dead
-// during rollouts): (wasLGR<<7) | move, move 0x7F = pass, color from ply
-// parity vs lgrStartColor. Capped at BOARD_CELLS plies (endgame is noise).
-static uint8_t lgrReply[BOARD_CELLS];
-static uint8_t lgrN;
-static uint8_t lgrStartColor;
-static uint8_t lgrTrying;   // set while an LGR reply is being played
-#define LGR_BUF chainId
-
-static inline void lgrRecord(uint8_t /*color*/, uint8_t move) {
-    if(lgrN < BOARD_CELLS)
-        LGR_BUF[lgrN++] = (lgrTrying << 7) |
-                          (move < BOARD_CELLS ? move : 0x7F);
-}
-
 static uint8_t playoutTry(uint8_t pos, uint8_t toMove, uint8_t *ko,
                           uint8_t *last, uint8_t m) {
     if(pos >= BOARD_CELLS || pos == *ko || simBoard[pos] != EMPTY ||
@@ -1169,7 +1147,6 @@ static uint8_t playoutTry(uint8_t pos, uint8_t toMove, uint8_t *ko,
     }
     *ko = nk;
     *last = pos;
-    if(!scoreMode) lgrRecord(toMove, pos);
     return 1;
 }
 
@@ -1178,29 +1155,11 @@ static uint8_t playoutTry(uint8_t pos, uint8_t toMove, uint8_t *ko,
 static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
     uint8_t passes = 0;
     capB = capW = 0;
-    lgrN = 0;
-    lgrStartColor = toMove;
     for(uint8_t m = 0; m < PLAYOUT_CAP && passes < 2; m++) {
         // Mercy rule: a lopsided capture balance has decided the game;
         // the area score already reflects it, skip the remaining fill
         if(capB > capW + MERCY_MARGIN || capW > capB + MERCY_MARGIN)
             break;
-
-        // Last-Good-Reply: replay the answer to the opponent's last
-        // move that won a previous rollout (see lgrReply). Consulted
-        // first; a reply that turns out badly is forgotten on the loss.
-        if(!scoreMode && last < BOARD_CELLS) {
-            uint8_t e = lgrReply[last];
-            if(e != 0xFF && (e >> 7) == (uint8_t)(toMove - 1)) {
-                uint8_t r = e & 0x7F;
-                if(r < BOARD_CELLS) {
-                    lgrTrying = 1;
-                    uint8_t ok = playoutTry(r, toMove, &ko, &last, m);
-                    lgrTrying = 0;
-                    if(ok) { passes = 0; toMove = 3 - toMove; continue; }
-                }
-            }
-        }
 
         // Tactical: if the opponent's just-moved group is in atari,
         // capture it. Uniform-random playouts ignore atari, which
@@ -1266,7 +1225,6 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                     }
                     ko = nk;
                     last = tac;
-                    if(!scoreMode) lgrRecord(toMove, tac);
                     passes = 0;
                     toMove = 3 - toMove;
                     continue;
@@ -1455,25 +1413,10 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
             passes++;
             last = 0xFF;
             ko = NO_KO;
-            if(!scoreMode) lgrRecord(toMove, 0xFF);
         }
         toMove = 3 - toMove;
     }
-
-    uint8_t w = scoreWinner();
-    // LGRF update: reinforce the winner's reply to each move, forget
-    // the loser's replies that were themselves learned (LGR) moves.
-    if(!scoreMode) {
-        for(uint8_t i = 1; i < lgrN; i++) {
-            uint8_t mv = LGR_BUF[i] & 0x7F, pv = LGR_BUF[i - 1] & 0x7F;
-            if(mv >= BOARD_CELLS || pv >= BOARD_CELLS)
-                continue; // skip passes (0x7F) as trigger or reply
-            uint8_t c = (i & 1) ? (uint8_t)(3 - lgrStartColor) : lgrStartColor;
-            if(c == w) lgrReply[pv] = (uint8_t)((c - 1) << 7) | mv;
-            else if(LGR_BUF[i] >> 7) lgrReply[pv] = 0xFF;
-        }
-    }
-    return w;
+    return scoreWinner();
 }
 
 // ==================== Dead-stone scoring ====================
@@ -2364,7 +2307,6 @@ void AI::think(Game &game) {
 
     memset(raveV, 0, BOARD_CELLS);
     memset(raveW, 0, BOARD_CELLS);
-    memset(lgrReply, 0xFF, BOARD_CELLS); // fresh replies per search
 
     newNode(0xFF); // root
     uint16_t iters = mctsIterations;
