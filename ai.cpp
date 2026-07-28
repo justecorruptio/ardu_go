@@ -2117,10 +2117,12 @@ static uint16_t isqrt32(uint32_t x) {
     return res;
 }
 
-// Q12 fractional part of log2(1 + i/16)
-PROGMEM const uint16_t LOG2_FRAC[16] = {
-    0, 358, 696, 1016, 1319, 1607, 1882, 2145,
-    2396, 2637, 2869, 3092, 3307, 3514, 3715, 3908
+// Q12 natural-log fractional part: log2(1 + i/16) already scaled by
+// ln2 (2839 in Q12). Folding ln2 into the table lets lnQ12 avoid a
+// 32-bit multiply (see below).
+PROGMEM const uint16_t LN_FRAC[16] = {
+    0, 248, 482, 704, 914, 1113, 1304, 1486,
+    1660, 1827, 1988, 2143, 2292, 2435, 2574, 2708
 };
 
 // Q12 natural log for x >= 1: integer log2 (bit position + 4-bit
@@ -2132,8 +2134,10 @@ static uint16_t lnQ12(uint16_t x) {
     while(t >>= 1) k++;
     uint8_t frac = (k >= 4) ? (x >> (k - 4)) & 0x0F
                             : (x << (4 - k)) & 0x0F;
-    uint16_t log2q = ((uint16_t)k << 12) | pgm_read_word(LOG2_FRAC + frac);
-    return (uint32_t)log2q * 2839 >> 12;
+    // ln x = k*ln2 + frac; bit-identical to the old (log2 << 12) * ln2
+    // >> 12 (the k<<12 term times ln2 >> 12 is exactly k*2839, and the
+    // fraction floors independently), with the 32-bit multiply gone.
+    return (uint16_t)k * 2839 + pgm_read_word(LN_FRAC + frac);
 }
 
 static uint8_t selectChild(uint8_t nodeIdx) {
@@ -2148,13 +2152,19 @@ static uint8_t selectChild(uint8_t nodeIdx) {
     for(uint8_t c = node(nodeIdx).firstChild; c != 0xFF; c = node(c).nextSibling) {
         Node &n = node(c);
         uint16_t nv = nVisits(c);
-        uint16_t q = ((uint32_t)nWins(c) << 12) / nv;
+        // Q6 win rate via a 16-bit divide (wins < 1024 so wins<<6 fits
+        // uint16): (wins<<6)/nv == (wins<<12)/nv >> 6 exactly, so q is
+        // the old Q12 value with its low 6 bits zeroed. That truncation
+        // is well under the sampling noise (>=2.5% even at the root).
+        uint16_t q6 = (nWins(c) << 6) / nv;
+        uint16_t q = q6 << 6;                 // Q12 (Q6 precision)
 
-        // Variance-aware exploration from the raw win rate: with
-        // binary rewards the sample variance is just q(1-q).
-        // Q12*Q12 products are Q24, so isqrt lands back in Q12.
+        // Variance-aware exploration from the raw win rate: with binary
+        // rewards the sample variance is just q(1-q). Q6*Q6 = Q12, so
+        // q6*(64-q6) is the SAME Q12 variance as (q*(4096-q))>>12 but a
+        // 16-bit multiply instead of a 32-bit one.
         uint16_t lnOverN = lnN / nv;
-        uint32_t v = ((uint32_t)q * (4096 - q)) >> 12;
+        uint32_t v = (uint16_t)(q6 * (64 - q6));
         v += isqrt32((uint32_t)(2 * lnOverN) << 12);
         if(v > 1024) v = 1024; // min(1/4, ...)
 
@@ -2168,7 +2178,7 @@ static uint8_t selectChild(uint8_t nodeIdx) {
             uint16_t ratio = ((uint32_t)RAVE_K << 12) /
                              (3 * nv + RAVE_K);
             uint16_t beta = isqrt32((uint32_t)ratio << 12);
-            uint16_t qr = ((uint32_t)raveW[n.move] << 12) / raveV[n.move];
+            uint16_t qr = (uint16_t)((raveW[n.move] << 6) / raveV[n.move]) << 6;
             q = ((uint32_t)(4096 - beta) * q + (uint32_t)beta * qr) >> 12;
         }
 
@@ -2486,8 +2496,9 @@ uint8_t AI::bestMove(Game &game, uint8_t &x, uint8_t &y) {
         // would fake a strong LCB — demand real sampling first
         if(v < LCB_GATE || v * LCB_REL_DIV < maxV) continue;
 
-        uint16_t q = ((uint32_t)nWins(c) << 12) / v;
-        uint32_t var = ((uint32_t)q * (4096 - q)) >> 12; // q(1-q), Q12
+        uint16_t q6 = (nWins(c) << 6) / v;    // Q6 win rate, 16-bit divide
+        uint16_t q = q6 << 6;                 // Q12 (Q6 precision)
+        uint32_t var = (uint16_t)(q6 * (64 - q6)); // q(1-q), Q12, 16-bit mul
         // (var<<12)/v is Q24 of q(1-q)/n, so isqrt lands in Q12
         uint16_t term = isqrt32(((uint32_t)var << 12) / v);
         int16_t lcb = (int16_t)q - (int16_t)(((uint32_t)term * LCB_Z) >> 8);
