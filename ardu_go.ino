@@ -74,23 +74,12 @@ void endTurnCheck() {
 }
 
 // RAM 0x800-0x801 (MAGIC_KEY_POS) can be overwritten by hardware/USB
-// while the sketch runs. The flood stack and MCTS pool redirect any
-// element at that address to spare slots (see floodSlot/node); the
-// screen and playout sim buffers can absorb a hit. Game state and the
-// book walker must not sit there — halt loudly so it gets noticed.
-uint8_t spansMagicKey(const void *p, uint16_t len) {
-    uint16_t a = (uint16_t)p;
-    return a <= 0x801 && a + len > 0x800;
-}
-
-void checkMagicKeyHazard() {
-    if(spansMagicKey(&game, sizeof(Game)) ||
-       spansMagicKey(&ai, sizeof(AI))) {
-        jay.smallPrintPgm(10, 28, F("0800 HAZARD"), 1);
-        jay.display();
-        while(1) {}
-    }
-}
+// while the sketch runs, so game/ai state must never sit there (the
+// flood stack and MCTS pool land in tolerant buffers; the screen and
+// playout sim buffers can absorb a hit). This invariant is enforced at
+// BUILD time by test/checkmagic.sh, which asserts from the ELF that
+// every critical region clears 0x800 — it replaced the old runtime
+// startup check (redundant: game/ai addresses are fixed at link time).
 
 void setup() {
     jay.boot();
@@ -104,8 +93,6 @@ void setup() {
     // no libc random() user remains, dropping random_r from flash
     extern uint16_t rngState;
     rngState = (uint16_t)jay.generateRandomSeed() | 1;
-
-    checkMagicKeyHazard();
 
     //jay.smallPrint(99, 46, itoa((uint16_t)&game, 16), 1);
     //jay.smallPrint(99, 56, itoa((uint16_t)&ai, 16), 1);
