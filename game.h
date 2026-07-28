@@ -6,17 +6,12 @@
 // Shared flood-fill work stack (defined in game.cpp). Also used by the
 // AI's playout engine — safe because game logic and search never run a
 // flood at the same time, and no state persists between calls.
-// Two spare slots back the 0x800 magic-key redirect (see floodSlot).
-extern uint8_t floodScratch[BOARD_CELLS + 2];
+extern uint8_t floodScratch[BOARD_CELLS];
 
-// All stack accesses go through here: an element whose address lands on
-// RAM 0x800-0x801 (hardware can overwrite those bytes) is redirected to
-// the spare slots, so a stomped entry can never feed a bogus board
-// position back into a flood.
+// Plain stack indexing — no 0x800 redirect. test/checkmagic.sh asserts
+// at build time that floodScratch clears RAM 0x800-0x801, so a stomped
+// entry can never feed a bogus board position back into a flood.
 inline uint8_t& floodSlot(uint8_t i) {
-    uintptr_t a = (uintptr_t)(floodScratch + i);
-    if((a & ~(uintptr_t)1) == 0x800)
-        return floodScratch[BOARD_CELLS + (a & 1)];
     return floodScratch[i];
 }
 

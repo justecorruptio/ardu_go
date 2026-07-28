@@ -513,25 +513,19 @@ static inline void raveMark(uint8_t pos) {
     raveMask[pos >> 3] |= 1 << (pos & 7);
 }
 
-// Spare nodes backing the 0x800 magic-key redirect — kept OUTSIDE the
-// screen buffer so the redirect targets themselves are safe.
-static Node poolSpare[2];
-
 // Static pool extension
 static Node poolExt[NODE_POOL_EXT];
 
-// All pool accesses go through here: a node overlapping RAM 0x800-0x801
-// (hardware can overwrite those bytes) is redirected to a spare, so a
-// stomped link byte can never send the search out of bounds. The two
-// danger bytes can straddle two adjacent nodes; i's parity picks
-// distinct spares for them.
+// Plain pool indexing — no 0x800 redirect. The magic-key bytes at
+// RAM 0x800-0x801 land in the RAVE tables above (harmless statistics);
+// test/checkmagic.sh asserts at build time that neither node region
+// (pool[0..142], poolExt) nor floodScratch spans 0x800, failing the
+// build loudly if a RAM-layout change ever pushes them onto it. That
+// replaced the old per-access redirect, which cost ~3% of think time
+// (floodSlot alone, by the emulator profile) guarding a collision the
+// layout already prevents.
 static inline Node& node(uint8_t i) {
-    Node *p = (i < NODE_POOL_SB) ? pool + i
-                                 : poolExt + (i - NODE_POOL_SB);
-    uintptr_t a = (uintptr_t)p;
-    if(a <= 0x801 && a + sizeof(Node) > 0x800)
-        return poolSpare[i & 1];
-    return *p;
+    return (i < NODE_POOL_SB) ? pool[i] : poolExt[i - NODE_POOL_SB];
 }
 
 // Packed 12-bit stat accessors

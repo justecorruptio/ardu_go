@@ -1,8 +1,18 @@
 #!/bin/bash
-# Verify game/ai stay clear of RAM 0x800-0x801 in the AVR build, and
-# that the size flags (-mcall-prologues -mrelax, from the AVR core's
-# platform.local.txt) are active — without them the sketch overflows
-# flash, and a Boards Manager core update deletes that file silently.
+# Verify all state that must not be corrupted stays clear of RAM
+# 0x800-0x801 (the bootloader magic key, stompable by hardware/USB).
+# Since the per-access 0x800 redirect was removed for speed, this
+# build-time assertion IS the safety net — it must cover every object
+# the engine indexes into:
+#   game, ai            game state + book walker (halt-loud at runtime too)
+#   floodScratch        flood-fill work stack (floodSlot indexes it raw)
+#   poolExt             static node-pool extension (node() indexes it raw)
+#   sBuffer node region first 858 B of the screen buffer = pool[0..142]
+#                       (the RAVE tables ABOVE 858 B legitimately own
+#                        0x800 — pure stats, a stomp is harmless noise)
+# Also checks the size flags (-mcall-prologues -mrelax from the AVR
+# core's platform.local.txt) are active — a Boards Manager core update
+# deletes that file silently and the sketch then overflows flash.
 B=${1:-/tmp/ardugo_magic_build}
 CLI="/Applications/Arduino IDE.app/Contents/Resources/app/lib/backend/resources/arduino-cli"
 "$CLI" compile --fqbn arduino:avr:leonardo --build-path "$B" \
@@ -13,11 +23,21 @@ if ! grep -aq -- "-mrelax" "$B/ardu_go.ino.elf"; then
     exit 1
 fi
 NM=~/Library/Arduino15/packages/arduino/tools/avr-gcc/7.3.0-atmel3.6.1-arduino7/bin/avr-nm
+# Node = 6 bytes, NODE_POOL_SB = 143 -> node region = 858 bytes.
 $NM -S -td "$B/ardu_go.ino.elf" | awk '
-  / [bBdD] (game|ai)$/ {
-    addr = $1 % 8388608; size = $2 + 0
-    printf "%s: 0x%X..0x%X", $4, addr, addr + size - 1
-    if (addr <= 2049 && addr + size > 2048) { print "  *** SPANS 0x800 ***"; bad = 1 }
+  function check(name, addr, size,   last) {
+    last = addr + size - 1
+    printf "%-16s 0x%X..0x%X", name, addr, last
+    if (addr <= 2049 && last >= 2048) { print "  *** SPANS 0x800 ***"; bad = 1 }
     else print "  ok"
   }
-  END { exit bad }'
+  / [bBdD] (game|ai|floodScratch)$/ { check($4, $1 % 8388608, $2 + 0) }
+  / [bBdD] _ZL7poolExt$/           { check("poolExt", $1 % 8388608, $2 + 0) }
+  / [bBdD] _ZN12Arduboy2Base7sBufferE$/ {
+    check("pool(nodes)", $1 % 8388608, 858)   # RAVE tables above 858B may own 0x800
+    seen_sbuf = 1
+  }
+  END {
+    if (!seen_sbuf) { print "*** sBuffer symbol not found ***"; bad = 1 }
+    exit bad
+  }'

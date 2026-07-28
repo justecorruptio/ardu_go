@@ -20,7 +20,7 @@ void Game::set(uint8_t x, uint8_t y, uint8_t val) {
     packedSet(board, y * BOARD_SIZE + x, val);
 }
 
-uint8_t floodScratch[BOARD_CELLS + 2];
+uint8_t floodScratch[BOARD_CELLS];
 
 uint8_t Game::floodFill(uint8_t x, uint8_t y, uint8_t color) {
     // Marks the connected region of `color` containing (x,y) in visited[]
