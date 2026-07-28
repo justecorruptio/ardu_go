@@ -361,6 +361,14 @@ uint8_t AI::chooseMove(Game &game) {
 #define PRIOR_EMPTY_TRI 2
 #endif
 
+// 2x2 square: the candidate is the fourth stone of an all-friendly 2x2
+// block — even worse than an empty triangle (zero eye shape, maximally
+// overconcentrated). The empty-triangle test above misses it (it wants
+// the fourth point EMPTY), so it goes here with a heavier penalty.
+#ifndef PRIOR_SQUARE
+#define PRIOR_SQUARE 4
+#endif
+
 // A candidate whose ONLY link to friendly stones is a knight's move,
 // with enemy support around the waist points, is an extension that
 // can be pushed through and cut immediately.
@@ -1892,10 +1900,10 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     // point empty.
     uint8_t triHere = 0;
     if(!sawCapture && !sawSave && !sawAtari && !sawRace) {
-        uint8_t tri = 0;
+        uint8_t tri = 0, sq = 0;
         uint8_t txy = posXY(pos);
         uint8_t tx = txy & 0x0F, ty = txy >> 4;
-        for(int8_t tdy = -1; tdy <= 1 && !tri; tdy += 2)
+        for(int8_t tdy = -1; tdy <= 1 && !sq; tdy += 2)
             for(int8_t tdx = -1; tdx <= 1; tdx += 2) {
                 int8_t fx = tx + tdx, fy = ty + tdy;
                 if(fx < 0 || fx >= BOARD_SIZE ||
@@ -1903,15 +1911,17 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
                 uint8_t sd = simBoard[fy * BOARD_SIZE + fx];
                 uint8_t s1 = simBoard[ty * BOARD_SIZE + fx];
                 uint8_t s2 = simBoard[fy * BOARD_SIZE + tx];
-                if(sd == toMove &&
+                if(sd == toMove && s1 == toMove && s2 == toMove) {
+                    sq = 1;                        // 2x2 square (fourth stone)
+                    break;
+                } else if(sd == toMove &&
                    ((s1 == toMove && s2 == EMPTY) ||
                     (s2 == toMove && s1 == EMPTY))) tri = 1;
                 else if(sd == EMPTY && s1 == toMove && s2 == toMove)
                     tri = 1;
-                if(tri) break;
             }
-        if(tri) {
-            bonus -= PRIOR_EMPTY_TRI;
+        if(sq || tri) {
+            bonus -= sq ? PRIOR_SQUARE : PRIOR_EMPTY_TRI;
             triHere = 1;
         }
     }
