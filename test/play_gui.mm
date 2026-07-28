@@ -5,6 +5,7 @@
 
 #include <vector>
 #include <utility>
+#include <string>
 #include <time.h>
 
 #include "../game.cpp"
@@ -21,8 +22,10 @@ static BOOL thinking = NO;
 struct Snap { Game g; AI a; int last; size_t logLen; };
 static std::vector<Snap> history;
 
-// Full move record for SGF export: (color, pos), pos -1 = pass
-static std::vector<std::pair<uint8_t, int>> sgfLog;
+// Full move record for SGF export: color, pos (-1 = pass), and an
+// optional per-move debug note emitted as an SGF C[] comment.
+struct SgfMove { uint8_t color; int pos; std::string note; };
+static std::vector<SgfMove> sgfLog;
 
 static const CGFloat kMargin = 36;
 static const CGFloat kCell = 46;
@@ -214,7 +217,7 @@ static void aiMoveIfNeeded() {
             for(uint8_t i = 0; i < BOARD_CELLS; i++)
                 if(packedGet(game.board, i) != EMPTY &&
                    packedGet(before, i) == EMPTY) lastPos = i;
-            sgfLog.push_back({3 - humanColor, lastPos});
+            sgfLog.push_back({(uint8_t)(3 - humanColor), lastPos, "book move"});
             info = [NSString stringWithFormat:@"AI: %@ (book)", vertexName(lastPos)];
             dispatch_async(dispatch_get_main_queue(), ^{
                 gTree.string = @"(book move — no search)";
@@ -231,7 +234,7 @@ static void aiMoveIfNeeded() {
                 game.playMove(x, y);
                 ai.notifyMove(x, y);
                 lastPos = y * BOARD_SIZE + x;
-                sgfLog.push_back({3 - humanColor, lastPos});
+                sgfLog.push_back({(uint8_t)(3 - humanColor), lastPos});
                 // Leader stats for the title readout
                 uint16_t bestV = 0, bestW = 0;
                 for(uint8_t c = node(0).firstChild; c != 0xFF; c = node(c).nextSibling) {
@@ -240,6 +243,16 @@ static void aiMoveIfNeeded() {
                     bestV = v;
                     bestW = nWins(c);
                 }
+                // Per-move debug note -> SGF C[] (see saveSgf). seed
+                // reproduces this exact search in a host build via
+                // forceThinkSeed; then the playout tallies for the move.
+                char note[96];
+                snprintf(note, sizeof note,
+                         "seed=%04X sims=%u pos=%d%% mv=%d%% %dms",
+                         (unsigned)lastThinkSeed, (unsigned)thinkSims,
+                         thinkSims ? (int)(100L * thinkSimWins / thinkSims) : 50,
+                         bestV ? (int)(100L * bestW / bestV) : 0, ms);
+                sgfLog.back().note = note;
                 info = [NSString stringWithFormat:
                         @"AI: %@  [%d ms]  position ~%d%%  move %d%%",
                         vertexName(lastPos), ms,
@@ -332,15 +345,18 @@ static void startNewGame() {
                       dir, stamp];
     FILE *f = fopen(path.UTF8String, "w");
     if(!f) { setStatus(@"SGF save failed"); return; }
-    fprintf(f, "(;GM[1]FF[4]SZ[9]KM[6.5]PB[%s]PW[%s]",
+    fprintf(f, "(;GM[1]FF[4]SZ[9]KM[6.5]PB[%s]PW[%s]C[ArduGo build %s %s]",
             humanColor == BLACK ? "HUMAN" : "ARDUGO",
-            humanColor == WHITE ? "HUMAN" : "ARDUGO");
+            humanColor == WHITE ? "HUMAN" : "ARDUGO",
+            __DATE__, __TIME__);
     for(auto &m : sgfLog) {
-        fprintf(f, ";%c[", m.first == BLACK ? 'B' : 'W');
-        if(m.second >= 0)
-            fprintf(f, "%c%c", 'a' + m.second % BOARD_SIZE,
-                    'a' + m.second / BOARD_SIZE);
+        fprintf(f, ";%c[", m.color == BLACK ? 'B' : 'W');
+        if(m.pos >= 0)
+            fprintf(f, "%c%c", 'a' + m.pos % BOARD_SIZE,
+                    'a' + m.pos / BOARD_SIZE);
         fprintf(f, "]");
+        if(!m.note.empty())
+            fprintf(f, "C[%s]", m.note.c_str());
     }
     fprintf(f, ")\n");
     fclose(f);

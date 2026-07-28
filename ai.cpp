@@ -607,6 +607,12 @@ static uint8_t scoreMode;
 // build drop libc random_r (~400 bytes of flash). The host harness
 // keeps libc random() so per-game srand determinism is unchanged.
 uint16_t rngState = 1;
+#ifndef ARDUINO
+// Host-only debug hooks for reproducibility (play_gui SGF annotations).
+// think() records the seed it started from in lastThinkSeed; setting
+// forceThinkSeed nonzero replays that exact seed. Compiled out on device.
+uint16_t lastThinkSeed = 0, forceThinkSeed = 0;
+#endif
 // Host-harness tuning knobs. On the device they compile to constants
 // and cost neither RAM nor cycles.
 #ifdef ARDUINO
@@ -2379,7 +2385,10 @@ void AI::think(Game &game) {
 #ifndef ARDUINO
     // Host: fresh libc-derived state per think, downstream of the
     // harness's per-run srand. Device state free-runs from boot.
-    rngState = random(0xFFFF) | 1;
+    // forceThinkSeed (0 = off) replays a recorded seed; lastThinkSeed
+    // captures the seed used so a saved game reproduces move-for-move.
+    rngState = forceThinkSeed ? forceThinkSeed : (random(0xFFFF) | 1);
+    lastThinkSeed = rngState;
 #endif
 
     // Real ko point: if the last move captured exactly one of our
