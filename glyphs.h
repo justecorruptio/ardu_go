@@ -30,3 +30,9 @@ PROGMEM const uint8_t GLYPH_STONE_OUTLINE[] = {
 PROGMEM const uint8_t GLYPH_CURSOR[] = {
     0x63, 0x41, 0x00, 0x00, 0x00, 0x41, 0x63
 };
+
+// Last-move "v" marker, drawn at (x-1, y): cols (bit0=top) are
+// row0, row1, row0 -> pixels (x-1,y) (x,y+1) (x+1,y).
+PROGMEM const uint8_t GLYPH_LASTMOVE[] = {
+    0x01, 0x02, 0x01
+};

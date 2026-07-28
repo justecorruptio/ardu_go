@@ -45,9 +45,7 @@ void Display::renderBoard() {
         uint8_t x = GRID_LEFT + (i % BOARD_SIZE) * CELL_SIZE;
         uint8_t y = GRID_TOP + (i / BOARD_SIZE) * CELL_SIZE;
         uint8_t c = packedGet(game.board, i) == BLACK ? 0 : 1;
-        jay.drawPixel(x - 1, y, c);
-        jay.drawPixel(x + 1, y, c);
-        jay.drawPixel(x, y + 1, c);
+        jay.drawBand(x - 1, y, GLYPH_LASTMOVE, 3, c);
         break;
     }
 }
