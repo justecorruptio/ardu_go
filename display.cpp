@@ -59,24 +59,8 @@ void Display::renderCursor() {
     // a blocking think() the frame scheduler catches up in a burst of
     // instant frames, which made a frame-based blink stutter.
     uint8_t blink = (uint8_t)(millis() >> 8) & 1;
-    if(blink) {
-        // Top-left corner
-        jay.drawPixel(x - 3, y - 3, 1);
-        jay.drawPixel(x - 2, y - 3, 1);
-        jay.drawPixel(x - 3, y - 2, 1);
-        // Top-right corner
-        jay.drawPixel(x + 3, y - 3, 1);
-        jay.drawPixel(x + 2, y - 3, 1);
-        jay.drawPixel(x + 3, y - 2, 1);
-        // Bottom-left corner
-        jay.drawPixel(x - 3, y + 3, 1);
-        jay.drawPixel(x - 2, y + 3, 1);
-        jay.drawPixel(x - 3, y + 2, 1);
-        // Bottom-right corner
-        jay.drawPixel(x + 3, y + 3, 1);
-        jay.drawPixel(x + 2, y + 3, 1);
-        jay.drawPixel(x + 3, y + 2, 1);
-    }
+    if(blink)
+        jay.drawBand(x - 3, y - 3, GLYPH_CURSOR, 7);
 }
 
 void Display::renderInfo() {
