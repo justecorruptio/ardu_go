@@ -665,13 +665,32 @@ static uint8_t posXY(uint8_t pos) {
 static uint8_t groupLibsCore(uint8_t start, uint8_t *l1, uint8_t *l2,
                              uint8_t markAll, uint8_t cap);
 
-// Does the group at start have any liberty? Thin wrapper — the
-// shared flood's seed fast path handles the common case identically;
-// only big-group floods do modestly more work, and the ~180 bytes of
-// flash matter more than those cycles.
+// Does the group at start have any liberty? Dedicated flood: unlike the
+// shared core it keeps no liberty list, count, or dedup — it just bails
+// on the first empty cell it sees. This is the hottest liberty query
+// (simPlay runs it per opponent neighbor and per ungated move), so the
+// leaner inner loop earns back its own flash. Bit-identical: a boolean
+// "any liberty" is independent of flood order.
 static uint8_t hasLiberty(uint8_t start) {
-    uint8_t a, b;
-    return groupLibsCore(start, &a, &b, 0, 1) != 0;
+    uint8_t color = simBoard[start];
+    uint8_t nb[4];
+    newMark();
+    uint8_t sp = 0;
+    floodSlot(sp++) = start;
+    simMark[start] = markEpoch;
+    while(sp) {
+        uint8_t p = floodSlot(--sp);
+        uint8_t n = neighbors(p, nb);
+        for(uint8_t i = 0; i < n; i++) {
+            uint8_t q = nb[i];
+            if(simBoard[q] == EMPTY) return 1;
+            if(simBoard[q] == color && simMark[q] != markEpoch) {
+                simMark[q] = markEpoch;
+                floodSlot(sp++) = q;
+            }
+        }
+    }
+    return 0;
 }
 
 // Remove a group, using the board itself as the visited marker
