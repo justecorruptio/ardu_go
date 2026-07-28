@@ -42,20 +42,20 @@ static int trial(uint8_t ex, uint8_t ey, uint8_t exX2, uint8_t exY2,
     return (x == ex && y == ey) || (x == exX2 && y == exY2);
 }
 
-// Majority of 3 differently-seeded searches: single-seed results flip
+// Majority of 15 differently-seeded searches: single-seed results flip
 // on any code change (each prior value shifts the rng stream), which
 // once misled a whole tuning session. "Usually right" is the honest
 // assertion for a stochastic searcher.
 static int expectMove(const char *name, uint8_t ex, uint8_t ey) {
     uint8_t x = 0xFF, y = 0xFF;
     int wins = 0;
-    for(int t = 0; t < 3; t++) {
+    for(int t = 0; t < 15; t++) {
         srand(1000 + t * 7777);
         wins += trial(ex, ey, ex, ey, &x, &y);
     }
-    bool ok = wins >= 2;
+    bool ok = wins >= 8;
     uint8_t got = 1;
-    printf("%-28s expected (%d,%d) %d/3 last(%d,%d)  %s\n",
+    printf("%-28s expected (%d,%d) %d/15 last(%d,%d)  %s\n",
            name, ex, ey, wins, x, y, ok ? "PASS" : "FAIL");
     // Search introspection: overall eval, the expected move's stats,
     // and the visit leader
@@ -142,7 +142,7 @@ int main() {
     {
         uint8_t x, y;
         int wins = 0;
-        for(int t = 0; t < 3; t++) {
+        for(int t = 0; t < 15; t++) {
             srand(1000 + t * 7777);
             ai.reset();
             ai.think(game);
@@ -153,8 +153,8 @@ int main() {
                 wins += (ddx <= 1 && ddy <= 1);
             }
         }
-        bool ok = wins >= 2;
-        printf("boundary push: answers locally  %d/3 last(%d,%d)  %s\n",
+        bool ok = wins >= 8;
+        printf("boundary push: answers locally  %d/15 last(%d,%d)  %s\n",
                wins, x, y, ok ? "PASS" : "FAIL");
         if(!ok) fails++;
     }
@@ -180,12 +180,12 @@ int main() {
     {
         uint8_t x, y;
         int wins = 0;
-        for(int t = 0; t < 3; t++) {
+        for(int t = 0; t < 15; t++) {
             srand(1000 + t * 7777);
             wins += trial(5, 4, 5, 4, &x, &y);
         }
-        bool ok = wins >= 2;
-        printf("cut protect: connects           %d/3 last(%d,%d)  %s\n",
+        bool ok = wins >= 8;
+        printf("cut protect: connects           %d/15 last(%d,%d)  %s\n",
                wins, x, y, ok ? "PASS" : "FAIL");
         if(!ok) fails++;
     }
@@ -213,12 +213,12 @@ int main() {
         // tested is tenuki while the push walks through.
         uint8_t x, y;
         int wins = 0;
-        for(int t = 0; t < 3; t++) {
+        for(int t = 0; t < 15; t++) {
             srand(1000 + t * 7777);
             wins += trial(2, 7, 3, 6, &x, &y);
         }
-        bool ok = wins >= 2;
-        printf("keima push: blocks waist        %d/3 last(%d,%d)  %s\n",
+        bool ok = wins >= 8;
+        printf("keima push: blocks waist        %d/15 last(%d,%d)  %s\n",
                wins, x, y, ok ? "PASS" : "FAIL");
         if(!ok) fails++;
     }
@@ -245,7 +245,7 @@ int main() {
     {
         uint8_t x, y;
         int wins = 0;
-        for(int t = 0; t < 3; t++) {
+        for(int t = 0; t < 15; t++) {
             srand(1000 + t * 7777);
             ai.reset();
             ai.think(game);
@@ -256,8 +256,8 @@ int main() {
                 wins += (ddx <= 1 && ddy <= 1);
             }
         }
-        bool ok = wins >= 2;
-        printf("2-space wedge: answers locally  %d/3 last(%d,%d)  %s\n",
+        bool ok = wins >= 8;
+        printf("2-space wedge: answers locally  %d/15 last(%d,%d)  %s\n",
                wins, x, y, ok ? "PASS" : "FAIL");
         if(!ok) fails++;
     }
@@ -285,7 +285,7 @@ int main() {
     {
         uint8_t x, y;
         int wins = 0;
-        for(int t = 0; t < 3; t++) {
+        for(int t = 0; t < 15; t++) {
             srand(1000 + t * 7777);
             ai.reset();
             ai.think(game);
@@ -296,8 +296,8 @@ int main() {
                 wins += (ddx <= 1 && ddy <= 1);
             }
         }
-        bool ok = wins >= 2;
-        printf("elephant wedge: answers locally %d/3 last(%d,%d)  %s\n",
+        bool ok = wins >= 8;
+        printf("elephant wedge: answers locally %d/15 last(%d,%d)  %s\n",
                wins, x, y, ok ? "PASS" : "FAIL");
         if(!ok) fails++;
     }
@@ -326,12 +326,12 @@ int main() {
     {
         uint8_t x, y;
         int wins = 0;
-        for(int t = 0; t < 3; t++) {
+        for(int t = 0; t < 15; t++) {
             srand(1000 + t * 7777);
             wins += trial(2, 4, 2, 4, &x, &y);
         }
-        bool ok = wins >= 2;
-        printf("wall junction: white holds C5   %d/3 last(%d,%d)  %s\n",
+        bool ok = wins >= 8;
+        printf("wall junction: white holds C5   %d/15 last(%d,%d)  %s\n",
                wins, x, y, ok ? "PASS" : "FAIL");
         if(!ok) fails++;
     }
