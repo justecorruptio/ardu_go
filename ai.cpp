@@ -585,6 +585,9 @@ static uint8_t simMark[BOARD_CELLS];   // epoch marks for flood fill
 // worse. Replaces per-candidate chain floods (once ~38% of think
 // time). Valid only inside one expandNode/widenNode call.
 static uint8_t chainId[BOARD_CELLS];
+// Which empty cells' eyespace code (chainId bits 6-7) is cached this
+// widen (see buildChainMap / regionVital's lazy stamp). 81 bits.
+static uint8_t regionDone[11];
 #define CHAIN_OF(b) ((b) & 0x3F)
 #define LIBS_OF(b) ((b) >> 6)
 static uint8_t markEpoch;
@@ -779,10 +782,28 @@ static uint8_t groupLibsMark(uint8_t start) {
     return groupLibsCore(start, &a, &b, 1, 3);
 }
 
+#define SETTLED_REGION_MAX 8
+// Vital point of a small marked empty region: the UNIQUE cell of max
+// degree within it (region[0..cnt-1], all in the current mark epoch),
+// or 0xFF if none. Shared by regionVital and its lazy cache stamp;
+// bestDeg/ties feed the square-four gate.
+static uint8_t regionVitalCell(const uint8_t *region, uint8_t cnt,
+                               uint8_t *bestDeg, uint8_t *ties) {
+    uint8_t nb[4], bd = 1, bc = 0xFF, t = 0;
+    for(uint8_t j = 0; j < cnt; j++) {
+        uint8_t deg = 0, n = neighbors(region[j], nb);
+        for(uint8_t i = 0; i < n; i++)
+            if(simBoard[nb[i]] == EMPTY && simMark[nb[i]] == markEpoch) deg++;
+        if(deg > bd) { bd = deg; bc = region[j]; t = 1; }
+        else if(deg == bd) t++;
+    }
+    *bestDeg = bd; *ties = t;
+    return bc;
+}
 // Build the chain map: flood each chain to assign ids and count
-// liberties, then a second cheap walk stamps the libs bits (a live
-// chain always has libs >= 1, so zero top bits doubles as the
-// "not yet stamped" marker).
+// liberties, then a second cheap walk stamps the libs bits. A lazy
+// eyespace map also lives in the empty cells' top bits, filled on
+// demand by regionVital; buildChainMap just clears its cache flags.
 static void buildChainMap() {
     memset(chainId, 0, sizeof(chainId));
     uint8_t nextId = 0;
@@ -829,6 +850,8 @@ static void buildChainMap() {
             }
         }
     }
+    // Fresh eyespace cache for this node's board (see regionVital).
+    memset(regionDone, 0, sizeof(regionDone));
 }
 
 // pos touches two DISTINCT friendly chains (seeds fa, fb). Is it
@@ -874,48 +897,34 @@ static uint8_t soleConnector(uint8_t idA, uint8_t idB) {
 // under the Japanese rules the game scores by (own fill: -1 point;
 // hopeless invasion: gifts a prisoner), but the area-scoring
 // playouts think they are free.
-#define SETTLED_REGION_MAX 8
 static uint8_t regionVital(uint8_t seed, uint8_t *vital) {
     uint8_t region[SETTLED_REGION_MAX];
     uint8_t cnt = 0, head = 0;
-    uint8_t owner = 0;
+    uint8_t owner = 0, unsettled = 0;
     uint8_t nb[4];
     *vital = 0xFF;
     newMark();
     region[cnt++] = seed;
     simMark[seed] = markEpoch;
-    while(head < cnt) {
+    while(head < cnt && !unsettled) {
         uint8_t n = neighbors(region[head++], nb);
         for(uint8_t i = 0; i < n; i++) {
             uint8_t q = nb[i];
             uint8_t s = simBoard[q];
             if(s != EMPTY) {
                 if(!owner) owner = s;
-                else if(owner != s) return 0;        // touches both colors
+                else if(owner != s) { unsettled = 1; break; } // both colors
                 continue;
             }
             if(simMark[q] == markEpoch) continue;
-            if(cnt >= SETTLED_REGION_MAX) return 0;  // too open to be settled
+            if(cnt >= SETTLED_REGION_MAX) { unsettled = 1; break; } // too open
             simMark[q] = markEpoch;
             region[cnt++] = q;
         }
     }
-    if(owner && cnt >= 3 && cnt <= 6) {
-        uint8_t bestDeg = 1, bestCell = 0xFF, ties = 0;
-        for(uint8_t j = 0; j < cnt; j++) {
-            uint8_t deg = 0;
-            uint8_t n = neighbors(region[j], nb);
-            for(uint8_t i = 0; i < n; i++)
-                if(simBoard[nb[i]] == EMPTY && simMark[nb[i]] == markEpoch)
-                    deg++;
-            if(deg > bestDeg) {
-                bestDeg = deg;
-                bestCell = region[j];
-                ties = 1;
-            } else if(deg == bestDeg) {
-                ties++;
-            }
-        }
+    if(!unsettled && owner && cnt >= 3 && cnt <= 6) {
+        uint8_t bestDeg, ties;
+        uint8_t bestCell = regionVitalCell(region, cnt, &bestDeg, &ties);
         if(bestCell != 0xFF && ties == 1) *vital = bestCell;
         // Square four: the one shape the unique-max rule misses.
         // All four cells tie at degree 2 (a straight four has two
@@ -929,7 +938,20 @@ static uint8_t regionVital(uint8_t seed, uint8_t *vital) {
         else if(scoreMode && cnt == 4 && bestDeg == 2 && ties == 4)
             *vital = bestCell;
     }
-    return owner;
+    // Lazy eyespace cache: stamp the flooded cells (<=8) with the region
+    // code (bits 6-7: 1=black, 2=white, 0=open; the vital cell = 3) and
+    // flag them done, so other candidates in this region skip the flood.
+    // Harmless outside the widen scan (chainId/regionDone are rebuilt by
+    // the next buildChainMap and never read during playouts).
+    uint8_t code = (unsettled || !owner) ? 0 : owner;
+    for(uint8_t j = 0; j < cnt; j++) {
+        uint8_t c = region[j];
+        chainId[c] = (chainId[c] & 0x3F) | (code << 6);
+        regionDone[c >> 3] |= 1 << (c & 7);
+    }
+    if(*vital != 0xFF)
+        chainId[*vital] = (chainId[*vital] & 0x3F) | (3 << 6);
+    return unsettled ? 0 : owner;
 }
 
 // All orthogonal neighbors own color (or edge)
@@ -1826,14 +1848,21 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     // were burying the bonus.
     uint8_t vitalHere = 0;
     {
-        uint8_t vital;
-        uint8_t so = regionVital(pos, &vital);
-        if(so && vital == pos) {
+        // Eyespace lookup: pos is empty, so its chainId top bits hold the
+        // region code — 0=open, 1=black, 2=white, 3=vital. Filled lazily
+        // by regionVital (first candidate in a region floods it; the rest
+        // read the cache), so this is O(1) per candidate.
+        if(!(regionDone[pos >> 3] & (1 << (pos & 7)))) {
+            uint8_t vital;
+            regionVital(pos, &vital);
+        }
+        uint8_t rc = chainId[pos] >> 6;
+        if(rc == 3) {
             bonus += PRIOR_VITAL;
             vitalHere = 1;
-        } else if(so && !sawCapture && !sawSave && !sawAtari &&
+        } else if(rc && !sawCapture && !sawSave && !sawAtari &&
                   !connHere) {
-            bonus -= (so == toMove) ? PRIOR_OWNFILL_PENALTY
+            bonus -= (rc == toMove) ? PRIOR_OWNFILL_PENALTY
                                     : PRIOR_INVADE_PENALTY;
         }
     }
