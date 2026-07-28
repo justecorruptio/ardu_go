@@ -1075,34 +1075,19 @@ static uint8_t patternMatch(int8_t cx, int8_t cy, uint8_t color) {
     uint8_t clsy = (cy == 0) ? 0 : (cy == BOARD_SIZE - 1) ? 2 : 1;
 
     uint16_t idx = 0;
+    uint16_t mult = 1;
     uint8_t stones = 0;
-    if(clsx == 1 && clsy == 1) {
-        // Interior fast path (the common case): all 8 neighbors are
-        // on-board, so unroll with constant base-3 place values and no
-        // bounds checks. Offsets and place values follow the dy,dx scan
-        // order below exactly, so the index is identical.
-        const uint8_t *b = simBoard + cy * BOARD_SIZE + cx;
-#define PM_ACC(off, m) do { uint8_t s = b[off]; \
-        if(s) { stones++; idx += (uint16_t)((s == color) ? 1 : 2) * (m); } \
-    } while(0)
-        PM_ACC(-10, 1);  PM_ACC(-9, 3);   PM_ACC(-8, 9);
-        PM_ACC(-1, 27);                    PM_ACC(1, 81);
-        PM_ACC(8, 243);  PM_ACC(9, 729);   PM_ACC(10, 2187);
-#undef PM_ACC
-    } else {
-        uint16_t mult = 1;
-        for(int8_t dy = -1; dy <= 1; dy++) {
-            for(int8_t dx = -1; dx <= 1; dx++) {
-                if(dx == 0 && dy == 0) continue;
-                int8_t x = cx + dx, y = cy + dy;
-                if(x < 0 || x >= BOARD_SIZE || y < 0 || y >= BOARD_SIZE)
-                    continue; // off-board cells are implied by the class
-                uint8_t s = simBoard[y * BOARD_SIZE + x];
-                uint8_t v = (s == EMPTY) ? 0 : (s == color) ? 1 : 2;
-                if(v) stones++;
-                idx += v * mult;
-                mult *= 3;
-            }
+    for(int8_t dy = -1; dy <= 1; dy++) {
+        for(int8_t dx = -1; dx <= 1; dx++) {
+            if(dx == 0 && dy == 0) continue;
+            int8_t x = cx + dx, y = cy + dy;
+            if(x < 0 || x >= BOARD_SIZE || y < 0 || y >= BOARD_SIZE)
+                continue; // off-board cells are implied by the class
+            uint8_t s = simBoard[y * BOARD_SIZE + x];
+            uint8_t v = (s == EMPTY) ? 0 : (s == color) ? 1 : 2;
+            if(v) stones++;
+            idx += v * mult;
+            mult *= 3;
         }
     }
     if(stones < 2) return 0; // no pattern has fewer than two stones
