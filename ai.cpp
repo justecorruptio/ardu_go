@@ -646,6 +646,19 @@ static void newMark() {
     }
 }
 
+// Board index -> packed (y<<4)|x. AVR has no hardware divide, so the
+// pervasive pos%9 / pos/9 split compiled to __udivmodqi4, a ~40-cycle
+// bit loop. The hardware multiplier gives the result in a few cycles:
+// y=(pos*57)>>9 is exact for every pos in 0..80 (checked to 0..255),
+// and x = pos - y*9. Applied to the hot playout/prior/widen sites this
+// is play-identical (verified bit-for-bit) for ~0.4% off the whole
+// search — small because the remaining divide time is the 16/32-bit
+// UCB win-rate divides, which have variable divisors and stay.
+static uint8_t posXY(uint8_t pos) {
+    uint8_t y = ((uint16_t)pos * 57) >> 9;
+    return (uint8_t)(y << 4) | (uint8_t)(pos - y * 9);
+}
+
 static uint8_t groupLibsCore(uint8_t start, uint8_t *l1, uint8_t *l2,
                              uint8_t markAll, uint8_t cap);
 
@@ -1275,7 +1288,8 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
 
         // MoGo-style: 3x3 patterns at the 8 points around the last move
         if(last < BOARD_CELLS && (rnd16() & 15)) {
-            int8_t lpx = last % BOARD_SIZE, lpy = last / BOARD_SIZE;
+            uint8_t lpxy = posXY(last);
+            int8_t lpx = lpxy & 0x0F, lpy = lpxy >> 4;
             uint8_t matches[8];
             uint8_t nMatches = 0;
             for(int8_t dy = -1; dy <= 1; dy++) {
@@ -1310,7 +1324,8 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
         if(last < BOARD_CELLS && simBoard[last] != EMPTY) {
             uint16_t p = rnd16();
             uint8_t pos = 0xFF;
-            int8_t lx = last % BOARD_SIZE, ly = last / BOARD_SIZE;
+            uint8_t lxy = posXY(last);
+            int8_t lx = lxy & 0x0F, ly = lxy >> 4;
             if(p & 1) {
                 int8_t cx = lx + (int8_t)rnd(3) - 1;
                 int8_t cy = ly + (int8_t)rnd(3) - 1;
@@ -1388,7 +1403,8 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
 #endif
             if(nn == 4 && rootStones + m >= EARLY_STONES &&
                (rnd16() & PLAYOUT_GROW_MASK)) {
-                uint8_t bx = pos % BOARD_SIZE, by = pos / BOARD_SIZE;
+                uint8_t bxy = posXY(pos);
+                uint8_t bx = bxy & 0x0F, by = bxy >> 4;
                 uint8_t touch = 0;
                 for(int8_t tdy = -1; tdy <= 1 && !touch; tdy++)
                     for(int8_t tdx = -1; tdx <= 1; tdx++) {
@@ -1814,7 +1830,8 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     uint8_t triHere = 0;
     if(!sawCapture && !sawSave && !sawAtari && !sawRace) {
         uint8_t tri = 0;
-        uint8_t tx = pos % BOARD_SIZE, ty = pos / BOARD_SIZE;
+        uint8_t txy = posXY(pos);
+        uint8_t tx = txy & 0x0F, ty = txy >> 4;
         for(int8_t tdy = -1; tdy <= 1 && !tri; tdy += 2)
             for(int8_t tdx = -1; tdx <= 1; tdx += 2) {
                 int8_t fx = tx + tdx, fy = ty + tdy;
@@ -1866,7 +1883,8 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     }
 
     // Center preference: the edge is worth less than the third line
-    uint8_t x = pos % BOARD_SIZE, y = pos / BOARD_SIZE;
+    uint8_t xy = posXY(pos);
+    uint8_t x = xy & 0x0F, y = xy >> 4;
     uint8_t ex = x < BOARD_SIZE - 1 - x ? x : BOARD_SIZE - 1 - x;
     uint8_t ey = y < BOARD_SIZE - 1 - y ? y : BOARD_SIZE - 1 - y;
     uint8_t ed = ex < ey ? ex : ey;
@@ -2049,7 +2067,8 @@ static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t la
         if(have[pos >> 3] & (1 << (pos & 7))) continue;
         uint8_t isFar = 0;
         if(anyStone && !(near[pos >> 3] & (1 << (pos & 7)))) {
-            uint8_t bx = pos % BOARD_SIZE, by = pos / BOARD_SIZE;
+            uint8_t bxy = posXY(pos);
+            uint8_t bx = bxy & 0x0F, by = bxy >> 4;
             uint8_t bex = bx < BOARD_SIZE - 1 - bx ? bx : BOARD_SIZE - 1 - bx;
             uint8_t bey = by < BOARD_SIZE - 1 - by ? by : BOARD_SIZE - 1 - by;
             if((bex < bey ? bex : bey) < 2) continue;
