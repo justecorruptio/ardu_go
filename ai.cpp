@@ -1133,14 +1133,22 @@ static uint16_t pattern3Index(int8_t cx, int8_t cy, uint8_t color,
     uint16_t idx = 0;
     uint8_t stones = 0;
     if(clsx == 1 && clsy == 1) {
+        // Left-right mirror fold: read the 8 neighbours as own(1)/opp(2)/
+        // empty(0), then index the interior by (middle spine, unordered pair
+        // of {left,right} columns) with a dense triangular index. Halves the
+        // interior table; mirror-equivalent shapes share a slot.
         const uint8_t *b = simBoard + cy * BOARD_SIZE + cx;
-#define PM_ACC(off, m) do { uint8_t s = b[off]; \
-        if(s) { stones++; idx += (uint16_t)((s == color) ? 1 : 2) * (m); } \
-    } while(0)
-        PM_ACC(-10, 1);  PM_ACC(-9, 3);   PM_ACC(-8, 9);
-        PM_ACC(-1, 27);                    PM_ACC(1, 81);
-        PM_ACC(8, 243);  PM_ACC(9, 729);   PM_ACC(10, 2187);
-#undef PM_ACC
+#define VC(off) (b[off] ? ((b[off] == color) ? 1 : 2) : 0)
+        uint8_t vNW = VC(-10), vN = VC(-9), vNE = VC(-8);
+        uint8_t vW  = VC(-1),                vE  = VC(1);
+        uint8_t vSW = VC(8),   vS = VC(9),   vSE = VC(10);
+#undef VC
+        stones = (vNW>0)+(vN>0)+(vNE>0)+(vW>0)+(vE>0)+(vSW>0)+(vS>0)+(vSE>0);
+        uint8_t L = vNW + 3*vW + 9*vSW;   // left column  0..26
+        uint8_t R = vNE + 3*vE + 9*vSE;   // right column 0..26
+        uint8_t M = vN + 3*vS;            // middle spine 0..8
+        if(L > R) { uint8_t t = L; L = R; R = t; }
+        idx = (uint16_t)(M*378 + L*27 - L*(L-1)/2 + (R-L));
     } else {
         uint16_t mult = 1;
         for(int8_t dy = -1; dy <= 1; dy++) {
