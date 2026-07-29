@@ -1,7 +1,6 @@
 #include "ai.h"
 #include "opening_book.h"
 #include "neighbor_table.h"
-#include "pattern_table.h"
 
 // Random draws: the device uses the engine's own xorshift (seeded at
 // boot) so libc random() never links; the host keeps libc random()
@@ -1125,17 +1124,15 @@ static uint8_t ladderEscapes(uint8_t defStart, uint8_t esc,
 // bitmaps per position class, so a query is a base-3 index over the
 // on-board neighbors (colors relative to the mover; the set is
 // color-swap closed, so this is exact) plus one bit test.
-static uint8_t patternMatch(int8_t cx, int8_t cy, uint8_t color) {
+// Shared base-3 index over the on-board neighbors; sets *pcls, *pstones.
+static uint16_t pattern3Index(int8_t cx, int8_t cy, uint8_t color,
+                              uint8_t *pcls, uint8_t *pstones) {
     uint8_t clsx = (cx == 0) ? 0 : (cx == BOARD_SIZE - 1) ? 2 : 1;
     uint8_t clsy = (cy == 0) ? 0 : (cy == BOARD_SIZE - 1) ? 2 : 1;
 
     uint16_t idx = 0;
     uint8_t stones = 0;
     if(clsx == 1 && clsy == 1) {
-        // Interior fast path (the common case): all 8 neighbors are
-        // on-board, so unroll with constant base-3 place values and no
-        // bounds checks. Offsets and place values follow the dy,dx scan
-        // order below exactly, so the index is identical.
         const uint8_t *b = simBoard + cy * BOARD_SIZE + cx;
 #define PM_ACC(off, m) do { uint8_t s = b[off]; \
         if(s) { stones++; idx += (uint16_t)((s == color) ? 1 : 2) * (m); } \
@@ -1160,11 +1157,12 @@ static uint8_t patternMatch(int8_t cx, int8_t cy, uint8_t color) {
             }
         }
     }
-    if(stones < 2) return 0; // no pattern has fewer than two stones
-
-    uint16_t off = pgm_read_word(PAT3_OFFSET + clsy * 3 + clsx);
-    return (pgm_read_byte(PAT3_BITS + off + (idx >> 3)) >> (idx & 7)) & 1;
+    *pcls = clsy * 3 + clsx;
+    *pstones = stones;
+    return idx;
 }
+
+
 
 // Dynamic komi for graceful losing (see think): when behind, the
 // tree learns from playouts scored with this many HALF-POINTS
@@ -1356,32 +1354,6 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
             }
         }
 
-        // MoGo-style: 3x3 patterns at the 8 points around the last move
-        if(last < BOARD_CELLS && (rnd16() & 15)) {
-            uint8_t lpxy = posXY(last);
-            int8_t lpx = lpxy & 0x0F, lpy = lpxy >> 4;
-            uint8_t matches[8];
-            uint8_t nMatches = 0;
-            for(int8_t dy = -1; dy <= 1; dy++) {
-                for(int8_t dx = -1; dx <= 1; dx++) {
-                    if(dx == 0 && dy == 0) continue;
-                    int8_t cx = lpx + dx, cy = lpy + dy;
-                    if(cx < 0 || cx >= BOARD_SIZE || cy < 0 || cy >= BOARD_SIZE)
-                        continue;
-                    uint8_t pos = cy * BOARD_SIZE + cx;
-                    if(simBoard[pos] != EMPTY || pos == ko) continue;
-                    if(isOwnEye(pos, toMove)) continue;
-                    if(patternMatch(cx, cy, toMove))
-                        matches[nMatches++] = pos;
-                }
-            }
-            if(nMatches &&
-               playoutTry(matches[rnd(nMatches)], toMove, &ko, &last, m)) {
-                passes = 0;
-                toMove = 3 - toMove;
-                continue;
-            }
-        }
 
         // Local answer: half the time, try one random point around
         // the last move before the global probe — plain contact
@@ -1854,8 +1826,6 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
             connHere = 1;
         }
     }
-    if(eGroups >= 2 && eMinLibs == 2) bonus += PRIOR_CUT_WEAK;
-    if(sawLink && !connHere) bonus += PRIOR_LINK;
 
     // Eyespaces and settled territory. The vital point of a small
     // one-color region is simple life and death — make the second
@@ -1893,37 +1863,6 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     // corner empty; elbow form = both corners friendly + diagonal
     // point empty.
     uint8_t triHere = 0;
-    if(!sawCapture && !sawSave && !sawAtari && !sawRace) {
-        uint8_t tri = 0, sq = 0;
-        uint8_t txy = posXY(pos);
-        uint8_t tx = txy & 0x0F, ty = txy >> 4;
-        for(int8_t tdy = -1; tdy <= 1 && !sq; tdy += 2)
-            for(int8_t tdx = -1; tdx <= 1; tdx += 2) {
-                int8_t fx = tx + tdx, fy = ty + tdy;
-                if(fx < 0 || fx >= BOARD_SIZE ||
-                   fy < 0 || fy >= BOARD_SIZE) continue;
-                uint8_t sd = simBoard[fy * BOARD_SIZE + fx];
-                uint8_t s1 = simBoard[ty * BOARD_SIZE + fx];
-                uint8_t s2 = simBoard[fy * BOARD_SIZE + tx];
-                if(sd == toMove && s1 == toMove && s2 == toMove) {
-                    sq = 1;                        // 2x2 square (fourth stone)
-                    break;
-                } else if(sd == toMove &&
-                   ((s1 == toMove && s2 == EMPTY) ||
-                    (s2 == toMove && s1 == EMPTY))) tri = 1;
-                else if(sd == EMPTY && s1 == toMove && s2 == toMove)
-                    tri = 1;
-            }
-        if(sq || tri) {
-            bonus -= sq ? PRIOR_SQUARE : PRIOR_EMPTY_TRI;
-            triHere = 1;
-        }
-    }
-
-    // Naked attachment to a healthy chain (see PRIOR_ATTACH_PENALTY)
-    if(!sawCapture && !sawSave && !sawAtari && !sawRace &&
-       !hasOrthFriend && eGroups && eMinLibs >= 3)
-        bonus -= PRIOR_ATTACH_PENALTY;
 
     // Urgent defense: reinforcing an own 2-liberty group in the zone
     // of the opponent's last move — don't tenuki from a live fight
@@ -2059,22 +1998,12 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
             // touches us, this candidate touches the pusher
             // ORTHOGONALLY (the junction does; diagonal near-misses
             // scored alike in a real cut-through game until this)
-            if(hasOrthFriend && dx + dy == 1) {
-                uint8_t nbp[4];
-                uint8_t np = neighbors(last, nbp);
-                for(uint8_t j = 0; j < np; j++)
-                    if(simBoard[nbp[j]] == toMove) {
-                        bonus += PRIOR_BLOCK;
-                        break;
-                    }
-            }
         }
     }
 
     // Local shape: the same 3x3 patterns the playouts use. This is what
     // makes cut-defense (blocking a keima push, connecting a jump)
     // visible to the tree instead of only to the rollouts.
-    if(!lowLineBad && patternMatch(x, y, toMove)) bonus += PRIOR_PATTERN;
 
     // Big open point: the territory-staking move
     if(isFar) bonus += PRIOR_BIG;
