@@ -804,18 +804,24 @@ static void buildChainMap() {
                 }
             }
         }
-        // stamp libs into the top bits of every member
+        // Stamp libs into the top bits of every member. The dedup below
+        // relies on `chainId[q] |= bits` flipping q off the `== id` match;
+        // with count==0 (a 0-liberty group, only reachable from an illegal
+        // board) bits==0, so the OR is a no-op and the flood never
+        // terminates. Nothing to stamp then anyway, so guard it.
         uint8_t bits = count << 6;
-        sp = 0;
-        floodSlot(sp++) = s;
-        chainId[s] |= bits;
-        while(sp) {
-            uint8_t p = floodSlot(--sp);
-            uint8_t q;
-            FOR_EACH_NEIGHBOR(q, p) {
-                if(chainId[q] == id) { // id match, libs not yet stamped
-                    chainId[q] |= bits;
-                    floodSlot(sp++) = q;
+        if(bits) {
+            sp = 0;
+            floodSlot(sp++) = s;
+            chainId[s] |= bits;
+            while(sp) {
+                uint8_t p = floodSlot(--sp);
+                uint8_t q;
+                FOR_EACH_NEIGHBOR(q, p) {
+                    if(chainId[q] == id) { // id match, libs not yet stamped
+                        chainId[q] |= bits;
+                        floodSlot(sp++) = q;
+                    }
                 }
             }
         }
