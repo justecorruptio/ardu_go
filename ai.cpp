@@ -629,11 +629,14 @@ static uint8_t groupLibsCore(uint8_t start, uint8_t *l1, uint8_t *l2,
 static uint8_t hasLiberty(uint8_t start) {
     uint8_t color = simBoard[start];
     newMark();
+    // sp indexes the TOP of the flood stack (not a count): start sits at
+    // slot 0, and popping slot 0 underflows sp to 0xFF = "empty". The stack
+    // always holds start, so the flood runs at least once (do-while).
     uint8_t sp = 0;
-    floodSlot(sp++) = start;
+    floodSlot(sp) = start;
     simMark[start] = markEpoch;
-    while(sp) {
-        uint8_t p = floodSlot(--sp);
+    do {
+        uint8_t p = floodSlot(sp--);
         // neighbors() inlined and fused: walk the 0xFF-terminated
         // neighbour list straight from PROGMEM (lpm Z+), no count. An
         // empty neighbour exits before reading the rest.
@@ -643,10 +646,10 @@ static uint8_t hasLiberty(uint8_t start) {
             if(simBoard[q] == EMPTY) return 1;
             if(simBoard[q] == color && simMark[q] != markEpoch) {
                 simMark[q] = markEpoch;
-                floodSlot(sp++) = q;
+                floodSlot(++sp) = q;
             }
         }
-    }
+    } while(sp != 0xFF);
     return 0;
 }
 
