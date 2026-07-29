@@ -591,25 +591,6 @@ static uint8_t rnd(uint8_t n) {
     return rnd16() % n;
 }
 
-// ALWAYS_INLINE is the whole optimization here: this is the single
-// most-called function in the engine (every flood step), and the
-// CALL/RET plus register save/restore at each of ~20 sites cost more
-// than the body. Emulator A/B: inlining is -4.5% device cycles for
-// +492 B flash — the store/count shape is irrelevant next to that
-// (dword-store variants measured SLOWER; gcc's byte copy uses
-// call-clobbered registers). One dword read = four lpm Z+.
-__attribute__((always_inline)) static inline
-uint8_t neighbors(uint8_t pos, uint8_t *nb) {
-    const uint8_t *e = NEIGHBOR_TABLE + pos * 5;
-    uint32_t four = pgm_read_dword(e);   // n0..n3, 0xFF-padded
-    nb[0] = (uint8_t)four;
-    nb[1] = (uint8_t)(four >> 8);
-    nb[2] = (uint8_t)(four >> 16);
-    nb[3] = (uint8_t)(four >> 24);
-    // count = leading non-sentinel neighbours (always >= 2)
-    return (nb[2] == 0xFF) ? 2 : (nb[3] == 0xFF) ? 3 : 4;
-}
-
 // Iterate the 0xFF-terminated neighbour list of cell `pos`; `q` (a uint8_t
 // you declare) takes each neighbour in turn -- no count, no nb[] round-trip.
 #define FOR_EACH_NEIGHBOR(q, pos) \
@@ -1377,14 +1358,14 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                 // or one with no support within 2 (an invasion);
                 // either way the reply is a contact move.
                 uint8_t lastColor = simBoard[last];
-                uint8_t nbl[4];
-                uint8_t nl = neighbors(last, nbl);
-                uint8_t answer = 0;
-                for(uint8_t j = 0; j < nl; j++)
-                    if(simBoard[nbl[j]] == toMove) {
-                        answer = 1; // contact push
-                        break;
-                    }
+                // One pass over last's neighbours: collect them into nbl[]
+                // (needed for the random pick nbl[rnd(nl)] below), count nl,
+                // and flag a contact push -- no break, nl must count all.
+                uint8_t nbl[4], nl = 0, answer = 0, q;
+                FOR_EACH_NEIGHBOR(q, last) {
+                    nbl[nl++] = q;
+                    if(simBoard[q] == toMove) answer = 1; // contact push
+                }
                 if(!answer) {
                     answer = 1; // lone unless support found
                     for(int8_t dy = -2; dy <= 2 && answer; dy++)
