@@ -1720,18 +1720,6 @@ static uint8_t raceWin(uint8_t eStart) {
 }
 #endif
 
-// Any enemy stone in the 3x3 around (cx,cy)?
-static uint8_t oppNear(int8_t cx, int8_t cy, uint8_t opp) {
-    for(int8_t dy = -1; dy <= 1; dy++)
-        for(int8_t dx = -1; dx <= 1; dx++) {
-            int8_t nx = cx + dx, ny = cy + dy;
-            if(nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE)
-                continue;
-            if(simBoard[ny * BOARD_SIZE + nx] == opp) return 1;
-        }
-    return 0;
-}
-
 // Prior for one candidate: tactics + center + locality + shape, minus
 // early-game low-line penalties. Negative = virtual losses. isFar
 // marks a big open point, which can never earn tactical or local
