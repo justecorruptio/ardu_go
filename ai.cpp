@@ -1163,6 +1163,16 @@ static uint16_t pattern3Index(int8_t cx, int8_t cy, uint8_t color,
 }
 
 
+#include "pattern_weights.h"
+// Signed data-learned 3x3 pattern weight (replaces the MoGo bit).
+static int8_t patternBonus(int8_t cx, int8_t cy, uint8_t color) {
+    uint8_t cls, stones;
+    uint16_t idx = pattern3Index(cx, cy, color, &cls, &stones);
+    if(stones < 2) return 0;
+    uint16_t n = pgm_read_word(PAT3W_BASE + cls) + idx;
+    uint8_t code = (pgm_read_byte(PAT3W_BITS + (n >> 2)) >> ((n & 3) * 2)) & 3;
+    return (int8_t)pgm_read_byte(PAT3W_LEVEL + code);
+}
 
 // Dynamic komi for graceful losing (see think): when behind, the
 // tree learns from playouts scored with this many HALF-POINTS
@@ -1354,6 +1364,34 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
             }
         }
 
+        // 3x3 patterns at the 8 points around the last move
+        if(last < BOARD_CELLS && (rnd16() & 15)) {
+            uint8_t lpxy = posXY(last);
+            int8_t lpx = lpxy & 0x0F, lpy = lpxy >> 4;
+            uint8_t matches[8];
+            uint8_t nMatches = 0;
+            for(int8_t dy = -1; dy <= 1; dy++) {
+                for(int8_t dx = -1; dx <= 1; dx++) {
+                    if(dx == 0 && dy == 0) continue;
+                    int8_t cx = lpx + dx, cy = lpy + dy;
+                    if(cx < 0 || cx >= BOARD_SIZE || cy < 0 || cy >= BOARD_SIZE)
+                        continue;
+                    uint8_t pos = cy * BOARD_SIZE + cx;
+                    if(simBoard[pos] != EMPTY || pos == ko) continue;
+                    if(isOwnEye(pos, toMove)) continue;
+                    if(
+                       patternBonus(cx, cy, toMove) > 0
+                      )
+                        matches[nMatches++] = pos;
+                }
+            }
+            if(nMatches &&
+               playoutTry(matches[rnd(nMatches)], toMove, &ko, &last, m)) {
+                passes = 0;
+                toMove = 3 - toMove;
+                continue;
+            }
+        }
 
         // Local answer: half the time, try one random point around
         // the last move before the global probe — plain contact
@@ -2004,6 +2042,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     // Local shape: the same 3x3 patterns the playouts use. This is what
     // makes cut-defense (blocking a keima push, connecting a jump)
     // visible to the tree instead of only to the rollouts.
+    if(!lowLineBad) bonus += patternBonus(x, y, toMove);
 
     // Big open point: the territory-staking move
     if(isFar) bonus += PRIOR_BIG;
