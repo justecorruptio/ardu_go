@@ -641,22 +641,25 @@ static uint8_t groupLibsCore(uint8_t start, uint8_t *l1, uint8_t *l2,
 // "any liberty" is independent of flood order.
 static uint8_t hasLiberty(uint8_t start) {
     uint8_t color = simBoard[start];
-    uint8_t nb[4];
     newMark();
     uint8_t sp = 0;
     floodSlot(sp++) = start;
     simMark[start] = markEpoch;
     while(sp) {
         uint8_t p = floodSlot(--sp);
-        uint8_t n = neighbors(p, nb);
-        for(uint8_t i = 0; i < n; i++) {
-            uint8_t q = nb[i];
+        // neighbors() inlined and fused: read each packed neighbour byte
+        // from PROGMEM in place (lpm Z+); do-while since n>=2 always, so
+        // the first pass is unconditional. Early liberty exits the rest.
+        const uint8_t *e = NEIGHBOR_TABLE + p * 5;
+        uint8_t n = pgm_read_byte(e++);
+        do {
+            uint8_t q = pgm_read_byte(e++);
             if(simBoard[q] == EMPTY) return 1;
             if(simBoard[q] == color && simMark[q] != markEpoch) {
                 simMark[q] = markEpoch;
                 floodSlot(sp++) = q;
             }
-        }
+        } while(--n);
     }
     return 0;
 }
