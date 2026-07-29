@@ -626,52 +626,48 @@ static uint8_t groupLibsCore(uint8_t start, uint8_t *l1, uint8_t *l2,
 // (simPlay runs it per opponent neighbor and per ungated move), so the
 // leaner inner loop earns back its own flash. Bit-identical: a boolean
 // "any liberty" is independent of flood order.
+// On a full flood (return 0 = no liberty = captured), hasLiberty leaves the
+// whole group in floodScratch[0..capturedGroupN-1] so removeGroup can sweep
+// it instead of re-flooding (its only caller runs it right after).
+static uint8_t capturedGroupN;
+
 static uint8_t hasLiberty(uint8_t start) {
     uint8_t color = simBoard[start];
     newMark();
-    // sp indexes the TOP of the flood stack (not a count): start sits at
-    // slot 0, and popping slot 0 underflows sp to 0xFF = "empty". The stack
-    // always holds start, so the flood runs at least once (do-while).
-    uint8_t sp = 0;
-    floodSlot(sp) = start;
+    // BFS with chasing read/write indices into floodScratch: stones are
+    // appended (wr) and consumed front-to-back (rd), so the group accumulates
+    // append-only and is still there on a full flood. Done when rd meets wr.
+    uint8_t rd = 0, wr = 1;
+    floodSlot(0) = start;
     simMark[start] = markEpoch;
     do {
-        uint8_t p = floodSlot(sp--);
-        // neighbors() inlined and fused: walk the 0xFF-terminated
-        // neighbour list straight from PROGMEM (lpm Z+), no count. An
-        // empty neighbour exits before reading the rest.
+        uint8_t p = floodSlot(rd++);
+        // neighbors() inlined and fused: walk the 0xFF-terminated neighbour
+        // list straight from PROGMEM (lpm Z+). An empty neighbour = a
+        // liberty; exit before reading the rest.
         const uint8_t *e = NEIGHBOR_TABLE + p * 5;
         uint8_t q;
         while((q = pgm_read_byte(e++)) != 0xFF) {
             if(simBoard[q] == EMPTY) return 1;
             if(simBoard[q] == color && simMark[q] != markEpoch) {
                 simMark[q] = markEpoch;
-                floodSlot(++sp) = q;
+                floodSlot(wr++) = q;
             }
         }
-    } while(sp != 0xFF);
+    } while(rd != wr);
+    capturedGroupN = wr;   // whole group left in floodScratch[0..wr-1]
     return 0;
 }
 
-// Remove a group, using the board itself as the visited marker
+// Remove the group hasLiberty just found to be captured. It left the whole
+// group in floodScratch[0..capturedGroupN-1] (its sole caller, simPlay, runs
+// hasLiberty(start)==0 immediately before this), so sweep the list -- no
+// second flood. INVARIANT: only valid right after hasLiberty(start) == 0.
 static uint8_t removeGroup(uint8_t start) {
-    uint8_t color = simBoard[start];
-    uint8_t count = 0;
-    uint8_t sp = 0;
-    floodSlot(sp++) = start;
-    simBoard[start] = EMPTY;
-    while(sp) {
-        uint8_t p = floodSlot(--sp);
-        count++;
-        uint8_t q;
-        FOR_EACH_NEIGHBOR(q, p) {
-            if(simBoard[q] == color) {
-                simBoard[q] = EMPTY;
-                floodSlot(sp++) = q;
-            }
-        }
-    }
-    return count;
+    (void)start;
+    uint8_t n = capturedGroupN;
+    for(uint8_t i = 0; i < n; i++) simBoard[floodSlot(i)] = EMPTY;
+    return n;
 }
 
 static uint8_t groupLibsFind(uint8_t start, uint8_t *l1, uint8_t *l2);
