@@ -2001,6 +2001,11 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
                     if(kx < 0 || kx >= BOARD_SIZE ||
                        ky < 0 || ky >= BOARD_SIZE) continue;
                     if(simBoard[ky * BOARD_SIZE + kx] != toMove) continue;
+                    // Back corners of the keima box, (kx,y) and (x,ky), must
+                    // not be mine — else the pair links down the outside line
+                    // and it isn't a lone keima.
+                    if(simBoard[y * BOARD_SIZE + kx] == toMove ||
+                       simBoard[ky * BOARD_SIZE + x] == toMove) continue;
                     // The two waist points between candidate and partner
                     int8_t w1x, w1y, w2x, w2y;
                     if(a == 1 || a == -1) { // |b| == 2
@@ -2010,8 +2015,11 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
                         w1x = x + a / 2; w1y = y;
                         w2x = x + a / 2; w2y = y + b;
                     }
-                    // Enemy on or around a waist = a supported cut
-                    if(oppNear(w1x, w1y, opp) || oppNear(w2x, w2y, opp)) {
+                    // Enemy exactly ON a waist = a supported cut. (The old
+                    // oppNear fired on any enemy in the waist's 3x3 — ~5x more
+                    // firings, mostly false; strength-equal at 1000 games L0.)
+                    if(simBoard[w1y * BOARD_SIZE + w1x] == opp ||
+                       simBoard[w2y * BOARD_SIZE + w2x] == opp) {
                         bonus -= PRIOR_KEIMA_PENALTY;
                         penalized = 1;
                     }
