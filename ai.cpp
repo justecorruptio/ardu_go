@@ -1634,7 +1634,7 @@ static uint8_t emptyCorners;
 // 81-bit bitmap of points within distance 2 of any stone.
 // Returns 0 if the board has no stones (then allow everything).
 static uint8_t buildNearMask(uint8_t *near) {
-    memset(near, 0, 11);
+    memset(near, 0, 12);
     uint8_t anyStone = 0;
     emptyCorners = 0x0F;
     for(uint8_t p = 0; p < BOARD_CELLS; p++) {
@@ -1652,11 +1652,19 @@ static uint8_t buildNearMask(uint8_t *near) {
 
         uint8_t x0 = sx > 2 ? sx - 2 : 0, x1 = sx < 6 ? sx + 2 : 8;
         uint8_t y0 = sy > 2 ? sy - 2 : 0, y1 = sy < 6 ? sy + 2 : 8;
-        for(uint8_t yy = y0; yy <= y1; yy++)
-            for(uint8_t xx = x0; xx <= x1; xx++) {
-                uint8_t q = yy * BOARD_SIZE + xx;
-                near[q >> 3] |= 1 << (q & 7);
-            }
+        // The row span [x0,x1] is a contiguous bit-run in the linear
+        // layout (rows are BOARD_SIZE wide and the run never crosses a
+        // row edge), so set the whole run per row instead of one bit
+        // per cell. `run` (the unshifted mask) is constant across the
+        // <=5 rows; b walks the rows by +BOARD_SIZE. The run spans at
+        // most 2 bytes, so near[] is sized 12 (byte 11 is write-only).
+        uint8_t run = (uint8_t)((1u << (x1 - x0 + 1)) - 1);
+        uint8_t b = y0 * BOARD_SIZE + x0;
+        for(uint8_t yy = y0; yy <= y1; yy++, b += BOARD_SIZE) {
+            uint16_t m = (uint16_t)run << (b & 7);
+            near[b >> 3]       |= (uint8_t)m;
+            near[(b >> 3) + 1] |= (uint8_t)(m >> 8);
+        }
     }
     return anyStone;
 }
@@ -2014,7 +2022,7 @@ static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t la
         if(node(c).move < BOARD_CELLS)
             have[node(c).move >> 3] |= 1 << (node(c).move & 7);
 
-    uint8_t near[11];
+    uint8_t near[12];  // 12 not 11: buildNearMask's run write touches byte 11
     uint8_t anyStone = buildNearMask(near);
     buildChainMap();
 
