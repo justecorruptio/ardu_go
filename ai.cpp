@@ -601,14 +601,20 @@ static uint8_t rnd(uint8_t n) {
 __attribute__((always_inline)) static inline
 uint8_t neighbors(uint8_t pos, uint8_t *nb) {
     const uint8_t *e = NEIGHBOR_TABLE + pos * 5;
-    uint8_t n = pgm_read_byte(e);
-    uint32_t four = pgm_read_dword(e + 1);
+    uint32_t four = pgm_read_dword(e);   // n0..n3, 0xFF-padded
     nb[0] = (uint8_t)four;
     nb[1] = (uint8_t)(four >> 8);
     nb[2] = (uint8_t)(four >> 16);
     nb[3] = (uint8_t)(four >> 24);
-    return n;
+    // count = leading non-sentinel neighbours (always >= 2)
+    return (nb[2] == 0xFF) ? 2 : (nb[3] == 0xFF) ? 3 : 4;
 }
+
+// Iterate the 0xFF-terminated neighbour list of cell `pos`; `q` (a uint8_t
+// you declare) takes each neighbour in turn -- no count, no nb[] round-trip.
+#define FOR_EACH_NEIGHBOR(q, pos) \
+    for(const uint8_t *_ne = NEIGHBOR_TABLE + (pos) * 5; \
+        ((q) = pgm_read_byte(_ne++)) != 0xFF; )
 
 static void newMark() {
     if(++markEpoch == 0) {
@@ -647,19 +653,18 @@ static uint8_t hasLiberty(uint8_t start) {
     simMark[start] = markEpoch;
     while(sp) {
         uint8_t p = floodSlot(--sp);
-        // neighbors() inlined and fused: read each packed neighbour byte
-        // from PROGMEM in place (lpm Z+); do-while since n>=2 always, so
-        // the first pass is unconditional. Early liberty exits the rest.
+        // neighbors() inlined and fused: walk the 0xFF-terminated
+        // neighbour list straight from PROGMEM (lpm Z+), no count. An
+        // empty neighbour exits before reading the rest.
         const uint8_t *e = NEIGHBOR_TABLE + p * 5;
-        uint8_t n = pgm_read_byte(e++);
-        do {
-            uint8_t q = pgm_read_byte(e++);
+        uint8_t q;
+        while((q = pgm_read_byte(e++)) != 0xFF) {
             if(simBoard[q] == EMPTY) return 1;
             if(simBoard[q] == color && simMark[q] != markEpoch) {
                 simMark[q] = markEpoch;
                 floodSlot(sp++) = q;
             }
-        } while(--n);
+        }
     }
     return 0;
 }
@@ -667,7 +672,6 @@ static uint8_t hasLiberty(uint8_t start) {
 // Remove a group, using the board itself as the visited marker
 static uint8_t removeGroup(uint8_t start) {
     uint8_t color = simBoard[start];
-    uint8_t nb[4];
     uint8_t count = 0;
     uint8_t sp = 0;
     floodSlot(sp++) = start;
@@ -675,11 +679,11 @@ static uint8_t removeGroup(uint8_t start) {
     while(sp) {
         uint8_t p = floodSlot(--sp);
         count++;
-        uint8_t n = neighbors(p, nb);
-        for(uint8_t i = 0; i < n; i++) {
-            if(simBoard[nb[i]] == color) {
-                simBoard[nb[i]] = EMPTY;
-                floodSlot(sp++) = nb[i];
+        uint8_t q;
+        FOR_EACH_NEIGHBOR(q, p) {
+            if(simBoard[q] == color) {
+                simBoard[q] = EMPTY;
+                floodSlot(sp++) = q;
             }
         }
     }
@@ -706,18 +710,17 @@ static uint8_t soleLiberty(uint8_t start) {
 static uint8_t groupLibsCore(uint8_t start, uint8_t *l1, uint8_t *l2,
                              uint8_t markAll, uint8_t cap) {
     uint8_t color = simBoard[start];
-    uint8_t nb[4];
     uint8_t lib1 = 0xFF, lib2 = 0xFF;
     uint8_t count = 0;
 
     if(!markAll) {
         // Seed fast path: enough empty neighbors of the seed settles
         // it before paying for the flood setup — the common case.
-        uint8_t n0 = neighbors(start, nb);
-        for(uint8_t i = 0; i < n0; i++) {
-            if(simBoard[nb[i]] != EMPTY) continue;
-            if(lib1 == 0xFF) lib1 = nb[i];
-            else if(lib2 == 0xFF) lib2 = nb[i];
+        uint8_t q;
+        FOR_EACH_NEIGHBOR(q, start) {
+            if(simBoard[q] != EMPTY) continue;
+            if(lib1 == 0xFF) lib1 = q;
+            else if(lib2 == 0xFF) lib2 = q;
             count++;
             if(count >= cap) {
                 *l1 = lib1;
@@ -733,9 +736,8 @@ static uint8_t groupLibsCore(uint8_t start, uint8_t *l1, uint8_t *l2,
     simMark[start] = markEpoch;
     while(sp && (markAll || count < cap)) {
         uint8_t p = floodSlot(--sp);
-        uint8_t n = neighbors(p, nb);
-        for(uint8_t i = 0; i < n; i++) {
-            uint8_t q = nb[i];
+        uint8_t q;
+        FOR_EACH_NEIGHBOR(q, p) {
             if(simBoard[q] == EMPTY) {
                 if(count < 3 && q != lib1 && q != lib2) {
                     if(lib1 == 0xFF) lib1 = q;
@@ -779,11 +781,11 @@ static uint8_t groupLibsMark(uint8_t start) {
 // bestDeg/ties feed the square-four gate.
 static uint8_t regionVitalCell(const uint8_t *region, uint8_t cnt,
                                uint8_t *bestDeg, uint8_t *ties) {
-    uint8_t nb[4], bd = 1, bc = 0xFF, t = 0;
+    uint8_t bd = 1, bc = 0xFF, t = 0;
     for(uint8_t j = 0; j < cnt; j++) {
-        uint8_t deg = 0, n = neighbors(region[j], nb);
-        for(uint8_t i = 0; i < n; i++)
-            if(simBoard[nb[i]] == EMPTY && simMark[nb[i]] == markEpoch) deg++;
+        uint8_t deg = 0, q;
+        FOR_EACH_NEIGHBOR(q, region[j])
+            if(simBoard[q] == EMPTY && simMark[q] == markEpoch) deg++;
         if(deg > bd) { bd = deg; bc = region[j]; t = 1; }
         else if(deg == bd) t++;
     }
@@ -797,7 +799,6 @@ static uint8_t regionVitalCell(const uint8_t *region, uint8_t cnt,
 static void buildChainMap() {
     memset(chainId, 0, sizeof(chainId));
     uint8_t nextId = 0;
-    uint8_t nb[4];
     for(uint8_t s = 0; s < BOARD_CELLS; s++) {
         if(simBoard[s] == EMPTY || chainId[s]) continue;
         uint8_t color = simBoard[s];
@@ -808,9 +809,8 @@ static void buildChainMap() {
         chainId[s] = id;
         while(sp) {
             uint8_t p = floodSlot(--sp);
-            uint8_t n = neighbors(p, nb);
-            for(uint8_t i = 0; i < n; i++) {
-                uint8_t q = nb[i];
+            uint8_t q;
+            FOR_EACH_NEIGHBOR(q, p) {
                 if(simBoard[q] == EMPTY) {
                     if(count < 3 && q != lib1 && q != lib2) {
                         if(lib1 == 0xFF) lib1 = q;
@@ -830,9 +830,8 @@ static void buildChainMap() {
         chainId[s] |= bits;
         while(sp) {
             uint8_t p = floodSlot(--sp);
-            uint8_t n = neighbors(p, nb);
-            for(uint8_t i = 0; i < n; i++) {
-                uint8_t q = nb[i];
+            uint8_t q;
+            FOR_EACH_NEIGHBOR(q, p) {
                 if(chainId[q] == id) { // id match, libs not yet stamped
                     chainId[q] |= bits;
                     floodSlot(sp++) = q;
@@ -853,14 +852,13 @@ static void buildChainMap() {
 // tanked. Distinct same-color chains are never adjacent, so the
 // second flood cannot leak into the first.
 static uint8_t soleConnector(uint8_t idA, uint8_t idB) {
-    uint8_t nb[4];
     uint8_t connectors = 0;
     for(uint8_t p = 0; p < BOARD_CELLS; p++) {
         if(simBoard[p] != EMPTY) continue;
         uint8_t nearA = 0, nearB = 0;
-        uint8_t n = neighbors(p, nb);
-        for(uint8_t i = 0; i < n; i++) {
-            uint8_t id = CHAIN_OF(chainId[nb[i]]);
+        uint8_t q;
+        FOR_EACH_NEIGHBOR(q, p) {
+            uint8_t id = CHAIN_OF(chainId[q]);
             if(id == idA) nearA = 1;
             else if(id == idB) nearB = 1;
         }
@@ -891,15 +889,13 @@ static uint8_t regionVital(uint8_t seed, uint8_t *vital) {
     uint8_t region[SETTLED_REGION_MAX];
     uint8_t cnt = 0, head = 0;
     uint8_t owner = 0, unsettled = 0;
-    uint8_t nb[4];
     *vital = 0xFF;
     newMark();
     region[cnt++] = seed;
     simMark[seed] = markEpoch;
     while(head < cnt && !unsettled) {
-        uint8_t n = neighbors(region[head++], nb);
-        for(uint8_t i = 0; i < n; i++) {
-            uint8_t q = nb[i];
+        uint8_t q;
+        FOR_EACH_NEIGHBOR(q, region[head++]) {
             uint8_t s = simBoard[q];
             if(s != EMPTY) {
                 if(!owner) owner = s;
@@ -946,10 +942,9 @@ static uint8_t regionVital(uint8_t seed, uint8_t *vital) {
 
 // All orthogonal neighbors own color (or edge)
 static uint8_t isOwnEye(uint8_t pos, uint8_t color) {
-    uint8_t nb[4];
-    uint8_t n = neighbors(pos, nb);
-    for(uint8_t i = 0; i < n; i++)
-        if(simBoard[nb[i]] != color) return 0;
+    uint8_t q;
+    FOR_EACH_NEIGHBOR(q, pos)
+        if(simBoard[q] != color) return 0;
     return 1;
 }
 
@@ -964,15 +959,14 @@ static uint8_t simPlay(uint8_t pos, uint8_t color, uint8_t ko,
     if(pos == ko || simBoard[pos] != EMPTY) return ILLEGAL;
 
     uint8_t opp = 3 - color;
-    uint8_t nb[4];
     simBoard[pos] = color;
 
     uint8_t captured = 0, capPos = 0;
-    uint8_t n = neighbors(pos, nb);
-    for(uint8_t i = 0; i < n; i++) {
-        if(simBoard[nb[i]] == opp && !hasLiberty(nb[i])) {
-            capPos = nb[i];
-            captured += removeGroup(nb[i]);
+    uint8_t q;
+    FOR_EACH_NEIGHBOR(q, pos) {
+        if(simBoard[q] == opp && !hasLiberty(q)) {
+            capPos = q;
+            captured += removeGroup(q);
         }
     }
 
@@ -1008,9 +1002,10 @@ static uint8_t simPlay(uint8_t pos, uint8_t color, uint8_t ko,
     // Simple ko: lone stone with one liberty that captured exactly one
     if(captured == 1) {
         uint8_t lone = 1, libs = 0;
-        for(uint8_t i = 0; i < n; i++) {
-            if(simBoard[nb[i]] == color) lone = 0;
-            else if(simBoard[nb[i]] == EMPTY) libs++;
+        uint8_t q;
+        FOR_EACH_NEIGHBOR(q, pos) {
+            if(simBoard[q] == color) lone = 0;
+            else if(simBoard[q] == EMPTY) libs++;
         }
         if(lone && libs == 1) return capPos;
     }
@@ -1057,11 +1052,10 @@ static uint8_t ladderEscapes(uint8_t defStart, uint8_t esc,
             simBoard[cand] = EMPTY;
             if(alibs < 2) continue; // defender would just capture it
 
-            uint8_t nb[4];
             uint8_t room = 0;
-            uint8_t n = neighbors(other, nb);
-            for(uint8_t i = 0; i < n; i++)
-                if(simBoard[nb[i]] == EMPTY) room++;
+            uint8_t q;
+            FOR_EACH_NEIGHBOR(q, other)
+                if(simBoard[q] == EMPTY) room++;
             if(room < bestRoom) {
                 bestRoom = room;
                 chase = cand;
@@ -1152,15 +1146,14 @@ static int8_t patternBonus(int8_t cx, int8_t cy, uint8_t color) {
 static int16_t lastMargin2;
 static uint8_t scoreWinner() {
     uint8_t black = 0, white = 0;
-    uint8_t nb[4];
     for(uint8_t i = 0; i < BOARD_CELLS; i++) {
         if(simBoard[i] == BLACK) { black++; continue; }
         if(simBoard[i] == WHITE) { white++; continue; }
         uint8_t tb = 0, tw = 0;
-        uint8_t n = neighbors(i, nb);
-        for(uint8_t j = 0; j < n; j++) {
-            if(simBoard[nb[j]] == BLACK) tb = 1;
-            if(simBoard[nb[j]] == WHITE) tw = 1;
+        uint8_t q;
+        FOR_EACH_NEIGHBOR(q, i) {
+            if(simBoard[q] == BLACK) tb = 1;
+            if(simBoard[q] == WHITE) tw = 1;
         }
         if(tb && !tw) black++;
         else if(tw && !tb) white++;
@@ -1254,15 +1247,14 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
             } else {
                 // Else escape: their move may have put an own group
                 // next to it into atari — extend at its last liberty
-                uint8_t nb[4];
-                uint8_t n = neighbors(last, nb);
-                for(uint8_t i = 0; i < n; i++) {
-                    if(simBoard[nb[i]] != toMove) continue;
-                    uint8_t sl = soleLiberty(nb[i]);
+                uint8_t q;
+                FOR_EACH_NEIGHBOR(q, last) {
+                    if(simBoard[q] != toMove) continue;
+                    uint8_t sl = soleLiberty(q);
                     // Short read: playouts rarely need long ladders,
                     // and a truncated read defaults to "escape"
                     if(sl != 0xFF && sl != ko &&
-                       ladderEscapes(nb[i], sl, 8)) {
+                       ladderEscapes(q, sl, 8)) {
                         tac = sl;
                         isSave = 1;
                         break;
@@ -1296,12 +1288,11 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
         // of surviving on randomness.
         if(last < BOARD_CELLS && (rnd16() & 3)) {
             uint8_t vcand = 0xFF;
-            uint8_t nbv[4];
-            uint8_t nv = neighbors(last, nbv);
-            for(uint8_t i = 0; i < nv; i++) {
-                if(simBoard[nbv[i]] != EMPTY) continue;
+            uint8_t q;
+            FOR_EACH_NEIGHBOR(q, last) {
+                if(simBoard[q] != EMPTY) continue;
                 uint8_t vital;
-                if(regionVital(nbv[i], &vital)) vcand = vital;
+                if(regionVital(q, &vital)) vcand = vital;
                 break; // only the first adjacent region
             }
             if(playoutTry(vcand, toMove, &ko, &last, m)) {
@@ -1425,15 +1416,14 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
             if(simBoard[pos] != EMPTY || pos == ko) continue;
 
             // Lonely first-line moves are pure noise: skip unless the
-            // point touches a stone. Neighbor count < 4 <=> first line.
-            uint8_t nn = pgm_read_byte(NEIGHBOR_TABLE + pos * 5);
-            if(nn < 4) {
-                uint8_t contact = 0;
-                for(uint8_t j = 1; j <= nn; j++) {
-                    if(simBoard[pgm_read_byte(NEIGHBOR_TABLE + pos * 5 + j)] != EMPTY) {
-                        contact = 1;
-                        break;
-                    }
+            // point touches a stone. Slot 3 == 0xFF <=> <4 neighbours
+            // <=> first line.
+            const uint8_t *ne = NEIGHBOR_TABLE + pos * 5;
+            uint8_t fourth = pgm_read_byte(ne + 3);  // 0xFF iff <4 neighbours
+            if(fourth == 0xFF) {
+                uint8_t contact = 0, q;
+                while((q = pgm_read_byte(ne++)) != 0xFF) {
+                    if(simBoard[q] != EMPTY) { contact = 1; break; }
                 }
                 if(!contact) continue;
             }
@@ -1447,7 +1437,7 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
 #ifndef PLAYOUT_GROW_MASK
 #define PLAYOUT_GROW_MASK 3
 #endif
-            if(nn == 4 && rootStones + m >= EARLY_STONES &&
+            if(fourth != 0xFF && rootStones + m >= EARLY_STONES &&
                (rnd16() & PLAYOUT_GROW_MASK)) {
                 uint8_t bxy = posXY(pos);
                 uint8_t bx = bxy & 0x0F, by = bxy >> 4;
@@ -1526,16 +1516,15 @@ void AI::scoreDead(Game &game) {
             simBoard[i] = packedGet(game.board, i);
         playout(game.turn, NO_KO, 0xFF);
         // Per-cell black ownership, same rules as scoreWinner
-        uint8_t nb[4];
         for(uint8_t i = 0; i < BOARD_CELLS; i++) {
             uint8_t s = simBoard[i];
             if(s == WHITE) continue;
             if(s == BLACK) { own[i]++; continue; }
             uint8_t tb = 0, tw = 0;
-            uint8_t n = neighbors(i, nb);
-            for(uint8_t j = 0; j < n; j++) {
-                if(simBoard[nb[j]] == BLACK) tb = 1;
-                if(simBoard[nb[j]] == WHITE) tw = 1;
+            uint8_t q;
+            FOR_EACH_NEIGHBOR(q, i) {
+                if(simBoard[q] == BLACK) tb = 1;
+                if(simBoard[q] == WHITE) tw = 1;
             }
             if(tb && !tw) own[i]++;
         }
@@ -1684,16 +1673,14 @@ static uint8_t buildNearMask(uint8_t *near) {
 #if PRIOR_RACE
 static uint8_t raceWin(uint8_t eStart) {
     uint8_t eColor = simBoard[eStart];
-    uint8_t nb[4];
     newMark();
     uint8_t eLibs = groupLibsMark(eStart);
     if(eLibs > 3) return 0;
     uint8_t fMin = 0xFF;
     for(uint8_t p = 0; p < BOARD_CELLS; p++) {
         if(simBoard[p] != eColor || simMark[p] != markEpoch) continue;
-        uint8_t n = neighbors(p, nb);
-        for(uint8_t i = 0; i < n; i++) {
-            uint8_t q = nb[i];
+        uint8_t q;
+        FOR_EACH_NEIGHBOR(q, p) {
             if(simBoard[q] == 3 - eColor && simMark[q] != markEpoch) {
                 uint8_t fl = groupLibsMark(q); // joins the same epoch
                 if(fl < fMin) fMin = fl;
@@ -1714,8 +1701,6 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     uint8_t sawCapture = 0, sawSave = 0, sawAtari = 0, sawDoomed = 0;
     uint8_t sawWeakFriend = 0;
     uint8_t hasOrthFriend = 0;
-    uint8_t nb[4];
-    uint8_t n = neighbors(pos, nb);
 
     // Group-aware neighbor scan over the precomputed chain map
     // (buildChainMap runs once per expansion): distinct chains per
@@ -1732,8 +1717,8 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
 #if PRIOR_RACE
     uint8_t raceCand = 0xFF; // enemy chain at 2-3 libs, race check later
 #endif
-    for(uint8_t j = 0; j < n; j++) {
-        uint8_t q = nb[j];
+    uint8_t q;
+    FOR_EACH_NEIGHBOR(q, pos) {
         uint8_t id = CHAIN_OF(chainId[q]);
         if(!id) continue;
         uint8_t dup = 0;
@@ -2393,10 +2378,9 @@ static uint8_t rootSelfAtari(uint8_t pos, uint8_t toMove) {
         r = 1;
         // ...unless the stone captures: with it placed, a doomed
         // enemy neighbor chain reads zero liberties
-        uint8_t nb[4];
-        uint8_t n = neighbors(pos, nb);
-        for(uint8_t j = 0; j < n; j++)
-            if(simBoard[nb[j]] == 3 - toMove && !hasLiberty(nb[j])) {
+        uint8_t q;
+        FOR_EACH_NEIGHBOR(q, pos)
+            if(simBoard[q] == 3 - toMove && !hasLiberty(q)) {
                 r = 0;
                 break;
             }
