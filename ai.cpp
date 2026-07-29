@@ -236,9 +236,6 @@ uint8_t AI::chooseMove(Game &game) {
 #ifndef PRIOR_LOCAL
 #define PRIOR_LOCAL 2       // adjacent or diagonal to the previous move
 #endif
-#ifndef PRIOR_PATTERN
-#define PRIOR_PATTERN 3     // matches a local 3x3 shape pattern
-#endif
 #ifndef PRIOR_BIG
 #define PRIOR_BIG 2         // big open point (far from every stone)
 #endif
@@ -312,60 +309,18 @@ uint8_t AI::chooseMove(Game &game) {
 #define PRIOR_URGENT 5
 #endif
 
-// Connection and cutting. The WEAK forms fire when the weakest chain
+// Connection. The WEAK form fires when the weakest friendly chain
 // involved has exactly 2 liberties — real danger of being split off
 // (1-liberty chains are handled by the ladder-verified save). The
 // plain PRIOR_CONNECT fires earlier: mid-game, when the candidate is
 // the SOLE connector of two chains (see soleConnector) — defend the
-// cutting point BEFORE the cut. The miai test is what keeps this
-// from over-connecting (a generic two-chain bonus measurably
-// tanked); a generic cut bonus pays for suicidal wedges, so cutting
-// stays weak-only.
+// cutting point BEFORE the cut. The miai test is what keeps this from
+// over-connecting (a generic two-chain bonus measurably tanked).
 #ifndef PRIOR_CONNECT
 #define PRIOR_CONNECT 4
 #endif
-// Knight-link defense: keima/ogeima/jump links have NO single point
-// adjacent to both chains (the waists each touch one stone), so the
-// sole-connector logic is structurally blind to them. This fires for
-// a candidate in the gap — adjacent to one chain, a DIFFERENT chain
-// within distance 2 — while an enemy stone touches the gap point:
-// the push-through is happening now.
-#ifndef PRIOR_LINK
-#define PRIOR_LINK 3
-#endif
 #ifndef PRIOR_CONNECT_WEAK
 #define PRIOR_CONNECT_WEAK 6
-#endif
-#ifndef PRIOR_CUT_WEAK
-#define PRIOR_CUT_WEAK 5
-#endif
-
-// Naked attachment: contact with a HEALTHY enemy chain (3+ libs)
-// with no orthogonal friendly support and no tactical purpose —
-// "don't attach to strong stones". Mild: legitimate attachments
-// carry support or a tactical tag. (Seen live: a pointless clamp
-// against a supported chain, picked from a marginal LCB race.)
-#ifndef PRIOR_ATTACH_PENALTY
-#define PRIOR_ATTACH_PENALTY 2
-#endif
-
-// Empty triangle: the candidate completes three stones on a 2x2
-// square whose fourth point is EMPTY — the classic inefficient
-// shape ("the devil's own shape for wasting a move"). Exempt when
-// tactical; a square whose fourth point holds an ENEMY stone is a
-// fighting shape and never matches (the emptiness check is the
-// classical exemption for free). Seen live: a blocking move played
-// as the ugly-triangle variant when better-shaped blocks existed.
-#ifndef PRIOR_EMPTY_TRI
-#define PRIOR_EMPTY_TRI 2
-#endif
-
-// 2x2 square: the candidate is the fourth stone of an all-friendly 2x2
-// block — even worse than an empty triangle (zero eye shape, maximally
-// overconcentrated). The empty-triangle test above misses it (it wants
-// the fourth point EMPTY), so it goes here with a heavier penalty.
-#ifndef PRIOR_SQUARE
-#define PRIOR_SQUARE 4
 #endif
 
 // A candidate whose ONLY link to friendly stones is a knight's move,
@@ -1793,38 +1748,6 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
             else if(l == 2) sawWeakFriend = 1;
         }
     }
-    // Knight-link defense (see PRIOR_LINK). Must run while the scan's
-    // marks are fresh: the adjacent chains are whole-chain marked, so
-    // an UNMARKED friendly stone within distance 2 is a genuinely
-    // different chain — a keima/ogeima/jump partner across the gap.
-    uint8_t sawLink = 0;
-    if(fGroups >= 1 && last < BOARD_CELLS) {
-        uint8_t px = pos % BOARD_SIZE, py = pos / BOARD_SIZE;
-        // The pressure must be the CURRENT push, and the candidate
-        // must TOUCH the pushing stone orthogonally: the junction
-        // point does, the adjacent near-misses only diagonal it —
-        // in a real cut-through game both scored alike until this.
-        // (No stone-count gate: contact + existing structure is
-        // self-gating; the opening-brawl bug was playout-side.)
-        int8_t pdx = px - last % BOARD_SIZE; if(pdx < 0) pdx = -pdx;
-        int8_t pdy = py - last / BOARD_SIZE; if(pdy < 0) pdy = -pdy;
-        if(pdx + pdy == 1) {
-            for(int8_t ldy = -2; ldy <= 2 && !sawLink; ldy++)
-                for(int8_t ldx = -2; ldx <= 2; ldx++) {
-                    int8_t nx = px + ldx, ny = py + ldy;
-                    if(nx < 0 || nx >= BOARD_SIZE ||
-                       ny < 0 || ny >= BOARD_SIZE) continue;
-                    uint8_t q = ny * BOARD_SIZE + nx;
-                    if(simBoard[q] == toMove) {
-                        uint8_t id = CHAIN_OF(chainId[q]), other = 1;
-                        for(uint8_t k = 0; k < fGroups && k < 4; k++)
-                            if(fIds[k] == id) { other = 0; break; }
-                        if(other) { sawLink = 1; break; }
-                    }
-                }
-        }
-    }
-
     // Only credit a save if the ladder actually works — extending a
     // ladder-dead group just feeds stones
     for(uint8_t j = 0; j < nDoom; j++) {
@@ -1904,12 +1827,6 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
         }
     }
 
-    // Empty triangle in either orientation (see PRIOR_EMPTY_TRI):
-    // corner form = diagonal friend + one corner friend + other
-    // corner empty; elbow form = both corners friendly + diagonal
-    // point empty.
-    uint8_t triHere = 0;
-
     // Urgent defense: reinforcing an own 2-liberty group in the zone
     // of the opponent's last move — don't tenuki from a live fight
     if(sawWeakFriend && last < BOARD_CELLS) {
@@ -1941,7 +1858,6 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     uint8_t ey = y < BOARD_SIZE - 1 - y ? y : BOARD_SIZE - 1 - y;
     uint8_t ed = ex < ey ? ex : ey;
     bonus += ed > PRIOR_CENTER_MAX ? PRIOR_CENTER_MAX : ed;
-    if(triHere && ed <= 2) bonus--; // edge-facing triangle: worse still
 
     // Opening knowledge: an untouched corner is the biggest thing on
     // the board — steer toward its classic points (3-3/3-4/4-4
@@ -2028,17 +1944,11 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
         }
     }
 
-    // Locality: adjacent or diagonal to the previous move. Empty-
-    // triangle candidates keep proximity credit ONLY when they touch
-    // the pusher orthogonally — a true contact block is classically
-    // excused its shape (and our block tests live there) — but a
-    // merely diagonal-near triangle is a self-inflicted wound with
-    // no answering duty, and with the credit the ugly connector of
-    // a diagonal pair beat the good one 7/10.
+    // Locality: adjacent or diagonal to the previous move.
     if(!lowLineBad && last < BOARD_CELLS) {
         int8_t dx = x - last % BOARD_SIZE; if(dx < 0) dx = -dx;
         int8_t dy = y - last / BOARD_SIZE; if(dy < 0) dy = -dy;
-        if(dx <= 1 && dy <= 1 && (!triHere || dx + dy == 1)) {
+        if(dx <= 1 && dy <= 1) {
             bonus += PRIOR_LOCAL;
             // Contact-push block (see PRIOR_BLOCK): their stone
             // touches us, this candidate touches the pusher
