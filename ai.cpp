@@ -830,26 +830,38 @@ static void buildChainMap() {
     memset(regionDone, 0, sizeof(regionDone));
 }
 
-// pos touches two DISTINCT friendly chains (seeds fa, fb). Is it
-// their ONLY connecting point? Re-flood each under its own mark
-// epoch, then count empty points adjacent to both chains: exactly
-// one (pos itself) means the opponent playing here splits us for
-// real. Two or more means miai — no urgency, and bonusing those was
-// how an earlier connect prior over-concentrated and measurably
-// tanked. Distinct same-color chains are never adjacent, so the
-// second flood cannot leak into the first.
-static uint8_t soleConnector(uint8_t idA, uint8_t idB) {
+// pos touches two DISTINCT friendly chains. Is it their ONLY connecting
+// point? A connector is an empty cell adjacent to both chains, i.e. a
+// liberty of chain A that also touches chain B — so flood A from a seed
+// stone and check its empty neighbours, instead of rescanning the whole
+// board. Same-colour distinct chains are never adjacent, so the flood
+// stays within A. Exactly one connector (pos itself) means the opponent
+// playing here splits us for real; two or more is miai (no urgency —
+// bonusing those over-concentrated and measurably tanked an earlier
+// connect prior).
+static uint8_t soleConnector(uint8_t seedA, uint8_t idB) {
+    uint8_t colorA = simBoard[seedA];
     uint8_t connectors = 0;
-    for(uint8_t p = 0; p < BOARD_CELLS; p++) {
-        if(simBoard[p] != EMPTY) continue;
-        uint8_t nearA = 0, nearB = 0;
+    newMark();
+    uint8_t sp = 0;
+    floodSlot(sp++) = seedA;
+    simMark[seedA] = markEpoch;
+    while(sp) {
+        uint8_t p = floodSlot(--sp);
         uint8_t q;
         FOR_EACH_NEIGHBOR(q, p) {
-            uint8_t id = CHAIN_OF(chainId[q]);
-            if(id == idA) nearA = 1;
-            else if(id == idB) nearB = 1;
+            if(simMark[q] == markEpoch) continue;
+            if(simBoard[q] == colorA) {         // extend the flood over chain A
+                simMark[q] = markEpoch;
+                floodSlot(sp++) = q;
+            } else if(simBoard[q] == EMPTY) {   // a liberty of A — connector?
+                simMark[q] = markEpoch;         // dedup this empty cell
+                uint8_t r, nearB = 0;
+                FOR_EACH_NEIGHBOR(r, q)
+                    if(CHAIN_OF(chainId[r]) == idB) { nearB = 1; break; }
+                if(nearB && ++connectors > 1) return 0;
+            }
         }
-        if(nearA && nearB && ++connectors > 1) return 0;
     }
     return connectors == 1;
 }
@@ -1699,6 +1711,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     uint8_t doomCand[4];
     uint8_t nDoom = 0;
     uint8_t fIds[4];  // ids of the distinct friendly chains seen
+    uint8_t fSeed[4]; // a stone of each (soleConnector floods from it)
     uint8_t seen[4];
     uint8_t nSeen = 0;
 #if PRIOR_RACE
@@ -1724,7 +1737,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
 #endif
         } else {
             hasOrthFriend = 1;
-            if(fGroups < 4) fIds[fGroups] = id;
+            if(fGroups < 4) { fIds[fGroups] = id; fSeed[fGroups] = q; }
             fGroups++;
             if(l < fMinLibs) fMinLibs = l;
             if(l == 1) doomCand[nDoom++] = q;
@@ -1773,7 +1786,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
             bonus += PRIOR_CONNECT_WEAK;
             connHere = 1;
         } else if(rootStones >= EARLY_STONES &&
-                  soleConnector(fIds[0], fIds[1])) {
+                  soleConnector(fSeed[0], fIds[1])) {
             bonus += PRIOR_CONNECT;
             connHere = 1;
         }
