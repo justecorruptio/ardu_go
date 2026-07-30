@@ -692,28 +692,37 @@ static uint8_t groupLibsCore(uint8_t start, uint8_t *l1, uint8_t *l2,
     uint8_t color = simBoard[start];
     uint8_t lib1 = 0xFF, lib2 = 0xFF;
     uint8_t count = 0;
+    uint8_t sp = 0;
 
     if(!markAll) {
-        // Seed fast path: enough empty neighbors of the seed settles
-        // it before paying for the flood setup — the common case.
-        uint8_t q;
+        // Seed fast path: scan the seed's neighbours once -- count its
+        // empty liberties and stack its same-colour neighbours. Enough
+        // empties settles it before any flood setup (the common case);
+        // otherwise the flood continues straight from those neighbours,
+        // so the seed itself is never re-scanned.
+        uint8_t same[4], ns = 0, q;
         FOR_EACH_NEIGHBOR(q, start) {
-            if(simBoard[q] != EMPTY) continue;
-            if(lib1 == 0xFF) lib1 = q;
-            else if(lib2 == 0xFF) lib2 = q;
-            count++;
-            if(count >= cap) {
-                *l1 = lib1;
-                *l2 = lib2;
-                return count;
+            uint8_t s = simBoard[q];
+            if(s == EMPTY) {
+                if(lib1 == 0xFF) lib1 = q;
+                else if(lib2 == 0xFF) lib2 = q;
+                if(++count >= cap) { *l1 = lib1; *l2 = lib2; return count; }
+            } else if(s == color) {
+                same[ns++] = q;
             }
         }
         newMark();
+        simMark[start] = markEpoch;
+        for(uint8_t k = 0; k < ns; k++) {   // push in table order (matches old flood)
+            simMark[same[k]] = markEpoch;
+            floodSlot(sp++) = same[k];
+        }
+    } else {
+        // markAll floods into the CURRENT epoch (see header) -- no newMark
+        floodSlot(sp++) = start;
+        simMark[start] = markEpoch;
     }
 
-    uint8_t sp = 0;
-    floodSlot(sp++) = start;
-    simMark[start] = markEpoch;
     while(sp && (markAll || count < cap)) {
         uint8_t p = floodSlot(--sp);
         uint8_t q;
