@@ -1705,7 +1705,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     // color and their weakest liberty classes — pure array reads,
     // no floods (the per-candidate chain floods here were the
     // biggest single cost in the whole search).
-    uint8_t fGroups = 0, eGroups = 0;
+    uint8_t fGroups = 0, eGroups = 0, emptyN = 0;
     uint8_t fMinLibs = 0xFF, eMinLibs = 0xFF;
     uint8_t doomCand[4];
     uint8_t nDoom = 0;
@@ -1719,7 +1719,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     uint8_t q;
     FOR_EACH_NEIGHBOR(q, pos) {
         uint8_t id = CHAIN_OF(chainId[q]);
-        if(!id) continue;
+        if(!id) { emptyN++; continue; }   // empty neighbour = a liberty
         uint8_t dup = 0;
         for(uint8_t k = 0; k < nSeen; k++)
             if(seen[k] == id) { dup = 1; break; }
@@ -1837,10 +1837,24 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     // sharp). Patterned blocks at 2 libs still net above quiet moves;
     // outright self-atari sinks far below anything playable.
     if(!sawCapture && !sawSave && !sawAtari && !vitalHere) {
-        simBoard[pos] = toMove;
-        uint8_t a, b;
-        uint8_t libs = groupLibsFind(pos, &a, &b);
-        simBoard[pos] = EMPTY;
+        // Immediate-liberty fast-path (Pachi): the merged group's
+        // liberty count is known without a flood in two common cases.
+        // A lone stone (no friendly neighbour) has exactly its own empty
+        // neighbours as liberties; any point with >=3 empty neighbours
+        // has >=3 liberties regardless of what it connects to (and the
+        // flood, capped at 3, would report exactly 3). Both give the
+        // same penalty decision as the flood, so they skip it outright.
+        // Only a friendly-connected point with <=2 empties can gain
+        // extra liberties through the connection and still needs it.
+        uint8_t libs;
+        if(fGroups == 0)     libs = emptyN;   // lone stone: libs == empties
+        else if(emptyN >= 3) libs = 3;        // >=3 empties => >=3 libs
+        else {
+            simBoard[pos] = toMove;
+            uint8_t a, b;
+            libs = groupLibsFind(pos, &a, &b);
+            simBoard[pos] = EMPTY;
+        }
         if(libs <= 2)
             bonus -= (libs <= 1) ? PRIOR_SELFATARI_PENALTY
                                  : PRIOR_THIN_PENALTY;
