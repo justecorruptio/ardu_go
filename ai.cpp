@@ -1296,7 +1296,13 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
         // (deny the second eye, or split own space into two). This
         // is what makes dead shapes actually die in playouts instead
         // of surviving on randomness.
-        if(last < BOARD_CELLS && (rnd16() & 3)) {
+        // Gated 1/4 (michi-style probabilistic gating; was 3/4). This
+        // block is ~2.7% of think and pure overhead -- unlike the
+        // capture/save heuristics it does NOT shorten playouts, so
+        // firing it less is a near-free speed win. 1/4 measured
+        // strength-neutral vs 3/4 (136 vs 125 / 1000 @ L0, z=+0.73);
+        // 25% firing still catches dead shapes across a playout.
+        if(last < BOARD_CELLS && !(rnd16() & 3)) {
             uint8_t vcand = 0xFF;
             uint8_t q;
             FOR_EACH_NEIGHBOR(q, last) {
