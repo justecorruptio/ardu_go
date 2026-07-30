@@ -2096,7 +2096,15 @@ static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t la
 // Bitwise integer sqrt: isqrt32(x*2^24)/4096 approximates sqrt(x)
 static uint16_t isqrt32(uint32_t x) {
     uint32_t res = 0;
-    uint32_t bit = 1UL << 30;
+    // Start `bit` at the top power-of-4 of x's highest non-zero byte, so
+    // the refine loop below only shifts within that byte (<=3 steps) rather
+    // than walking down from 2^30. Each start is a power of 4 >= the largest
+    // 4^k <= x, so the loop lands on the identical bit -- result unchanged.
+    uint32_t bit;
+    if     (x & 0xFF000000UL) bit = 1UL << 30;
+    else if (x & 0x00FF0000UL) bit = 1UL << 22;
+    else if (x & 0x0000FF00UL) bit = 1UL << 14;
+    else                       bit = 1UL << 6;
     while(bit > x) bit >>= 2;
     while(bit) {
         if(x >= res + bit) {
