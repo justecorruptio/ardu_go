@@ -1122,13 +1122,15 @@ static uint16_t pattern3Index(int8_t cx, int8_t cy, uint8_t color,
         idx = (uint16_t)(M*378 + L*27 - L*(L-1)/2 + (R-L));
     } else {
         uint16_t mult = 1;
+        const uint8_t *b = simBoard + cy * BOARD_SIZE + cx;   // 3x3 centre
         for(int8_t dy = -1; dy <= 1; dy++) {
+            int8_t r9 = dy * BOARD_SIZE;   // row offset, hoisted
             for(int8_t dx = -1; dx <= 1; dx++) {
                 if(dx == 0 && dy == 0) continue;
                 int8_t x = cx + dx, y = cy + dy;
                 if(x < 0 || x >= BOARD_SIZE || y < 0 || y >= BOARD_SIZE)
                     continue; // off-board cells are implied by the class
-                uint8_t s = simBoard[y * BOARD_SIZE + x];
+                uint8_t s = b[dx + r9];
                 uint8_t v = (s == EMPTY) ? 0 : (s == color) ? 1 : 2;
                 if(v) stones++;
                 idx += v * mult;
