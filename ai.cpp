@@ -1912,13 +1912,16 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     // can see this shape. Applies only when the keima is the sole link
     // (no orthogonal contact — checked above — and no diagonal one).
     if(!sawCapture && !sawSave && !sawAtari && !hasOrthFriend) {
+        // All board reads here are cells of a fixed shape around the
+        // candidate, so they're pos + a linear offset -- no Y*9 multiply.
+        // Bounds are still checked on the (x,y) coords before each read.
         uint8_t hasDiagFriend = 0;
         for(int8_t dy = -1; dy <= 1; dy += 2)
             for(int8_t dx = -1; dx <= 1; dx += 2) {
                 int8_t fx = x + dx, fy = y + dy;
                 if(fx < 0 || fx >= BOARD_SIZE || fy < 0 || fy >= BOARD_SIZE)
                     continue;
-                if(simBoard[fy * BOARD_SIZE + fx] == toMove)
+                if(simBoard[pos + dx + dy * BOARD_SIZE] == toMove)
                     hasDiagFriend = 1;
             }
         if(!hasDiagFriend) {
@@ -1929,26 +1932,28 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
                     int8_t kx = x + a, ky = y + b;
                     if(kx < 0 || kx >= BOARD_SIZE ||
                        ky < 0 || ky >= BOARD_SIZE) continue;
-                    if(simBoard[ky * BOARD_SIZE + kx] != toMove) continue;
+                    int8_t b9 = b * BOARD_SIZE;               // partner row offset
+                    if(simBoard[pos + a + b9] != toMove) continue;
                     // Back corners of the keima box, (kx,y) and (x,ky), must
                     // not be mine — else the pair links down the outside line
                     // and it isn't a lone keima.
-                    if(simBoard[y * BOARD_SIZE + kx] == toMove ||
-                       simBoard[ky * BOARD_SIZE + x] == toMove) continue;
-                    // The two waist points between candidate and partner
-                    int8_t w1x, w1y, w2x, w2y;
+                    if(simBoard[pos + a] == toMove ||
+                       simBoard[pos + b9] == toMove) continue;
+                    // The two waist points between candidate and partner,
+                    // as linear offsets from pos.
+                    int8_t w1, w2;
                     if(a == 1 || a == -1) { // |b| == 2
-                        w1x = x;     w1y = y + b / 2;
-                        w2x = x + a; w2y = y + b / 2;
+                        w1 = b9 / 2;        // (x,      y+b/2)
+                        w2 = a + b9 / 2;    // (x+a,    y+b/2)
                     } else {                // |a| == 2
-                        w1x = x + a / 2; w1y = y;
-                        w2x = x + a / 2; w2y = y + b;
+                        w1 = a / 2;         // (x+a/2,  y)
+                        w2 = a / 2 + b9;    // (x+a/2,  y+b)
                     }
                     // Enemy exactly ON a waist = a supported cut. (The old
                     // oppNear fired on any enemy in the waist's 3x3 — ~5x more
                     // firings, mostly false; strength-equal at 1000 games L0.)
-                    if(simBoard[w1y * BOARD_SIZE + w1x] == opp ||
-                       simBoard[w2y * BOARD_SIZE + w2x] == opp) {
+                    if(simBoard[pos + w1] == opp ||
+                       simBoard[pos + w2] == opp) {
                         bonus -= PRIOR_KEIMA_PENALTY;
                         penalized = 1;
                     }
