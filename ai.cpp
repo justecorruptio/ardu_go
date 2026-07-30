@@ -970,11 +970,23 @@ static uint8_t simPlay(uint8_t pos, uint8_t color, uint8_t ko,
 
     if(!captured) {
         if(noSelfAtari) {
-            // One flood covers both suicide (0 libs) and self-atari (1).
-            // Cache the result: the next playout move classifies this
-            // same group on an unchanged board.
-            uint8_t a, b;
-            uint8_t libs = groupLibsFind(pos, &a, &b);
+            // Immediate-liberty fast-path (Pachi): a placement with no
+            // same-colour neighbour is its own group, so its liberties
+            // are exactly its empty neighbours -- in the same order
+            // groupLibsFind reports them -- and no flood is needed. Only
+            // a connected placement can borrow liberties and still floods.
+            // One flood/scan covers both suicide (0 libs) and self-atari
+            // (1); the result is cached for the next playout move, which
+            // classifies this same group on an unchanged board.
+            uint8_t a = 0xFF, b = 0xFF, e = 0, connected = 0, r;
+            FOR_EACH_NEIGHBOR(r, pos) {
+                uint8_t s = simBoard[r];
+                if(s == EMPTY) {
+                    if(a == 0xFF) a = r; else if(b == 0xFF) b = r;
+                    e++;
+                } else if(s == color) { connected = 1; break; }
+            }
+            uint8_t libs = connected ? groupLibsFind(pos, &a, &b) : e;
             if(libs < 2) {
                 simBoard[pos] = EMPTY;
                 return ILLEGAL;
