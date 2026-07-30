@@ -2165,9 +2165,20 @@ static uint8_t selectChild(uint8_t nodeIdx) {
         // q6*(64-q6) is the SAME Q12 variance as (q*(4096-q))>>12 but a
         // 16-bit multiply instead of a 32-bit one.
         uint16_t lnOverN = lnN / nv;
-        uint32_t v = (uint16_t)(q6 * (64 - q6));
-        v += isqrt32((uint32_t)(2 * lnOverN) << 12);
-        if(v > 1024) v = 1024; // min(1/4, ...)
+        // The confidence term sqrt(2 lnN/n_j) alone saturates the min(1/4, .)
+        // cap once 2*lnOverN >= 256 (lnOverN >= 128), because isqrt32(256<<12)
+        // == 1024. So for those children v is provably 1024 — skip the isqrt
+        // AND the variance. Only near-root children (n_j > lnN/128) need the
+        // full form. The <32768 guard preserves the existing 2*lnOverN 16-bit
+        // wrap for the rare n_j==1 / high-lnN case.
+        uint32_t v;
+        if(lnOverN >= 128 && lnOverN < 32768) {
+            v = 1024;
+        } else {
+            v = (uint16_t)(q6 * (64 - q6));
+            v += isqrt32((uint32_t)(2 * lnOverN) << 12);
+            if(v > 1024) v = 1024; // min(1/4, ...)
+        }
 
         // Root RAVE blend, Gelly-Silver β from the CHILD's visits:
         // fresh children lean on AMAF evidence, established children
