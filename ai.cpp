@@ -1722,6 +1722,12 @@ static uint8_t raceWin(uint8_t eStart) {
 }
 #endif
 
+// The 8 knight (keima) offsets, in the exact order the old
+// a=-2..2,b=-2..2 / a*a+b*b==5 filter produced them, so the keima loop's
+// first-match break stays identical (iterate 8, not 25 with 17 discarded).
+static const int8_t PROGMEM KEIMA_A[8] = {-2, -2, -1, -1,  1,  1,  2,  2};
+static const int8_t PROGMEM KEIMA_B[8] = {-1,  1, -2,  2, -2,  2, -1,  1};
+
 // Prior for one candidate: tactics + center + locality + shape, minus
 // early-game low-line penalties. Negative = virtual losses. isFar
 // marks a big open point, which can never earn tactical or local
@@ -1928,9 +1934,10 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
             }
         if(!hasDiagFriend) {
             uint8_t penalized = 0;
-            for(int8_t a = -2; a <= 2 && !penalized; a++) {
-                for(int8_t b = -2; b <= 2 && !penalized; b++) {
-                    if(a * a + b * b != 5) continue; // knight offsets only
+            for(uint8_t ki = 0; ki < 8 && !penalized; ki++) {
+                int8_t a = (int8_t)pgm_read_byte(KEIMA_A + ki);
+                int8_t b = (int8_t)pgm_read_byte(KEIMA_B + ki);
+                {
                     int8_t kx = x + a, ky = y + b;
                     if(kx < 0 || kx >= BOARD_SIZE ||
                        ky < 0 || ky >= BOARD_SIZE) continue;
