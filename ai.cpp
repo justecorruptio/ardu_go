@@ -2101,6 +2101,7 @@ static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t la
 }
 
 // Bitwise integer sqrt: isqrt32(x*2^24)/4096 approximates sqrt(x)
+__attribute__((optimize("O2")))
 static uint16_t isqrt32(uint32_t x) {
     uint32_t res = 0;
     // Start `bit` at the top power-of-4 of x's highest non-zero byte, so
