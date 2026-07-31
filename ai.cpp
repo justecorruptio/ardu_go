@@ -973,6 +973,34 @@ static uint8_t regionVital(uint8_t seed, uint8_t *vital) {
     return unsettled ? 0 : owner;
 }
 
+// Pass-decision helper: the single stone colour bordering the empty region
+// containing `seed`, or 0 if it touches both colours (contested) or no stone
+// (open board). Unlike regionVital this has NO size cap -- a large territory
+// is still settled, and a region of >=8 empty cells is trivially two eyes, so
+// its bordering group is alive and non-vital fills there are pure own-fill
+// losses. Runs once per move (post-search) so a full flood into the free
+// floodScratch is fine.
+static uint8_t settledRegionColor(uint8_t seed) {
+    newMark();
+    uint8_t cnt = 1, head = 0, owner = 0;
+    floodSlot(0) = seed;
+    simMark[seed] = markEpoch;
+    while(head < cnt) {
+        uint8_t p = floodSlot(head++), q;
+        FOR_EACH_NEIGHBOR(q, p) {
+            uint8_t s = simBoard[q];
+            if(s == EMPTY) {
+                if(simMark[q] != markEpoch) { simMark[q] = markEpoch; floodSlot(cnt++) = q; }
+            } else if(!owner) {
+                owner = s;
+            } else if(owner != s) {
+                return 0;                 // both colours border it -> contested
+            }
+        }
+    }
+    return owner;                         // 0 = no bordering stone (open board)
+}
+
 // All orthogonal neighbors own color (or edge)
 static uint8_t isOwnEye(uint8_t pos, uint8_t color) {
     uint8_t q;
@@ -2614,10 +2642,16 @@ uint8_t AI::bestMove(Game &game, uint8_t &x, uint8_t &y) {
     // "wins" by bare komi from move zero — and a noise favorite
     // poking a 1-point enemy pocket once turned that into a
     // mid-game free pass (real game, move 18).
+    // best lands in a region bordered by a single colour -- our own territory
+    // (own fill: -1 pt) or a hopeless invasion of theirs (gifts a prisoner) --
+    // of ANY size (settledRegionColor is uncapped, so large territories that
+    // regionVital drops as "too open" are caught). Still defer to a small
+    // killable region's vital point, which is a real life-and-death move.
     uint8_t vital; // simBoard still holds the root position from above
     if(rootStones >= 45 &&
        (uint32_t)thinkSimWins * 20 >= (uint32_t)thinkSims * 11 &&
-       regionVital(best, &vital) && vital != best) {
+       settledRegionColor(best) &&
+       !(regionVital(best, &vital) && vital == best)) {
         game.computeScore();
         if(game.winner() == game.turn) return 0;
     }
