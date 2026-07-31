@@ -2181,6 +2181,21 @@ static inline uint16_t winRate6(uint16_t w, uint16_t v) {
     return q;
 }
 
+// Gelly-Silver RAVE ratio (RAVE_K<<12)/(3nv+RAVE_K). Factor exactly to
+// 409600/(nv+100) -- 1228800 = 3*409600, so the floors match -- whose
+// quotient is <=4055 (12-bit). A 12-step restoring divide then replaces
+// libgcc's full 32-bit __udivmodsi4. -O2 so the loop unrolls.
+__attribute__((optimize("O2")))
+static inline uint16_t raveRatio(uint16_t nv) {
+    uint32_t num = 409600UL, dd = (uint32_t)(nv + 100) << 11;
+    uint16_t ratio = 0;
+    for(uint16_t bit = 0x800; bit; bit >>= 1) {
+        if(num >= dd) { num -= dd; ratio |= bit; }
+        dd >>= 1;
+    }
+    return ratio;
+}
+
 static uint8_t selectChild(uint8_t nodeIdx) {
     // UCB1-Tuned in Q12 fixed point — software floats cost several ms
     // per root scan, so everything here is integer.
@@ -2227,8 +2242,7 @@ static uint8_t selectChild(uint8_t nodeIdx) {
         // root.) Never lift a poisoned (illegal) child back via RAVE.
         if(atRoot && nv < POISONED &&
            n.move < BOARD_CELLS && raveV[n.move]) {
-            uint16_t ratio = ((uint32_t)RAVE_K << 12) /
-                             (3 * nv + RAVE_K);
+            uint16_t ratio = raveRatio(nv);
             uint16_t beta = isqrt32((uint32_t)ratio << 12);
             uint16_t qr = winRate6(raveW[n.move], raveV[n.move]) << 6;
             q = ((uint32_t)(4096 - beta) * q + (uint32_t)beta * qr) >> 12;
