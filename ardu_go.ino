@@ -83,9 +83,11 @@ void endTurnCheck() {
 
 void setup() {
     jay.boot();
-    // Hold UP at power-on for safe-upload mode: this sketch constantly
+    // Hold UP at power-on for safe-upload mode. This sketch constantly
     // writes the buffers that overlap the bootloader magic key at
-    // 0x800, which breaks the normal auto-reset upload.
+    // 0x800; the vendored CDC_Setup (usb_cdc_v.cpp) now parks the CPU
+    // after arming the auto-reset so the key survives, but flashlight
+    // stays as the fallback if that path ever breaks.
     jay.flashlight();
     jay.invert(1);
     jay.clear();

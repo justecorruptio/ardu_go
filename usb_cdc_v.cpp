@@ -141,9 +141,19 @@ bool CDC_Setup(USBSetup& setup)
 #endif
 				// Store boot key
 				*(uint16_t *)magic_key_pos = MAGIC_KEY;
-				// Save the watchdog state in case the reset is aborted.
-				wdtcsr_save = WDTCSR;
 				wdt_enable(WDTO_120MS);
+				// vendored fix: NEVER return to the sketch. The stock core
+				// returns so Serial.begin() can cancel the reset, but this
+				// sketch has no Serial and its RAVE tables sit on 0x800 —
+				// resuming for even a moment stomps MAGIC_KEY before the
+				// watchdog fires, and the bootloader falls back to the game
+				// (the "hold reset to upload" bug). Ack the control
+				// transfer's status stage ourselves (EP0 is selected in
+				// this ISR; this is ClearIN()) so avrdude's port close
+				// completes cleanly, then hold here with the key intact
+				// until the watchdog resets us into the bootloader.
+				UEINTX = ~(1<<TXINI);
+				for (;;) {}
 			}
 			else if (*(uint16_t *)magic_key_pos == MAGIC_KEY)
 			{
