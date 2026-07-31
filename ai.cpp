@@ -407,6 +407,20 @@ uint8_t AI::chooseMove(Game &game) {
 #define PRIOR_JUMP_PENALTY 4
 #endif
 
+// Playout throw-in exception (the kill-bias fix): normal playouts gate
+// self-atari off entirely, so they can NEVER play the sacrifice that
+// kills an eyespaced-but-dead group -- dead groups survived every
+// rollout and the eval read lost positions at ~50-65% (measured: 66%
+// win-rate on a true -16.5 board; scoreDead's self-atari-allowed vote
+// reads the same board correctly). A LONE stone in self-atari is by
+// construction a throw-in (no friendly neighbour + one liberty => all
+// non-empty neighbours are enemy); allow exactly that shape, at rate
+// 1/PLAYOUT_THROWIN_RATE (power of 2; 1 = always, 0 = off). Connected
+// self-atari -- feeding a group into atari -- stays rejected.
+#ifndef PLAYOUT_THROWIN_RATE
+#define PLAYOUT_THROWIN_RATE 1
+#endif
+
 // Moves inside settled territory (see regionVital): filling one's
 // own loses a point; invading the opponent's gifts a prisoner. The
 // region's VITAL point is the opposite: it decides simple life and
@@ -1159,8 +1173,16 @@ static uint8_t simPlay(uint8_t pos, uint8_t color, uint8_t ko,
             }
             uint8_t libs = connected ? groupLibsFind(pos, &a, &b) : e;
             if(libs < 2) {
-                simBoard[pos] = EMPTY;
-                return ILLEGAL;
+#if PLAYOUT_THROWIN_RATE
+                // throw-in exception (see PLAYOUT_THROWIN_RATE above)
+                if(!(!connected && libs == 1 &&
+                     (PLAYOUT_THROWIN_RATE == 1 ||
+                      (rnd16() & (PLAYOUT_THROWIN_RATE - 1)) == 0)))
+#endif
+                {
+                    simBoard[pos] = EMPTY;
+                    return ILLEGAL;
+                }
             }
             cacheLibsPos = pos;
             cacheLibs = libs;
