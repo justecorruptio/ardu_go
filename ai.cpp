@@ -520,8 +520,15 @@ uint8_t AI::chooseMove(Game &game) {
 #ifndef PLAYOUT_CAP
 #define PLAYOUT_CAP 160
 #endif
-// Lone-invader answer probability mask (3 = fire 3/4 of the time,
-// stacking with the local-answer step to ~7/8; 0 disables)
+// Contact-push answer probability mask (3 = 3/4 of the non-local
+// coin, stacking with the local-answer step to ~7/8; 0 disables).
+#ifndef CONTACT_ANSWER_MASK
+#define CONTACT_ANSWER_MASK 3
+#endif
+// Lone-invader answer probability mask, SEPARATE from the contact
+// answer so the invasion knob can be tuned in isolation (the two were
+// one gate; a sweep of the combined mask confounded boundary defense
+// with invasion optimism).
 #ifndef LONE_ANSWER_MASK
 #define LONE_ANSWER_MASK 3
 #endif
@@ -1598,23 +1605,31 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                 if(cx >= 0 && cx < BOARD_SIZE && cy >= 0 && cy < BOARD_SIZE)
                     pos = cy * BOARD_SIZE + cx;
             } else if(rootStones + m >= EARLY_STONES &&
-                      (p & LONE_ANSWER_MASK << 1) != 0) {
+                      (p & ((CONTACT_ANSWER_MASK | LONE_ANSWER_MASK) << 1))
+                          != 0) {
+                // union pre-gate: if neither case's coin could pass,
+                // skip the classification scan (with equal masks this
+                // is exactly the pre-split gate — no extra work)
                 // (gated: in the opening EVERY stone is "lone" and
                 // every attachment is normal — these answer rules
                 // only mean something once territory has shape)
                 // Answer a stone that CONTACTS us (a boundary push)
                 // or one with no support within 2 (an invasion);
-                // either way the reply is a contact move.
+                // either way the reply is a contact move. The two
+                // cases carry SEPARATE probability masks.
                 uint8_t lastColor = simBoard[last];
                 // One pass over last's neighbours: collect them into nbl[]
                 // (needed for the random pick nbl[rnd(nl)] below), count nl,
                 // and flag a contact push -- no break, nl must count all.
-                uint8_t nbl[4], nl = 0, answer = 0, q;
+                uint8_t nbl[4], nl = 0, contact = 0, answer = 0, q;
                 FOR_EACH_NEIGHBOR(q, last) {
                     nbl[nl++] = q;
-                    if(simBoard[q] == toMove) answer = 1; // contact push
+                    if(simBoard[q] == toMove) contact = 1; // contact push
                 }
-                if(!answer) {
+                if(contact) {
+                    answer = (p & (CONTACT_ANSWER_MASK << 1)) != 0;
+                } else if((p & (LONE_ANSWER_MASK << 1)) != 0) {
+                    // 5x5 support scan only after the coin passes
                     answer = 1; // lone unless support found
                     for(int8_t dy = -2; dy <= 2 && answer; dy++)
                         for(int8_t dx = -2; dx <= 2; dx++) {
