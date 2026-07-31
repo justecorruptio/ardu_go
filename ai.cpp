@@ -2166,6 +2166,21 @@ static uint16_t lnQ12(uint16_t x) {
     return (uint16_t)k * 2839 + pgm_read_word(LN_FRAC + frac);
 }
 
+// (w<<6)/v for a win/visit pair, i.e. the Q6 win rate. Because w<=v the
+// quotient is <=64 (7 bits), so a 7-step restoring divide replaces libgcc's
+// full 16-bit __udivmodhi4 (~2x cheaper) and is bit-exact. Valid while
+// v<<6 fits u16 (v<=1023); real visit counts stay far under that at the
+// shipped 400-iteration budget, and POISONED children have w==0 -> 0.
+__attribute__((optimize("O2")))
+static inline uint16_t winRate6(uint16_t w, uint16_t v) {
+    uint16_t num = w << 6, d = v << 6, q = 0;
+    for(uint8_t bit = 64; bit; bit >>= 1) {
+        if(num >= d) { num -= d; q |= bit; }
+        d >>= 1;
+    }
+    return q;
+}
+
 static uint8_t selectChild(uint8_t nodeIdx) {
     // UCB1-Tuned in Q12 fixed point — software floats cost several ms
     // per root scan, so everything here is integer.
@@ -2182,7 +2197,7 @@ static uint8_t selectChild(uint8_t nodeIdx) {
         // uint16): (wins<<6)/nv == (wins<<12)/nv >> 6 exactly, so q is
         // the old Q12 value with its low 6 bits zeroed. That truncation
         // is well under the sampling noise (>=2.5% even at the root).
-        uint16_t q6 = (nWins(c) << 6) / nv;
+        uint16_t q6 = winRate6(nWins(c), nv);
         uint16_t q = q6 << 6;                 // Q12 (Q6 precision)
 
         // Variance-aware exploration from the raw win rate: with binary
@@ -2215,7 +2230,7 @@ static uint8_t selectChild(uint8_t nodeIdx) {
             uint16_t ratio = ((uint32_t)RAVE_K << 12) /
                              (3 * nv + RAVE_K);
             uint16_t beta = isqrt32((uint32_t)ratio << 12);
-            uint16_t qr = (uint16_t)((raveW[n.move] << 6) / raveV[n.move]) << 6;
+            uint16_t qr = winRate6(raveW[n.move], raveV[n.move]) << 6;
             q = ((uint32_t)(4096 - beta) * q + (uint32_t)beta * qr) >> 12;
         }
 
