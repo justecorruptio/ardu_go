@@ -604,8 +604,22 @@ int main(int argc, char **argv) {
             simBoard[i] = packedGet(game.board, i);
         rootStones = 4;
         buildChainMap();
-        printf("FINGERPRINT prior(D5)=%+d\n",
-               candidatePrior(4 * 9 + 3, game.turn, 4 * 9 + 4, 0));
+        // Prior FIRST (the playout hash below trashes simBoard/chainId)
+        int8_t pr = candidatePrior(4 * 9 + 3, game.turn, 4 * 9 + 4, 0);
+        // Playout-policy hash: 200 fixed-seed playouts from this
+        // position — distinguishes arms whose difference lives in the
+        // playout policy, which the prior value cannot see.
+        int pw = 0;
+        simKomi = game.kpieces;
+        rootTurn = game.turn;
+        for(int k = 0; k < 200; k++) {
+            rngState = (uint16_t)(k * 2654435761u >> 16) | 1;
+            for(uint8_t i = 0; i < BOARD_CELLS; i++)
+                simBoard[i] = packedGet(game.board, i);
+            pw += playout(game.turn, 0xFF, 4 * 9 + 4) == game.turn;
+        }
+        printf("FINGERPRINT prior(D5)=%+d iters=%u pw=%d/200\n",
+               pr, (unsigned)mctsIterations, pw);
         return 0;
     }
 
