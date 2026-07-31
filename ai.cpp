@@ -1520,9 +1520,16 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
 
         uint8_t start = rndMod<BOARD_CELLS>();
         uint8_t played = 0;
-        for(uint8_t i = 0; i < BOARD_CELLS; i++) {
-            uint8_t pos = start + i;
-            if(pos >= BOARD_CELLS) pos -= BOARD_CELLS;
+        // Two-phase circular scan (start..80, then 0..start-1): identical
+        // visit order to the old start+i-with-wrap, but the per-cell wrap
+        // check -- the hottest inlined line in the engine -- is gone; the
+        // phase switch runs once. continue still steps pos++ naturally.
+        uint8_t pos = start, scanEnd = BOARD_CELLS;
+        for(;; pos++) {
+            if(pos >= scanEnd) {
+                if(scanEnd != BOARD_CELLS || start == 0) break;
+                pos = 0; scanEnd = start;   // phase 2: 0..start-1
+            }
             if(simBoard[pos] != EMPTY || pos == ko) continue;
 
             // Lonely first-line moves are pure noise: skip unless the
@@ -2190,9 +2197,13 @@ static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t la
     int8_t bestP = -128;
     uint8_t bestPos = 0xFF;
     uint8_t startPos = rndMod<BOARD_CELLS>();
-    for(uint8_t i = 0; i < BOARD_CELLS; i++) {
-        uint8_t pos = startPos + i;
-        if(pos >= BOARD_CELLS) pos -= BOARD_CELLS;
+    // Same two-phase circular scan as playout's global probe (see there).
+    uint8_t pos = startPos, scanEnd = BOARD_CELLS;
+    for(;; pos++) {
+        if(pos >= scanEnd) {
+            if(scanEnd != BOARD_CELLS || startPos == 0) break;
+            pos = 0; scanEnd = startPos;    // phase 2: 0..startPos-1
+        }
         if(simBoard[pos] != EMPTY || pos == ko) continue;
         if(have[pos >> 3] & (1 << (pos & 7))) continue;
         uint8_t isFar = 0;
