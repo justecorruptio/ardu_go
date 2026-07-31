@@ -591,6 +591,14 @@ static uint8_t rnd(uint8_t n) {
     return rnd16() % n;
 }
 
+// rnd() for a COMPILE-TIME modulus. At -Os gcc emits a small rcall
+// __udivmodhi4 even for a constant divisor; forcing -O2 (and out-of-line so
+// the attribute sticks through inlining) turns `% N` into a magic-multiply.
+// Bit-identical to rnd(N) -- same rnd16() draw, same remainder.
+template<uint8_t N>
+__attribute__((optimize("O2"), noinline))
+static uint8_t rndMod() { return rnd16() % N; }
+
 // Fused PROGMEM read + post-increment: avr-libc's pgm_read_byte(p++) emits
 // `lpm; adiw` (read then a separate 2-cyc increment); `lpm Z+` does both in
 // one 3-cyc instruction. Provably identical (read *p, p++); host uses the
@@ -1411,8 +1419,8 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
             uint8_t lxy = posXY(last);
             int8_t lx = lxy & 0x0F, ly = lxy >> 4;
             if(p & 1) {
-                int8_t cx = lx + (int8_t)rnd(3) - 1;
-                int8_t cy = ly + (int8_t)rnd(3) - 1;
+                int8_t cx = lx + (int8_t)rndMod<3>() - 1;
+                int8_t cy = ly + (int8_t)rndMod<3>() - 1;
                 if(cx >= 0 && cx < BOARD_SIZE && cy >= 0 && cy < BOARD_SIZE)
                     pos = cy * BOARD_SIZE + cx;
             } else if(rootStones + m >= EARLY_STONES &&
@@ -1455,7 +1463,7 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
             }
         }
 
-        uint8_t start = rnd(BOARD_CELLS);
+        uint8_t start = rndMod<BOARD_CELLS>();
         uint8_t played = 0;
         for(uint8_t i = 0; i < BOARD_CELLS; i++) {
             uint8_t pos = start + i;
@@ -2091,7 +2099,7 @@ static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t la
 
     int8_t bestP = -128;
     uint8_t bestPos = 0xFF;
-    uint8_t startPos = rnd(BOARD_CELLS);
+    uint8_t startPos = rndMod<BOARD_CELLS>();
     for(uint8_t i = 0; i < BOARD_CELLS; i++) {
         uint8_t pos = startPos + i;
         if(pos >= BOARD_CELLS) pos -= BOARD_CELLS;
