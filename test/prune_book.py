@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# LEGACY: emits the v1 byte-trie format. The shipped walker reads the v2
+# BITSTREAM format (see crawl_book.py / opening_book.h) -- regenerate with
+# crawl_book.py instead; running this against the current ai.cpp will
+# produce a book the walker cannot read.
 # Prune the opening book to a summed policy-rank budget and
 # regenerate opening_book.h from opening_book.sgf (child order in the
 # SGF is KataGo policy order — first child = best move — which the

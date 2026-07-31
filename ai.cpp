@@ -57,29 +57,94 @@ void AI::reset() {
     vKomi2 = 0;
 }
 
-// Skip the node at p and its whole subtree; returns offset just past it
-uint16_t AI::trieSkip(uint16_t p) {
-    uint8_t b = pgm_read_byte(OPENING_BOOK_TRIE + p);
-    p++;
-    if(!(b & 0x80)) { // internal: consume child list
-        uint8_t last;
-        do {
-            last = pgm_read_byte(OPENING_BOOK_TRIE + p) & 0x40;
-            p = trieSkip(p);
-        } while(!last);
-    }
-    return p;
+// ==================== v2 bitstream walker ====================
+// Format: see opening_book.h. LSB-first bit stream; a node's children
+// follow its header; every group's first child is absolute (IDX[5]
+// LEAF LAST) and the rest are gap-coded tails sorted ascending by table
+// index (match-only, so the order is free). The root group is
+// all-absolute (its order carries OPENING_ROOT_WEIGHTS).
+//
+// The walk is forward-only, so a single global cursor (bkPos) + flag
+// statics replace out-parameters -- pointer plumbing tripled the code
+// size at -Os.
+static uint16_t bkPos;   // bit cursor
+static uint8_t bkFlags;  // node just decoded: bit0 = leaf, bit1 = last
+
+__attribute__((noinline))
+static uint8_t bookReadBits(uint16_t p, uint8_t mask) {
+    // up to 8 bits (mask = (1<<n)-1, constant at every call site); the
+    // stream carries a pad byte so the 2-byte window never over-reads
+    uint16_t byte = p >> 3;
+    uint8_t sh = p & 7;
+    uint16_t w = pgm_read_byte(OPENING_BOOK_TRIE + byte) |
+                 ((uint16_t)pgm_read_byte(OPENING_BOOK_TRIE + byte + 1) << 8);
+    return (uint8_t)(w >> sh) & mask;
 }
 
-// Scan the sibling list starting at p for a node with the given move.
-// Returns its offset, or -1 if not present.
-int16_t AI::trieFindChild(uint16_t p, uint8_t moveIdx) {
-    while(1) {
-        uint8_t b = pgm_read_byte(OPENING_BOOK_TRIE + p);
-        if((b & 0x3F) == moveIdx) return p;
-        if(b & 0x40) return -1; // that was the last sibling
-        p = trieSkip(p);
+__attribute__((noinline))
+static uint8_t bkAbs(void) {              // IDX[5] LEAF LAST, one read
+    uint8_t v = bookReadBits(bkPos, 0x7F);
+    bkPos += 7;
+    bkFlags = v >> 5;
+    return v & 31;
+}
+
+__attribute__((noinline))
+static uint8_t bkGap(void) {
+    // branches only compute (gap, flag bits, advance); the stores and the
+    // 16-bit cursor update live in ONE shared tail -- gcc duplicated them
+    // per branch otherwise (~34 B each)
+    uint8_t v = bookReadBits(bkPos, 0xFF);
+    uint8_t g, f, adv;
+    if(!(v & 1))      { g = 1;                  f = v >> 1; adv = 3; }
+    else if(!(v & 2)) { g = 2 + ((v >> 2) & 1); f = v >> 3; adv = 5; }
+    else if(!(v & 4)) { g = 4 + ((v >> 3) & 3); f = v >> 5; adv = 7; }
+    else {                       // 8-bit escape: flags in a second read
+        g = 8 + (v >> 3);
+        bkPos += 8;
+        f = bookReadBits(bkPos, 0x03);
+        adv = 2;
     }
+    bkFlags = f & 3;
+    bkPos += adv;
+    return g;
+}
+
+
+static void bkSkipGroup(void) {           // cursor at first child -> past group
+    bkAbs();
+    uint8_t f = bkFlags;
+    if(!(f & 1)) bkSkipGroup();
+    while(!(f & 2)) {
+        bkGap();
+        f = bkFlags;
+        if(!(f & 1)) bkSkipGroup();
+    }
+}
+
+static uint8_t bookPointIdx(uint8_t mv) { // 7x7 move -> table index
+    for(uint8_t i = 0; i < 32; i++)
+        if(pgm_read_byte(BOOK_POINTS + i) == mv) return i;
+    return 0xFF;
+}
+
+// Scan the group at bkPos for table-idx t. On hit returns 1 with bkPos
+// just past the node header (= its child group when the node is not a
+// leaf).
+static uint8_t bookFindChild(uint8_t t) {
+    uint8_t idx = bkAbs();
+    uint8_t f = bkFlags;
+    if(idx == t) return 1;
+    if(!(f & 1)) bkSkipGroup();
+    int8_t run = -1;
+    while(!(f & 2)) {
+        run += bkGap();
+        idx = (uint8_t)run;
+        f = bkFlags;
+        if(idx == t) return 1;
+        if(!(f & 1)) bkSkipGroup();
+    }
+    return 0;
 }
 
 void AI::notifyMove(uint8_t x, uint8_t y) {
@@ -96,17 +161,13 @@ void AI::notifyMove(uint8_t x, uint8_t y) {
 
         uint8_t bx = x, by = y;
         applySym(bx, by, s);
-        int16_t q = trieFindChild(bookPos[s], (by - 1) * 7 + (bx - 1));
-        if(q < 0) {
+        uint8_t t = bookPointIdx((by - 1) * 7 + (bx - 1));
+        bkPos = bookPos[s];
+        if(t == 0xFF || !bookFindChild(t) || (bkFlags & 1)) {
             bookAlive &= ~(1 << s);
             continue;
         }
-        uint8_t b = pgm_read_byte(OPENING_BOOK_TRIE + q);
-        if(b & 0x80) { // leaf: matched, but nothing stored beyond it
-            bookAlive &= ~(1 << s);
-            continue;
-        }
-        bookPos[s] = q + 1; // children start right after the node byte
+        bookPos[s] = bkPos; // children start right after the node header
     }
 }
 
@@ -124,16 +185,20 @@ uint8_t AI::bookLookup(uint8_t &x, uint8_t &y) {
             total += pgm_read_byte(OPENING_ROOT_WEIGHTS + i);
 
         int16_t r = SYS_RNDW(total);
-        uint16_t p = 0;
+        bkPos = 0;
+        uint8_t idx = 0;
+        int8_t run = -1;
         for(uint8_t i = 0; ; i++) {
+            if(i == 0) idx = bkAbs();
+            else { run += bkGap(); idx = (uint8_t)run; }
             r -= pgm_read_byte(OPENING_ROOT_WEIGHTS + i);
             if(r < 0) break;
-            p = trieSkip(p);
+            if(!(bkFlags & 1)) bkSkipGroup();
         }
 
-        uint8_t idx = pgm_read_byte(OPENING_BOOK_TRIE + p) & 0x3F;
-        x = idx % 7 + 1;
-        y = idx / 7 + 1;
+        uint8_t mv = pgm_read_byte(BOOK_POINTS + idx);
+        x = mv % 7 + 1;
+        y = mv / 7 + 1;
         applyInvSym(x, y, SYS_RND(8));
         return 1;
     }
@@ -142,10 +207,11 @@ uint8_t AI::bookLookup(uint8_t &x, uint8_t &y) {
 
     for(uint8_t s = 0; s < 8; s++) {
         if(!(bookAlive & (1 << s))) continue;
-        // First child = highest-policy move
-        uint8_t idx = pgm_read_byte(OPENING_BOOK_TRIE + bookPos[s]) & 0x3F;
-        x = idx % 7 + 1;
-        y = idx / 7 + 1;
+        // First child = highest-policy move (absolute header)
+        uint8_t idx = bookReadBits(bookPos[s], 0x1F);
+        uint8_t mv = pgm_read_byte(BOOK_POINTS + idx);
+        x = mv % 7 + 1;
+        y = mv / 7 + 1;
         applyInvSym(x, y, s);
         return 1;
     }

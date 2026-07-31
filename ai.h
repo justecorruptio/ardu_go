@@ -40,7 +40,5 @@ class AI {
     uint8_t resignCount; // consecutive hopeless searches (strict tier)
     uint8_t resignCount2; // consecutive bad searches (mild tier)
 
-    uint16_t trieSkip(uint16_t p);
-    int16_t trieFindChild(uint16_t p, uint8_t moveIdx);
     uint8_t bookLookup(uint8_t &x, uint8_t &y);
 };
