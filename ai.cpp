@@ -546,11 +546,19 @@ static Node * const pool = (Node *)Arduboy2Base::sBuffer;
 static uint8_t * const raveV = Arduboy2Base::sBuffer + NODE_POOL_SB * sizeof(Node);
 static uint8_t * const raveW = Arduboy2Base::sBuffer + NODE_POOL_SB * sizeof(Node) + BOARD_CELLS;
 
+// Single-bit masks: `1 << (i & 7)` compiles to a variable shift LOOP at
+// -Os (ror/dec/brpl, ~2-9 cycles) at every bitmap site; an lpm from this
+// table is a constant 3 cycles. Same values -- bit-identical results.
+PROGMEM const uint8_t BIT_MASK[8] = {1, 2, 4, 8, 16, 32, 64, 128};
+static inline uint8_t bitMask(uint8_t i) {
+    return pgm_read_byte(BIT_MASK + (i & 7));
+}
+
 // Which points the root player touched in the current simulation
 static uint8_t raveMask[11];
 
 static inline void raveMark(uint8_t pos) {
-    raveMask[pos >> 3] |= 1 << (pos & 7);
+    raveMask[pos >> 3] |= bitMask(pos);
 }
 
 // Static pool extension
@@ -1058,7 +1066,7 @@ static uint8_t regionVital(uint8_t seed, uint8_t *vital) {
     for(uint8_t j = 0; j < cnt; j++) {
         uint8_t c = region[j];
         chainId[c] = (chainId[c] & 0x3F) | (code << 6);
-        regionDone[c >> 3] |= 1 << (c & 7);
+        regionDone[c >> 3] |= bitMask(c);
     }
     if(*vital != 0xFF)
         chainId[*vital] = (chainId[*vital] & 0x3F) | (3 << 6);
@@ -2037,7 +2045,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
         // region code — 0=open, 1=black, 2=white, 3=vital. Filled lazily
         // by regionVital (first candidate in a region floods it; the rest
         // read the cache), so this is O(1) per candidate.
-        if(!(regionDone[pos >> 3] & (1 << (pos & 7)))) {
+        if(!(regionDone[pos >> 3] & bitMask(pos))) {
             uint8_t vital;
             regionVital(pos, &vital);
         }
@@ -2257,7 +2265,7 @@ static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t la
     memset(have, 0, sizeof(have));
     for(uint8_t c = node(nodeIdx).firstChild; c != 0xFF; c = node(c).nextSibling)
         if(node(c).move < BOARD_CELLS)
-            have[node(c).move >> 3] |= 1 << (node(c).move & 7);
+            have[node(c).move >> 3] |= bitMask(node(c).move);
 
     uint8_t near[12];  // 12 not 11: buildNearMask's run write touches byte 11
     uint8_t anyStone = buildNearMask(near);
@@ -2274,9 +2282,9 @@ static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t la
             pos = 0; scanEnd = startPos;    // phase 2: 0..startPos-1
         }
         if(simBoard[pos] != EMPTY || pos == ko) continue;
-        if(have[pos >> 3] & (1 << (pos & 7))) continue;
+        if(have[pos >> 3] & bitMask(pos)) continue;
         uint8_t isFar = 0;
-        if(anyStone && !(near[pos >> 3] & (1 << (pos & 7)))) {
+        if(anyStone && !(near[pos >> 3] & bitMask(pos))) {
             uint8_t bxy = posXY(pos);
             uint8_t bx = bxy & 0x0F, by = bxy >> 4;
             uint8_t bex = bx < BOARD_SIZE - 1 - bx ? bx : BOARD_SIZE - 1 - bx;
@@ -2519,7 +2527,7 @@ static void mctsIterate(Game &game) {
     // Fold this simulation into the root RAVE tables
     uint8_t rootWin = (winner == rootTurn);
     for(uint8_t i = 0; i < BOARD_CELLS; i++) {
-        if(!(raveMask[i >> 3] & (1 << (i & 7)))) continue;
+        if(!(raveMask[i >> 3] & bitMask(i))) continue;
         if(raveV[i] == 255) { // saturate by halving, keeps the ratio
             raveV[i] >>= 1;
             raveW[i] >>= 1;
