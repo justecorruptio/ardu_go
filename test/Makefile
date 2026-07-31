@@ -15,6 +15,13 @@ play_gui: play_gui.mm ../ai.cpp ../game.cpp ../*.h Arduboy2.h
 harness: harness.cpp ../ai.cpp ../game.cpp ../*.h Arduboy2.h
 	clang++ $(CXXFLAGS) harness.cpp -o harness
 
+# movecmp had NO rule: `make movecmp` silently used make's implicit
+# %.cpp rule, whose only prerequisite is movecmp.cpp -- so it never
+# rebuilt when ai.cpp changed and byte-identity checks compared a stale
+# binary against itself. Keep every verification target in this list.
+movecmp: movecmp.cpp ../ai.cpp ../game.cpp ../*.h Arduboy2.h
+	clang++ $(CXXFLAGS) movecmp.cpp -o movecmp
+
 clean:
 	rm -f play_gui harness test_lnd test_ladder game_*.sgf
 
