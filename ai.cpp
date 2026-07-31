@@ -588,7 +588,11 @@ static uint16_t rnd16() {
 }
 
 static uint8_t rnd(uint8_t n) {
-    return rnd16() % n;
+    // Lemire multiplicative reduction: map rnd16()'s [0,2^16) uniformly into
+    // [0,n) with a 16x8 multiply + high-word take, instead of a ~180-cycle
+    // variable __udivmodhi4. NOT bit-identical to %n (a different draw->index
+    // map) but the same uniform distribution -- strength validated vs L0.
+    return ((uint32_t)rnd16() * n) >> 16;
 }
 
 // rnd() for a COMPILE-TIME modulus. At -Os gcc emits a small rcall
