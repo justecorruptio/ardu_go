@@ -68,10 +68,8 @@ void Display::renderInfo() {
                                                 : F("WHITE TO PLAY"), 1);
 
     // Captures, 3 px under the turn line (which spans y=4..8)
-    jay.smallPrintPgm(ix, 12, F("CAPTURES"), 1);
-    jay.smallPrintPgm(ix, 18, F("B:"), 1);
+    jay.smallPrintPgm(ix, 12, F("CAPTURES\nB:\nW:"), 1);
     jay.smallPrint(ix + 8, 18, itoa(game.captures[0]), 1);
-    jay.smallPrintPgm(ix, 24, F("W:"), 1);
     const char *wc = itoa(game.captures[1]);
     jay.smallPrint(ix + 8, 24, wc, 1);
     jay.smallPrintPgm(ix + 8 + 4 * strlen(wc) + 4, 24, F("+6.5"), 1);
@@ -88,10 +86,8 @@ void Display::renderTitle(uint8_t menuCursor) {
     jay.drawFastHLine(46, 18, 35);
     jay.drawFastHLine(50, 20, 27);
 
-    jay.smallPrintPgm(39, 28, F("PLAY VS AI"), 1);
-    jay.smallPrintPgm(39, 34, F("PLAY VS HUMAN"), 1);
-    jay.smallPrintPgm(39, 40, F("SHOW RULES"), 1);
-    jay.smallPrintPgm(39, 46, F("INVERT SCREEN"), 1);
+    jay.smallPrintPgm(39, 28,
+        F("PLAY VS AI\nPLAY VS HUMAN\nSHOW RULES\nINVERT SCREEN"), 1);
 
     jay.smallPrintPgm(
         30 + (jay.counter / 4) % 4,
@@ -102,26 +98,25 @@ void Display::renderTitle(uint8_t menuCursor) {
 void Display::renderHelp() {
     jay.largePrintPgm(49, 1, F("RULES"), 1);
     jay.drawFastHLine(49, 9, 29);
-    jay.smallPrintPgm(1, 15, F("SURROUND TERRITORY WITH STONES."), 1);
-    jay.smallPrintPgm(1, 21, F("CAPTURE BY REMOVING LIBERTIES."), 1);
-    jay.smallPrintPgm(1, 27, F("NO SUICIDE. KO RULE APPLIES."), 1);
-    jay.smallPrintPgm(1, 33, F("PASS WHEN NO GOOD MOVES."), 1);
-    jay.smallPrintPgm(1, 39, F("TWO PASSES ENDS THE GAME."), 1);
-    jay.smallPrintPgm(1, 45, F("SCORE = TERRITORY + CAPTURES."), 1);
-    jay.smallPrintPgm(1, 51, F("WHITE GETS 6.5 KOMI."), 1);
+    jay.smallPrintPgm(1, 15,
+        F("SURROUND TERRITORY WITH STONES.\n"
+          "CAPTURE BY REMOVING LIBERTIES.\n"
+          "NO SUICIDE. KO RULE APPLIES.\n"
+          "PASS WHEN NO GOOD MOVES.\n"
+          "TWO PASSES ENDS THE GAME.\n"
+          "SCORE = TERRITORY + CAPTURES.\n"
+          "WHITE GETS 6.5 KOMI."), 1);
 }
 
 void Display::renderScoring() {
-    jay.smallPrintPgm(66, 1, F("SCORING"), 1);
-    jay.smallPrintPgm(66, 13, F("B TERR:"), 1);
+    // Label column in one string: blank lines make the y=1->13 and
+    // 19->31 section gaps (12 px = 2 lines)
+    jay.smallPrintPgm(66, 1,
+        F("SCORING\n\nB TERR:\nB CAPT:\n\nW TERR:\nW CAPT:\nW KOMI:"), 1);
     jay.smallPrint(94, 13, itoa(game.territory[0]), 1);
-    jay.smallPrintPgm(66, 19, F("B CAPT:"), 1);
     jay.smallPrint(94, 19, itoa(game.captures[0]), 1);
-    jay.smallPrintPgm(66, 31, F("W TERR:"), 1);
     jay.smallPrint(94, 31, itoa(game.territory[1]), 1);
-    jay.smallPrintPgm(66, 37, F("W CAPT:"), 1);
     jay.smallPrint(94, 37, itoa(game.captures[1]), 1);
-    jay.smallPrintPgm(66, 43, F("W KOMI:"), 1);
     jay.smallPrintPgm(94, 43, F("6.5"), 1);
 }
 
