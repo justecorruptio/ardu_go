@@ -387,6 +387,15 @@ uint8_t AI::chooseMove(Game &game) {
 #define RESIGN_MIN_STONES 25
 #endif
 
+// Settle gate (see settleVote): after the opponent passes in the
+// endgame, accept the honest count and pass back once the ownership
+// vote reads us behind by at least this many HALF-POINTS-doubled
+// (6 = 3 points). Between winning and this, keep playing the close
+// ones out.
+#ifndef SETTLE_ACCEPT2
+#define SETTLE_ACCEPT2 6
+#endif
+
 // Progressive widening (non-root): children allowed = 1 + visits/RATE
 #ifndef WIDEN_RATE
 #define WIDEN_RATE 6
@@ -524,6 +533,20 @@ static uint8_t simKomi;
 // (not max-biased) evaluation of the root position. Read by the host
 // test tools; costs two counters on-device.
 static uint16_t thinkSims, thinkSimWins;
+#ifndef ARDUINO
+// Host diagnostic: mean root-relative TRUE margin (doubled points, komi
+// applied) across this think's playouts, annotated by play_gui as est=.
+// NOT a trustworthy lost-position detector: normal playouts run with
+// scoreMode=0 (self-atari gated off), so they can never play the
+// throw-in sacrifices that kill an eyespaced-but-dead group — the
+// margin inherits that systematic bias wholesale (measured on the
+// Jul 30 SGF: est +4.5 at a true −16.5, win-rate just as fooled).
+// The only honest ownership read is the scoreMode=1 vote (settleVote /
+// scoreDead). Kept as an SGF red-flag diagnostic: est far from the
+// eventual scoreDead count marks positions the playout policy misreads.
+static int32_t thinkMargin2Sum;
+int16_t thinkAvgMargin2;
+#endif
 // Vital points of small eyespaces on the ROOT board, found once per
 // search. Playouts probe these no matter where the last move was —
 // otherwise a tenuki from a life-and-death spot is never punished in
@@ -1584,8 +1607,11 @@ static void loadRootBoard(Game &game) {
     }
 }
 
-void AI::scoreDead(Game &game) {
-    uint8_t *own = Arduboy2Base::sBuffer; // free once the game is over
+// The ownership vote itself, shared by scoreDead and the settle gate
+// below: SCORE_PLAYOUTS light scoring playouts from the real board,
+// counting per cell how often it finishes black-owned (black stone, or
+// empty bordered only by black — same rules as scoreWinner).
+static void ownVote(Game &game, uint8_t *own) {
     for(uint8_t i = 0; i < BOARD_CELLS; i++) own[i] = 0;
 
     rootTurn = game.turn;
@@ -1617,6 +1643,38 @@ void AI::scoreDead(Game &game) {
         }
     }
     scoreMode = 0;
+}
+
+// Ownership-corrected settle margin for the opponent-just-passed
+// decision: the honest area margin (doubled, komi applied, positive =
+// side to move wins) of the board as the scoreDead vote reads it. This
+// is the SAME vote game-over scoring applies, so a pass taken on this
+// verdict scores the way the verdict says. SETTLE_NONE before the
+// endgame — with open space the vote is coin flips, not a count.
+#define SETTLE_NONE (-32768)
+static uint8_t countStones(Game &game) {
+    uint8_t st = 0;
+    for(uint8_t i = 0; i < BOARD_CELLS; i++)
+        if(packedGet(game.board, i) != EMPTY) st++;
+    return st;
+}
+static int16_t settleVote(Game &game) {
+    if(countStones(game) < 45) return SETTLE_NONE;
+    // The node pool is rebuilt from scratch every think, so the screen
+    // buffer is free scratch here just as it is in scoreDead.
+    uint8_t *own = Arduboy2Base::sBuffer;
+    ownVote(game, own);
+    uint8_t b = 0;
+    for(uint8_t i = 0; i < BOARD_CELLS; i++)
+        if(own[i] >= SCORE_PLAYOUTS / 2) b++;
+    int16_t m2 = (int16_t)b * 4 - BOARD_CELLS * 2; // 2*(black - white) area
+    return (game.turn == BLACK) ? m2 - (int16_t)simKomi
+                                : (int16_t)simKomi - m2;
+}
+
+void AI::scoreDead(Game &game) {
+    uint8_t *own = Arduboy2Base::sBuffer; // free once the game is over
+    ownVote(game, own);
 
     for(uint8_t i = 0; i < BOARD_CELLS; i++) {
         uint8_t s = packedGet(game.board, i);
@@ -2364,6 +2422,11 @@ static void mctsIterate(Game &game) {
     // the tree and RAVE learn under the virtual komi (see vKomi2)
     thinkSims++;
     if(winner == rootTurn) thinkSimWins++;
+#ifndef ARDUINO
+    thinkMargin2Sum += (rootTurn == BLACK)
+        ? (int16_t)(lastMargin2 - (int16_t)simKomi)
+        : (int16_t)((int16_t)simKomi - lastMargin2);
+#endif
     if(vKomi2) winner = vKomiWinner();
 
     // Fold this simulation into the root RAVE tables
@@ -2397,7 +2460,12 @@ void AI::think(Game &game) {
     // (it can never pass into a loss by the game's own scoring).
     passToWin = 0;
     resigned = 0;
-    if(game.consecutivePasses == 1) {
+    // Endgame only (>= 45 stones, same bar as the settled-territory
+    // pass): passing back ends the game and hands it to scoreDead's
+    // vote, which on an OPEN board is coin flips, not a count — the
+    // naive check below used to fire on a 6-stone board ("winning" by
+    // bare komi) and pass a move-6 game into a random scoring.
+    if(game.consecutivePasses == 1 && countStones(game) >= 45) {
         // Don't trust the count if the previous search already read
         // this game as bad (under ~30%): dead stones make
         // computeScore miscount in both directions, and a massacre
@@ -2417,11 +2485,30 @@ void AI::think(Game &game) {
                 return;
             }
         }
+        // Ownership-corrected settle gate (endgame only). The naive
+        // count above scores dead stones as alive and trusts a stale
+        // eval; the scoreDead-style vote reads the board honestly —
+        // and it is the SAME vote game-over scoring applies, so a pass
+        // taken here scores the way the vote says. Clearly winning →
+        // pass and bank it (catches wins the naive count undercounts
+        // and the evalOK gate skips). Clearly lost → pass and accept
+        // the count instead of flailing stones into groups the vote
+        // already reads as dead. Contested → play on.
+        int16_t m2c = settleVote(game);
+        if(m2c != SETTLE_NONE &&
+           (m2c > 0 || m2c <= -SETTLE_ACCEPT2)) {
+            passToWin = 1;
+            resignCount = 0;
+            return;
+        }
     }
 
     poolUsed = 0;
     freeHead = 0xFF;
     thinkSims = thinkSimWins = 0;
+#ifndef ARDUINO
+    thinkMargin2Sum = 0;
+#endif
     rootTurn = game.turn;
     simKomi = game.kpieces;
 #ifndef ARDUINO
@@ -2495,6 +2582,11 @@ void AI::think(Game &game) {
             if(top1 - top2 > total - 1 - i) break;
         }
     }
+
+#ifndef ARDUINO
+    thinkAvgMargin2 = thinkSims
+        ? (int16_t)(thinkMargin2Sum / (int32_t)thinkSims) : 0;
+#endif
 
     // Resignation check (see RESIGN_* above), two tiers
     if(rootStones >= RESIGN_MIN_STONES &&

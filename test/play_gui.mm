@@ -248,9 +248,10 @@ static void aiMoveIfNeeded() {
                 // forceThinkSeed; then the playout tallies for the move.
                 char note[96];
                 snprintf(note, sizeof note,
-                         "seed=%04X sims=%u pos=%d%% mv=%d%% %dms",
+                         "seed=%04X sims=%u pos=%d%% est=%+.1f mv=%d%% %dms",
                          (unsigned)lastThinkSeed, (unsigned)thinkSims,
                          thinkSims ? (int)(100L * thinkSimWins / thinkSims) : 50,
+                         thinkAvgMargin2 / 2.0,
                          bestV ? (int)(100L * bestW / bestV) : 0, ms);
                 sgfLog.back().note = note;
                 info = [NSString stringWithFormat:
