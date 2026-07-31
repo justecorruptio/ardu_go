@@ -591,11 +591,24 @@ static uint8_t rnd(uint8_t n) {
     return rnd16() % n;
 }
 
+// Fused PROGMEM read + post-increment: avr-libc's pgm_read_byte(p++) emits
+// `lpm; adiw` (read then a separate 2-cyc increment); `lpm Z+` does both in
+// one 3-cyc instruction. Provably identical (read *p, p++); host uses the
+// portable form so movecmp still verifies the algorithm.
+static inline uint8_t lpmNext(const uint8_t *&p) {
+    uint8_t v;
+#if defined(__AVR__)
+    asm("lpm %0, Z+" : "=r"(v), "=z"(p) : "1"(p));
+#else
+    v = pgm_read_byte(p++);
+#endif
+    return v;
+}
 // Iterate the 0xFF-terminated neighbour list of cell `pos`; `q` (a uint8_t
 // you declare) takes each neighbour in turn -- no count, no nb[] round-trip.
 #define FOR_EACH_NEIGHBOR(q, pos) \
     for(const uint8_t *_ne = NEIGHBOR_TABLE + (pos) * 5; \
-        ((q) = pgm_read_byte(_ne++)) != 0xFF; )
+        ((q) = lpmNext(_ne)) != 0xFF; )
 
 static void newMark() {
     if(++markEpoch == 0) {
@@ -648,7 +661,7 @@ static uint8_t hasLiberty(uint8_t start) {
         // liberty; exit before reading the rest.
         const uint8_t *e = NEIGHBOR_TABLE + p * 5;
         uint8_t q;
-        while((q = pgm_read_byte(e++)) != 0xFF) {
+        while((q = lpmNext(e)) != 0xFF) {
             if(simBoard[q] == EMPTY) return 1;
             if(simBoard[q] == color && simMark[q] != markEpoch) {
                 simMark[q] = markEpoch;
