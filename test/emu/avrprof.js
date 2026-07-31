@@ -19,6 +19,9 @@ const Atcore = require(path.join(__dirname, 'atcore', 'Atcore.js'));
 
 const HEX = process.argv[2], NMFILE = process.argv[3];
 const MARK = parseInt(process.argv[4], 16);
+const CALLFILE = process.argv[5];   // optional: write per-function call counts here
+const CALLERFN = process.env.CALLERFN;      // optional: fn (no signature) to break down by caller
+const CALLERFILE = process.env.CALLERFILE;  // -> "retWordAddr callCount cyclesInFn" lines
 
 // --- symbols: build word-address -> function name, and a sorted range
 //     table for leaf lookup. avr-nm -nS lines: "addr size type name" ---
@@ -69,6 +72,9 @@ core.writeMap[MARK] = (v) => {
 // shadow stack of {name, ret(wordAddr)}; buckets: stackKey -> cycles
 const stack = [{ name: funcOf(core.pc), ret: -1 }];
 const buckets = new Map();
+const callCounts = new Map();     // name -> times CALLed while profiling
+const callerCalls = new Map();    // caller retAddr -> times CALLERFN was called
+const callerCyc = new Map();      // caller retAddr -> cycles spent in CALLERFN
 const mem = core.memory;
 
 const BIG = 1 << 30;
@@ -84,12 +90,23 @@ while (!done && guard++ < 3e9) {
   if (profiling && dt > 0) {
     const key = stack.map(s => s.name).join(';');
     buckets.set(key, (buckets.get(key) || 0) + dt);
+    if (CALLERFN) {
+      const top = stack[stack.length - 1];
+      if (top && top.name.split('(')[0] === CALLERFN)
+        callerCyc.set(top.ret, (callerCyc.get(top.ret) || 0) + dt);
+    }
   }
 
   const newPC = core.pc, newSP = core.sp;
   if (newSP < prevSP && funcEntry.has(newPC)) {          // CALL
     const ret = mem[newSP + 1] | (mem[newSP + 2] << 8);
-    stack.push({ name: funcEntry.get(newPC), ret });
+    const nm = funcEntry.get(newPC);
+    stack.push({ name: nm, ret });
+    if (profiling) {
+      callCounts.set(nm, (callCounts.get(nm) || 0) + 1);
+      if (CALLERFN && nm.split('(')[0] === CALLERFN)
+        callerCalls.set(ret, (callerCalls.get(ret) || 0) + 1);
+    }
   } else {                                                // maybe RET(s)
     while (stack.length > 1 && newPC === stack[stack.length - 1].ret &&
            newSP > prevSP) stack.pop();
@@ -98,4 +115,14 @@ while (!done && guard++ < 3e9) {
 
 for (const [k, c] of [...buckets.entries()].sort((a, b) => b[1] - a[1]))
   _log(`${k} ${c}`);
+if (CALLFILE) {
+  const lines = [...callCounts.entries()].sort((a, b) => b[1] - a[1])
+    .map(([n, c]) => `${n} ${c}`).join('\n');
+  fs.writeFileSync(CALLFILE, lines + '\n');
+}
+if (CALLERFN && CALLERFILE) {
+  const keys = new Set([...callerCalls.keys(), ...callerCyc.keys()]);
+  const lines = [...keys].map(r => `${r} ${callerCalls.get(r) || 0} ${callerCyc.get(r) || 0}`).join('\n');
+  fs.writeFileSync(CALLERFILE, lines + '\n');
+}
 _err(`blocks profiled into ${buckets.size} stacks; guard=${guard}`);
