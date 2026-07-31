@@ -2234,13 +2234,20 @@ static uint16_t isqrt32(uint32_t x) {
     // the refine loop below only shifts within that byte (<=3 steps) rather
     // than walking down from 2^30. Each start is a power of 4 >= the largest
     // 4^k <= x, so the loop lands on the identical bit -- result unchanged.
+    // Byte extraction (x >> 24 etc. are register renames on AVR) makes the
+    // span tests single-byte tst instead of the 32-bit mask+or chains gcc
+    // emits for `x & 0xFF000000UL`. `n` counts the remaining refine steps:
+    // log4(bit)+1 at each start, decremented with the pre-loop lowering, so
+    // the refine loop terminates on a dec/brne instead of a 4-byte bit!=0
+    // compare. Same arithmetic in the same order -- bit-identical results.
     uint32_t bit;
-    if     (x & 0xFF000000UL) bit = 1UL << 30;
-    else if (x & 0x00FF0000UL) bit = 1UL << 22;
-    else if (x & 0x0000FF00UL) bit = 1UL << 14;
-    else                       bit = 1UL << 6;
-    while(bit > x) bit >>= 2;
-    while(bit) {
+    uint8_t n;
+    if     ((uint8_t)(x >> 24)) { bit = 1UL << 30; n = 16; }
+    else if((uint8_t)(x >> 16)) { bit = 1UL << 22; n = 12; }
+    else if((uint8_t)(x >>  8)) { bit = 1UL << 14; n = 8;  }
+    else                        { bit = 1UL << 6;  n = 4;  }
+    while(bit > x) { bit >>= 2; n--; }
+    for(; n; n--) {
         if(x >= res + bit) {
             x -= res + bit;
             res = (res >> 1) + bit;
