@@ -1042,11 +1042,15 @@ static uint8_t soleConnector(uint8_t seedA, uint8_t idB) {
 // under the Japanese rules the game scores by (own fill: -1 point;
 // hopeless invasion: gifts a prisoner), but the area-scoring
 // playouts think they are free.
-static uint8_t regionVital(uint8_t seed, uint8_t *vital) {
+// Returns (vital<<8) | ownerCode: low byte 0 = unsettled/open (as the
+// old uint8_t return), high byte = the vital cell or 0xFF. Packed so no
+// caller needs an out-param (the pointer plumbing showed in the
+// profile; one hot caller only wants the cache side-effect).
+static uint16_t regionVital(uint8_t seed) {
     uint8_t region[SETTLED_REGION_MAX];
     uint8_t cnt = 0, head = 0;
     uint8_t owner = 0, unsettled = 0;
-    *vital = 0xFF;
+    uint8_t vit = 0xFF;
     newMark();
     region[cnt++] = seed;
     simMark[seed] = markEpoch;
@@ -1068,7 +1072,7 @@ static uint8_t regionVital(uint8_t seed, uint8_t *vital) {
     if(!unsettled && owner && cnt >= 3 && cnt <= 6) {
         uint8_t bestDeg, ties;
         uint8_t bestCell = regionVitalCell(region, cnt, &bestDeg, &ties);
-        if(bestCell != 0xFF && ties == 1) *vital = bestCell;
+        if(bestCell != 0xFF && ties == 1) vit = bestCell;
         // Square four: the one shape the unique-max rule misses.
         // All four cells tie at degree 2 (a straight four has two
         // degree-1 ends, so this signature is unambiguous). It is a
@@ -1079,7 +1083,7 @@ static uint8_t regionVital(uint8_t seed, uint8_t *vital) {
         // as vital invited gift-stone invasions and own-eye fills
         // (160-game referee dropped 26 -> 17 before this gate).
         else if(scoreMode && cnt == 4 && bestDeg == 2 && ties == 4)
-            *vital = bestCell;
+            vit = bestCell;
     }
     // Lazy eyespace cache: stamp the flooded cells (<=8) with the region
     // code (bits 6-7: 1=black, 2=white, 0=open; the vital cell = 3) and
@@ -1092,9 +1096,9 @@ static uint8_t regionVital(uint8_t seed, uint8_t *vital) {
         chainId[c] = (chainId[c] & 0x3F) | (code << 6);
         regionDone[c >> 3] |= bitMask(c);
     }
-    if(*vital != 0xFF)
-        chainId[*vital] = (chainId[*vital] & 0x3F) | (3 << 6);
-    return unsettled ? 0 : owner;
+    if(vit != 0xFF)
+        chainId[vit] = (chainId[vit] & 0x3F) | (3 << 6);
+    return ((uint16_t)vit << 8) | (unsettled ? 0 : owner);
 }
 
 // Pass-decision helper: the single stone colour bordering the empty region
@@ -1507,8 +1511,8 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
             uint8_t q;
             FOR_EACH_NEIGHBOR(q, last) {
                 if(simBoard[q] != EMPTY) continue;
-                uint8_t vital;
-                if(regionVital(q, &vital)) vcand = vital;
+                uint16_t rv = regionVital(q);
+                if((uint8_t)rv) vcand = rv >> 8;
                 break; // only the first adjacent region
             }
             if(playoutTry(vcand, toMove, &ko, &last, m)) {
@@ -1723,8 +1727,8 @@ static void loadRootBoard(Game &game) {
     nRootVitals = 0;
     for(uint8_t i = 0; i < BOARD_CELLS && nRootVitals < 3; i++) {
         if(simBoard[i] != EMPTY) continue;
-        uint8_t vital;
-        if(regionVital(i, &vital) && vital == i)
+        uint16_t rv = regionVital(i);
+        if((uint8_t)rv && (rv >> 8) == i)
             rootVitals[nRootVitals++] = i;
     }
 }
@@ -1963,6 +1967,14 @@ static uint8_t raceWin(uint8_t eStart) {
 // a=-2..2,b=-2..2 / a*a+b*b==5 filter produced them, so the keima loop's
 // first-match break stays identical (iterate 8, not 25 with 17 discarded).
 // entries 0-7: knight offsets; entries 8-11: straight one-point jumps
+// Companion tables: KEIMA_L[ki] = a + 9b (partner as a linear offset;
+// L/2 is also the jump midpoint for ki>=8, and L-a recovers the b-row
+// corner), KEIMA_W1/W2[ki] = the two waist offsets as constants --
+// replaces the b*9 multiply and the waist-selection branch per entry.
+static const int8_t PROGMEM KEIMA_L[12] = {-11, 7, -19, 17, -17, 19, -7, 11, -18, 18, -2, 2};
+static const int8_t PROGMEM KEIMA_W1[8] = {-1, -1, -9, 9, -9, 9, 1, 1};
+static const int8_t PROGMEM KEIMA_W2[8] = {-10, 8, -10, 8, -8, 10, -8, 10};
+
 static const int8_t PROGMEM KEIMA_A[12] = {-2, -2, -1, -1,  1,  1,  2,  2,
                                             0,  0, -2,  2};
 static const int8_t PROGMEM KEIMA_B[12] = {-1,  1, -2,  2, -2,  2, -1,  1,
@@ -2086,10 +2098,8 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
         // region code — 0=open, 1=black, 2=white, 3=vital. Filled lazily
         // by regionVital (first candidate in a region floods it; the rest
         // read the cache), so this is O(1) per candidate.
-        if(!(regionDone[pos >> 3] & bitMask(pos))) {
-            uint8_t vital;
-            regionVital(pos, &vital);
-        }
+        if(!(regionDone[pos >> 3] & bitMask(pos)))
+            regionVital(pos); // cache side-effect only
         uint8_t rc = chainId[pos] >> 6;
         if(rc == 3) {
             bonus += PRIOR_VITAL;
@@ -2181,13 +2191,13 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
                     int8_t kx = x + a, ky = y + b;
                     if(kx < 0 || kx >= BOARD_SIZE ||
                        ky < 0 || ky >= BOARD_SIZE) continue;
-                    int8_t b9 = b * BOARD_SIZE;               // partner row offset
-                    if(simBoard[pos + a + b9] != toMove) continue;
+                    int8_t L = (int8_t)pgm_read_byte(KEIMA_L + ki);
+                    if(simBoard[pos + L] != toMove) continue;
                     if(ki >= 8) {
                         // one-point jump: single midpoint, must be empty,
                         // enemy on a SIDE of it (the push-in cut). Sides
                         // are perpendicular to the jump line.
-                        int8_t m = (a ? a / 2 : b9 / 2);
+                        int8_t m = L / 2;
                         if(simBoard[pos + m] != EMPTY) continue;
                         uint8_t hit = 0;
                         if(a) { // horizontal jump: sides above/below midpoint
@@ -2210,17 +2220,11 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
                     // not be mine — else the pair links down the outside line
                     // and it isn't a lone keima.
                     if(simBoard[pos + a] == toMove ||
-                       simBoard[pos + b9] == toMove) continue;
+                       simBoard[pos + (int8_t)(L - a)] == toMove) continue;
                     // The two waist points between candidate and partner,
-                    // as linear offsets from pos.
-                    int8_t w1, w2;
-                    if(a == 1 || a == -1) { // |b| == 2
-                        w1 = b9 / 2;        // (x,      y+b/2)
-                        w2 = a + b9 / 2;    // (x+a,    y+b/2)
-                    } else {                // |a| == 2
-                        w1 = a / 2;         // (x+a/2,  y)
-                        w2 = a / 2 + b9;    // (x+a/2,  y+b)
-                    }
+                    // constants per entry from the companion tables.
+                    int8_t w1 = (int8_t)pgm_read_byte(KEIMA_W1 + ki);
+                    int8_t w2 = (int8_t)pgm_read_byte(KEIMA_W2 + ki);
                     // Enemy exactly ON a waist = a supported cut. (The old
                     // oppNear fired on any enemy in the waist's 3x3 — ~5x more
                     // firings, mostly false; strength-equal at 1000 games L0.)
@@ -2898,11 +2902,12 @@ uint8_t AI::bestMove(Game &game, uint8_t &x, uint8_t &y) {
     // of ANY size (settledRegionColor is uncapped, so large territories that
     // regionVital drops as "too open" are caught). Still defer to a small
     // killable region's vital point, which is a real life-and-death move.
-    uint8_t vital; // simBoard still holds the root position from above
+    // simBoard still holds the root position from above
+    uint16_t rv;
     if(rootStones >= 45 &&
        (uint32_t)thinkSimWins * 20 >= (uint32_t)thinkSims * 11 &&
        settledRegionColor(best) &&
-       !(regionVital(best, &vital) && vital == best)) {
+       !((uint8_t)(rv = regionVital(best)) && (rv >> 8) == best)) {
         game.computeScore();
         if(game.winner() == game.turn) return 0;
     }
