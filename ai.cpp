@@ -631,6 +631,7 @@ static uint8_t groupLibsCore(uint8_t start, uint8_t *l1, uint8_t *l2,
 // it instead of re-flooding (its only caller runs it right after).
 static uint8_t capturedGroupN;
 
+__attribute__((optimize("O2")))
 static uint8_t hasLiberty(uint8_t start) {
     uint8_t color = simBoard[start];
     newMark();
@@ -1146,6 +1147,7 @@ static uint16_t pattern3Index(int8_t cx, int8_t cy, uint8_t color,
 
 #include "pattern_weights.h"
 // Signed data-learned 3x3 pattern weight (replaces the MoGo bit).
+__attribute__((optimize("O2")))
 static int8_t patternBonus(int8_t cx, int8_t cy, uint8_t color) {
     uint8_t cls, stones;
     uint16_t idx = pattern3Index(cx, cy, color, &cls, &stones);
@@ -1205,6 +1207,7 @@ static uint8_t capB, capW;
 // while any correct line captures the sacrifices right back — so
 // ownership tallies stay honest. (scoreMode is declared up top.)
 __attribute__((noinline))
+__attribute__((optimize("O2")))
 static uint8_t playoutTry(uint8_t pos, uint8_t toMove, uint8_t *ko,
                           uint8_t *last, uint8_t m) {
     if(pos >= BOARD_CELLS || pos == *ko || simBoard[pos] != EMPTY ||
@@ -1656,6 +1659,7 @@ static uint8_t emptyCorners;
 
 // 81-bit bitmap of points within distance 2 of any stone.
 // Returns 0 if the board has no stones (then allow everything).
+__attribute__((optimize("O2")))
 static uint8_t buildNearMask(uint8_t *near) {
     memset(near, 0, 12);
     uint8_t anyStone = 0;
