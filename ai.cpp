@@ -398,6 +398,14 @@ uint8_t AI::chooseMove(Game &game) {
 #ifndef PRIOR_KEIMA_PENALTY
 #define PRIOR_KEIMA_PENALTY 4
 #endif
+// Cuttable one-point jump (ikken tobi): candidate jumps to a lone
+// partner two straight away, the midpoint is EMPTY and an enemy stone
+// sits BESIDE it (push-and-cut ready). Merged into the keima scan:
+// same lone-stone gates; !hasDiagFriend already excludes side-supported
+// jumps (the midpoint's sides are the candidate's diagonals).
+#ifndef PRIOR_JUMP_PENALTY
+#define PRIOR_JUMP_PENALTY 4
+#endif
 
 // Moves inside settled territory (see regionVital): filling one's
 // own loses a point; invading the opponent's gifts a prisoner. The
@@ -1924,8 +1932,11 @@ static uint8_t raceWin(uint8_t eStart) {
 // The 8 knight (keima) offsets, in the exact order the old
 // a=-2..2,b=-2..2 / a*a+b*b==5 filter produced them, so the keima loop's
 // first-match break stays identical (iterate 8, not 25 with 17 discarded).
-static const int8_t PROGMEM KEIMA_A[8] = {-2, -2, -1, -1,  1,  1,  2,  2};
-static const int8_t PROGMEM KEIMA_B[8] = {-1,  1, -2,  2, -2,  2, -1,  1};
+// entries 0-7: knight offsets; entries 8-11: straight one-point jumps
+static const int8_t PROGMEM KEIMA_A[12] = {-2, -2, -1, -1,  1,  1,  2,  2,
+                                            0,  0, -2,  2};
+static const int8_t PROGMEM KEIMA_B[12] = {-1,  1, -2,  2, -2,  2, -1,  1,
+                                           -2,  2,  0,  0};
 
 // Prior for one candidate: tactics + center + locality + shape, minus
 // early-game low-line penalties. Negative = virtual losses. isFar
@@ -2133,7 +2144,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
             }
         if(!hasDiagFriend) {
             uint8_t penalized = 0;
-            for(uint8_t ki = 0; ki < 8 && !penalized; ki++) {
+            for(uint8_t ki = 0; ki < 12 && !penalized; ki++) {
                 int8_t a = (int8_t)pgm_read_byte(KEIMA_A + ki);
                 int8_t b = (int8_t)pgm_read_byte(KEIMA_B + ki);
                 {
@@ -2142,6 +2153,29 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
                        ky < 0 || ky >= BOARD_SIZE) continue;
                     int8_t b9 = b * BOARD_SIZE;               // partner row offset
                     if(simBoard[pos + a + b9] != toMove) continue;
+                    if(ki >= 8) {
+                        // one-point jump: single midpoint, must be empty,
+                        // enemy on a SIDE of it (the push-in cut). Sides
+                        // are perpendicular to the jump line.
+                        int8_t m = (a ? a / 2 : b9 / 2);
+                        if(simBoard[pos + m] != EMPTY) continue;
+                        uint8_t hit = 0;
+                        if(a) { // horizontal jump: sides above/below midpoint
+                            int8_t my = y;
+                            if(my > 0 && simBoard[pos + m - BOARD_SIZE] == opp) hit = 1;
+                            if(my < BOARD_SIZE - 1 &&
+                               simBoard[pos + m + BOARD_SIZE] == opp) hit = 1;
+                        } else { // vertical jump: sides left/right of midpoint
+                            if(x > 0 && simBoard[pos + m - 1] == opp) hit = 1;
+                            if(x < BOARD_SIZE - 1 &&
+                               simBoard[pos + m + 1] == opp) hit = 1;
+                        }
+                        if(hit) {
+                            bonus -= PRIOR_JUMP_PENALTY;
+                            penalized = 1;
+                        }
+                        continue;
+                    }
                     // Back corners of the keima box, (kx,y) and (x,ky), must
                     // not be mine — else the pair links down the outside line
                     // and it isn't a lone keima.
