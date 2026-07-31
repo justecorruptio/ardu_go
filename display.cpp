@@ -69,10 +69,9 @@ void Display::renderInfo() {
 
     // Captures, 3 px under the turn line (which spans y=4..8)
     jay.smallPrintPgm(ix, 12, F("CAPTURES\nB:\nW:"), 1);
-    jay.smallPrint(ix + 8, 18, itoa(game.captures[0]), 1);
-    const char *wc = itoa(game.captures[1]);
-    jay.smallPrint(ix + 8, 24, wc, 1);
-    jay.smallPrintPgm(ix + 8 + 4 * strlen(wc) + 4, 24, F("+6.5"), 1);
+    jay.prNum(ix + 8, 18, game.captures[0]);
+    uint8_t wx = jay.prNum(ix + 8, 24, game.captures[1]);
+    jay.smallPrintPgm(wx + 4, 24, F("+6.5"), 1);
     jay.drawFastHLine(ix, 31, 59);
 
     // Controls hint: one line, 3 px margin below (font is 5 tall,
@@ -113,10 +112,10 @@ void Display::renderScoring() {
     // 19->31 section gaps (12 px = 2 lines)
     jay.smallPrintPgm(66, 1,
         F("SCORING\n\nB TERR:\nB CAPT:\n\nW TERR:\nW CAPT:\nW KOMI:"), 1);
-    jay.smallPrint(94, 13, itoa(game.territory[0]), 1);
-    jay.smallPrint(94, 19, itoa(game.captures[0]), 1);
-    jay.smallPrint(94, 31, itoa(game.territory[1]), 1);
-    jay.smallPrint(94, 37, itoa(game.captures[1]), 1);
+    jay.prNum(94, 13, game.territory[0]);
+    jay.prNum(94, 19, game.captures[0]);
+    jay.prNum(94, 31, game.territory[1]);
+    jay.prNum(94, 37, game.captures[1]);
     jay.smallPrintPgm(94, 43, F("6.5"), 1);
 }
 

@@ -34,14 +34,6 @@ void startGame() {
     stage = STAGE_PLAY;
 }
 
-// Print a number, return the x just past its last digit
-__attribute__((noinline))
-uint8_t prNum(uint8_t x, uint8_t y, uint16_t v) {
-    char *p = itoa16(v);
-    jay.smallPrint(x, y, p, 1);
-    return x + 4 * strlen((uint8_t *)p);
-}
-
 void renderGameView() {
     display.renderBoard();
     display.renderCursor();
@@ -53,16 +45,16 @@ void renderGameView() {
     // 100% displays as 99.
     if(game.mode == MODE_VS_AI && aiThinkMs) {
         jay.smallPrintPgm(66, 35, F("WIN:"), 1);
-        uint8_t x = prNum(66 + 16, 35,
+        uint8_t x = jay.prNum(66 + 16, 35,
                           ai.statPct > 99 ? 99 : ai.statPct);
         jay.smallPrintPgm(x, 35, F("%"), 1);
-        x = prNum(x + 8, 35, (aiThinkMs + 500) / 1000);
+        x = jay.prNum(x + 8, 35, (aiThinkMs + 500) / 1000);
         jay.smallPrintPgm(x, 35, F(" SEC"), 1);
 
         jay.smallPrintPgm(66, 41, F("VISITS:"), 1);
-        x = prNum(66 + 28, 41, ai.statVisits);
+        x = jay.prNum(66 + 28, 41, ai.statVisits);
         jay.smallPrintPgm(x, 41, F("/"), 1);
-        prNum(x + 4, 41, ai.statTotal);
+        jay.prNum(x + 4, 41, ai.statTotal);
     }
 }
 
