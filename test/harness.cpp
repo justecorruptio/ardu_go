@@ -273,6 +273,14 @@ static int areaMargin() {
 }
 
 // Play one game; aiColor is our AI's color. Returns +1 if our AI wins,
+// Targeted-validation seeding (peepseed mode): when seedSeq is set,
+// playGame pre-plays it (alternating colours from Black) into
+// game+ai+gnugo, and records the engine's FIRST reply in
+// firstEngineMove (0xFE = pass) so the driver can check it.
+static const char *seedSeq = nullptr;
+static uint8_t firstEngineMove = 0xFF;
+static bool recordFirst = false;
+
 // -1 if gnugo wins, 0 on a rules disagreement (logged).
 static int playGame(int gameNo, int level, uint8_t aiColor, bool verbose) {
     bool useGnugo = level >= 0;
@@ -282,6 +290,28 @@ static int playGame(int gameNo, int level, uint8_t aiColor, bool verbose) {
     sgfMoves.clear();
 
     std::string resp;
+    if(seedSeq) {
+        const char *p = seedSeq;
+        uint8_t color = BLACK;
+        while(*p) {
+            while(*p == ' ') p++;
+            const char *e = p;
+            while(*e && *e != ' ') e++;
+            std::string v(p, e - p);
+            uint8_t sx, sy;
+            fromVertex(v, sx, sy);
+            game.playMove(sx, sy);
+            ai.notifyMove(sx, sy);
+            sgfAdd(color, sx, sy);
+            if(useGnugo)
+                gtpCmd(std::string("play ") +
+                       (color == BLACK ? "black" : "white") + " " + v, resp);
+            color = 3 - color;
+            p = e;
+        }
+        firstEngineMove = 0xFF;
+        recordFirst = true;
+    }
     int moves = 0;
     int rc = 0;
     bool gnugoResigned = false;
@@ -334,6 +364,10 @@ static int playGame(int gameNo, int level, uint8_t aiColor, bool verbose) {
                     game.pass();
                     ai.notifyPass();
                 }
+            }
+            if(recordFirst) {
+                firstEngineMove = (x == 0xFF) ? 0xFE : (uint8_t)(y * 9 + x);
+                recordFirst = false;
             }
             if(x != 0xFF) {
                 sgfAdd(color, x, y);
@@ -552,6 +586,69 @@ int main(int argc, char **argv) {
                games, w, l, huntCount);
         return 0;
     }
+    // priorprobe: print the D5 prior in the seed-0 peeped-jump
+    // position — a build FINGERPRINT so gauntlet arms can prove which
+    // prior code they contain before burning 1000 games (stale arm
+    // binaries have now voided two runs).
+    if(argc > 1 && std::string(argv[1]) == "priorprobe") {
+        game.reset(); ai.reset();
+        const char *seq[] = {"D4", "F3", "D6", "E5"};
+        for(int i = 0; i < 4; i++) {
+            uint8_t sx, sy;
+            fromVertex(seq[i], sx, sy);
+            game.playMove(sx, sy);
+            ai.notifyMove(sx, sy);
+        }
+        rootTurn = game.turn;
+        for(uint8_t i = 0; i < BOARD_CELLS; i++)
+            simBoard[i] = packedGet(game.board, i);
+        rootStones = 4;
+        buildChainMap();
+        printf("FINGERPRINT prior(D5)=%+d\n",
+               candidatePrior(4 * 9 + 3, game.turn, 4 * 9 + 4, 0));
+        return 0;
+    }
+
+    // peepseed <seedIdx 0-7> [trials] [level] [off]: replay a curated
+    // opening that ends with an opponent peep against our one-point
+    // jump, record whether the engine's first move blocks the
+    // connector, then play the game out vs gnugo and score it.
+    if(argc > 2 && std::string(argv[1]) == "peepseed") {
+        struct Seed { const char *seq; const char *conn; uint8_t aiColor; };
+        static const Seed SEEDS[] = {
+            {"D4 F3 D6 E5", "D5", BLACK},   // vertical jump, peep from E
+            {"D4 F3 D6 C5", "D5", BLACK},   // peep from W
+            {"F4 C3 F6 E5", "F5", BLACK},   // right-side jump
+            {"C6 G3 E6 D5", "D6", BLACK},   // horizontal jump, peep below
+            {"G7 D4 C3 D6 E5", "D5", WHITE},
+            {"C7 F4 G3 F6 E5", "F5", WHITE},
+            {"G7 E3 C7 E5 F4", "E4", WHITE},
+            {"D3 E4 F7 E6 D5", "E5", WHITE},
+        };
+        int si = atoi(argv[2]);
+        int trials = argc > 3 ? atoi(argv[3]) : 25;
+        int level = argc > 4 ? atoi(argv[4]) : 0;
+        int off = argc > 5 ? atoi(argv[5]) : 0;
+        const Seed &S = SEEDS[si];
+        seedSeq = S.seq;
+        uint8_t cx, cy;
+        fromVertex(S.conn, cx, cy);
+        uint8_t conn = cy * 9 + cx;
+        int wins = 0, answered = 0;
+        for(int r = 0; r < trials; r++) {
+            rngState = (uint16_t)(si * 7919 + r * 131 + 17) | 1;
+            int rc = playGame(off + si * 1000 + r, level, S.aiColor, false);
+            bool ans = firstEngineMove == conn;
+            answered += ans;
+            if(rc > 0) wins++;
+            printf("PTRIAL %d %d ans=%d win=%d\n", si, r, (int)ans,
+                   rc > 0 ? 1 : 0);
+        }
+        printf("SEED %d: answered %d/%d, wins %d/%d\n",
+               si, answered, trials, wins, trials);
+        return 0;
+    }
+
     if(argc > 2 && std::string(argv[1]) == "opendiag") {
         huntMode = true;                 // reuse the reg_genmove + estimate path
         int games = atoi(argv[2]);
