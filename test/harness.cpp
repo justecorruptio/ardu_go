@@ -135,6 +135,7 @@ static bool huntMode = false;
 static double huntThresh = 6.0;
 static FILE *huntLog = NULL;
 static int huntCount = 0;
+static FILE *openDiagLog = NULL;
 
 static void debugRootStats(int moveNo, uint8_t toMove) {
     struct Row { uint16_t v, w; uint8_t m; };
@@ -350,6 +351,12 @@ static int playGame(int gameNo, int level, uint8_t aiColor, bool verbose) {
                         // evaluator noise, not a blunder (seen live:
                         // a "22.5-point drop" on gnugo's own choice).
                         if(gnugoSuggest == toVertex(x, y)) drop = 0;
+                        if(openDiagLog && moves <= 200)
+                            fprintf(openDiagLog,
+                                "game %d mv %2d %s AI=%-3s gnugo=%-3s drop=%5.1f  %s->%s\n",
+                                gameNo, moves, cname, toVertex(x, y).c_str(),
+                                gnugoSuggest.c_str(), drop, preEst.c_str(),
+                                postEst.c_str());
                         if(drop >= huntThresh) {
                             huntCount++;
                             fprintf(huntLog,
@@ -536,12 +543,29 @@ int main(int argc, char **argv) {
         for(int g = 0; g < games; g++) {
             int r = playGame(g + off, level, (g & 1) ? WHITE : BLACK, false);
             if(r > 0) w++; else l++;
+            printf("RESULT %d %d\n", g + off, r > 0 ? 1 : 0);  // per-game for paired McNemar
         }
         fprintf(huntLog, "== done: %d games, %d blunders logged\n",
                 games, huntCount);
         fclose(huntLog);
         printf("hunt done: %d games (%d-%d), %d blunders -> hunt_report.txt\n",
                games, w, l, huntCount);
+        return 0;
+    }
+    if(argc > 2 && std::string(argv[1]) == "opendiag") {
+        huntMode = true;                 // reuse the reg_genmove + estimate path
+        int games = atoi(argv[2]);
+        int off = argc > 3 ? atoi(argv[3]) : 0;
+        if(argc > 4) mctsIterations = atoi(argv[4]);
+        openDiagLog = fopen("opendiag.txt", "w");
+        setvbuf(openDiagLog, NULL, _IOLBF, 0);   // line-buffered: survive a crash
+        srand(4242 + off);
+        for(int g = 0; g < games; g++) {
+            fprintf(stderr, "  [game %d]\n", g + off);
+            playGame(g + off, 0, (g & 1) ? WHITE : BLACK, false);
+        }
+        fclose(openDiagLog);
+        printf("opendiag done: %d games -> opendiag.txt\n", games);
         return 0;
     }
     if(argc > 2 && std::string(argv[1]) == "eval") {
