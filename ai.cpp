@@ -1411,6 +1411,7 @@ static uint8_t playoutTry(uint8_t pos, uint8_t toMove, uint8_t *ko,
 
 // Random playout from current simBoard; returns winning color.
 // `last` = the previous move (0xFF/pass = none).
+__attribute__((optimize("O2")))
 static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
     uint8_t passes = 0;
     capB = capW = 0;
@@ -1548,7 +1549,12 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
             uint8_t nMatches = 0;
             for(int8_t dy = -1; dy <= 1; dy++) {
                 for(int8_t dx = -1; dx <= 1; dx++) {
-                    if(dx == 0 && dy == 0) continue;
+                    // no (0,0) skip: the centre is `last` itself, always
+                    // occupied by the stone just played, so the EMPTY
+                    // check below rejects it -- same matches. (A D8
+                    // PROGMEM-table flatten of this loop measured +0.16%
+                    // SLOWER: 3 lpm/point beats the loop machinery here,
+                    // unlike keima where most iterations were filtered.)
                     int8_t cx = lpx + dx, cy = lpy + dy;
                     if(cx < 0 || cx >= BOARD_SIZE || cy < 0 || cy >= BOARD_SIZE)
                         continue;
