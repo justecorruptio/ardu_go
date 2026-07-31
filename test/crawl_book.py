@@ -381,3 +381,18 @@ json.dump({"points": POINTS, "weights": weights,
            "tree": [dump(c) for c in _ordered]},
           open("book_v2_ref.json", "w"))
 print("sidecar book_v2_ref.json written")
+
+# ---- SGF (archival/human view, VALUE order = first child best) ----
+def sgf_node(n, color):
+    x, y = n.move
+    mv = f"{chr(97+x)}{chr(97+y)}"
+    nxt = "W" if color == "B" else "B"
+    if len(n.children) == 1:
+        return f";{color}[{mv}]" + sgf_node(n.children[0], nxt)
+    return f";{color}[{mv}]" + "".join(
+        f"({sgf_node(c, nxt)})" for c in n.children)
+
+sgf = ("(;GM[1]FF[4]SZ[9]AP[KataGo-wide-crawl]KM[6.5]"
+       + "".join(f"({sgf_node(c, 'B')})" for c in root.children) + ")")
+open("../opening_book.sgf", "w").write(sgf + "\n")
+print(f"opening_book.sgf written ({len(sgf)} chars)")

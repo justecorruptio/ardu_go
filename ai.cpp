@@ -156,15 +156,17 @@ void AI::notifyMove(uint8_t x, uint8_t y) {
         return;
     }
 
-    for(uint8_t s = 0; s < 8; s++) {
-        if(!(bookAlive & (1 << s))) continue;
+    uint8_t m = 1;
+    for(uint8_t s = 0; s < 8; s++, m <<= 1) {
+        // walking mask: (1 << s) compiles to a variable shift LOOP at -Os
+        if(!(bookAlive & m)) continue;
 
         uint8_t bx = x, by = y;
         applySym(bx, by, s);
         uint8_t t = bookPointIdx((by - 1) * 7 + (bx - 1));
         bkPos = bookPos[s];
         if(t == 0xFF || !bookFindChild(t) || (bkFlags & 1)) {
-            bookAlive &= ~(1 << s);
+            bookAlive &= ~m;
             continue;
         }
         bookPos[s] = bkPos; // children start right after the node header
@@ -205,8 +207,9 @@ uint8_t AI::bookLookup(uint8_t &x, uint8_t &y) {
 
     if(!bookAlive) return 0;
 
-    for(uint8_t s = 0; s < 8; s++) {
-        if(!(bookAlive & (1 << s))) continue;
+    uint8_t m = 1;
+    for(uint8_t s = 0; s < 8; s++, m <<= 1) {
+        if(!(bookAlive & m)) continue;
         // First child = highest-policy move (absolute header)
         uint8_t idx = bookReadBits(bookPos[s], 0x1F);
         uint8_t mv = pgm_read_byte(BOOK_POINTS + idx);
