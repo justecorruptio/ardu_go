@@ -293,6 +293,11 @@ uint8_t AI::chooseMove(Game &game) {
 #ifndef PRIOR_CAPTURE
 #define PRIOR_CAPTURE 6     // captures an enemy group (its last liberty)
 #endif
+#ifdef CAPSIZE_PRIOR
+// michi's CAPTURE_MANY (30 vs 15): a multi-stone capture outranks a
+// lone-stone snapback. Dose 1 on our compressed prior scale.
+#define PRIOR_CAPTURE_MANY 3
+#endif
 #ifndef PRIOR_SAVE
 #define PRIOR_SAVE 4        // extends an own group out of atari
 #endif
@@ -2262,6 +2267,9 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
                              uint8_t isFar) {
     uint8_t opp = 3 - toMove;
     uint8_t sawCapture = 0, sawSave = 0, sawAtari = 0, sawDoomed = 0;
+#ifdef CAPSIZE_PRIOR
+    uint8_t sawCaptureMany = 0;
+#endif
     uint8_t sawWeakFriend = 0;
     uint8_t hasOrthFriend = 0;
 
@@ -2294,7 +2302,17 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
         if(simBoard[q] == opp) {
             eGroups++;
             if(l < eMinLibs) eMinLibs = l;
-            if(l == 1) sawCapture = 1;      // pos is its last liberty
+            if(l == 1) {
+                sawCapture = 1;             // pos is its last liberty
+#ifdef CAPSIZE_PRIOR
+                // size >= 2 iff q touches a chain-mate: every stone of
+                // a multi-stone chain has a same-colour neighbour, and
+                // adjacent same colour IS the same chain. O(4), no flood.
+                uint8_t r;
+                FOR_EACH_NEIGHBOR(r, q)
+                    if(simBoard[r] == opp) { sawCaptureMany = 1; break; }
+#endif
+            }
             else if(l == 2) sawAtari = 1;
 #if PRIOR_RACE
             if(l >= 2 && l <= 3 && raceCand == 0xFF) raceCand = q;
@@ -2324,7 +2342,13 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
         sawRace = 1;
 #endif
 
-    int8_t bonus = sawCapture ? PRIOR_CAPTURE :
+    int8_t bonus = sawCapture ?
+#ifdef CAPSIZE_PRIOR
+                   (int8_t)(PRIOR_CAPTURE +
+                            (sawCaptureMany ? PRIOR_CAPTURE_MANY : 0)) :
+#else
+                   PRIOR_CAPTURE :
+#endif
                    sawSave    ? PRIOR_SAVE :
                    sawRace    ? PRIOR_RACE :
                    sawAtari   ? PRIOR_ATARI : 0;
