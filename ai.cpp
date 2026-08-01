@@ -1979,17 +1979,23 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                 uint8_t bxy = posXY(pos);
                 uint8_t bx = bxy & 0x0F, by = bxy >> 4;
                 uint8_t touch = 0;
-                for(int8_t tdy = -1; tdy <= 1 && !touch; tdy++)
+                // row-pointer walk like the 5x5 lone scan above: rows
+                // load via trp[tdx] displacement instead of a 16-bit
+                // ty*9+tx index per probe (off-board rows are skipped
+                // before any dereference)
+                const uint8_t *trp = simBoard + pos - BOARD_SIZE;
+                for(int8_t tdy = -1; tdy <= 1 && !touch;
+                    tdy++, trp += BOARD_SIZE) {
+                    if((uint8_t)(by + tdy) >= BOARD_SIZE) continue;
                     for(int8_t tdx = -1; tdx <= 1; tdx++) {
                         if(!tdx && !tdy) continue;
-                        int8_t tx = bx + tdx, ty = by + tdy;
-                        if(tx < 0 || tx >= BOARD_SIZE ||
-                           ty < 0 || ty >= BOARD_SIZE) continue;
-                        if(simBoard[ty * BOARD_SIZE + tx] != EMPTY) {
+                        if((uint8_t)(bx + tdx) >= BOARD_SIZE) continue;
+                        if(trp[tdx] != EMPTY) {
                             touch = 1;
                             break;
                         }
                     }
+                }
                 if(!touch) continue;
             }
 
