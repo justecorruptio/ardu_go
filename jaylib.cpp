@@ -51,7 +51,8 @@ void Jaylib::smallPrintImpl(int x, int y, const uint8_t * str, uint8_t color, ui
 
 __attribute__((noinline))
 uint8_t Jaylib::prNum(uint8_t x, uint8_t y, uint16_t v) {
-    char *p = itoa16(v);
+    char buf[6];
+    char *p = itoa16(v, buf);
     smallPrint(x, y, (const uint8_t *)p, 1);
     return x + 4 * strlen((const uint8_t *)p);
 }

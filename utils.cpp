@@ -3,8 +3,9 @@
 // Decimal, unsigned. The 16-bit version exists for the AI stats
 // panel (visit counts, think ms); itoa forwards to it so there is
 // only one division loop in flash.
-char itoa_buf[6];
-char * itoa16(uint16_t x) {
+// Caller-provided buffer (was a 6-byte static; prNum is the only
+// device caller and stacks it now)
+char * itoa16(uint16_t x, char *itoa_buf) {
     char *p = itoa_buf + 5;
     *p = 0;
     do {
@@ -16,8 +17,8 @@ char * itoa16(uint16_t x) {
     return p;
 }
 
-char * itoa(uint8_t x) {
-    return itoa16(x);
+char * itoa(uint8_t x, char *buf) {
+    return itoa16(x, buf);
 }
 
 uint8_t strlen(const uint8_t* s) {
