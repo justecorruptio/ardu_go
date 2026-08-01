@@ -1943,6 +1943,66 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
 #ifndef SCORE_PLAYOUTS
 #define SCORE_PLAYOUTS 64
 #endif
+#ifdef ALMOST_VITAL
+// Almost-enclosed eyespace: a small empty region walled by ONE colour
+// except a short enemy poke (1-2 boundary stones). regionVital calls
+// such regions contested and goes blind exactly when the fight starts
+// (hunt game 5328: White E9 touched the eyespace and the vital
+// machinery recused itself). This variant feeds the ROOT playout-probe
+// list ONLY -- regionVital proper and its consumers (priors, settle,
+// pass) never see contested regions as owned. Returns the unique
+// max-degree vital cell, or 0xFF.
+static uint8_t almostVital(uint8_t seed) {
+    uint8_t region[SETTLED_REGION_MAX];
+    uint8_t cnt = 0, head = 0;
+    uint8_t nB = 0, nW = 0;
+    newMark();
+    region[cnt++] = seed;
+    simMark[seed] = markEpoch;
+    while(head < cnt) {
+        uint8_t q;
+        FOR_EACH_NEIGHBOR(q, region[head++]) {
+            uint8_t st = simBoard[q];
+            if(st != EMPTY) {
+                if(simMark[q] != markEpoch) {  // count each stone once
+                    simMark[q] = markEpoch;
+                    if(st == BLACK) nB++; else nW++;
+                }
+                continue;
+            }
+            if(simMark[q] == markEpoch) continue;
+            if(cnt >= SETTLED_REGION_MAX) return 0xFF;
+            simMark[q] = markEpoch;
+            region[cnt++] = q;
+        }
+    }
+    uint8_t minority = nB < nW ? nB : nW;
+    uint8_t majority = nB < nW ? nW : nB;
+    // minority 0 = single-colour (the regular scan owns those);
+    // a real wall (majority >= 3) poked by at most 2 enemy stones
+    if(minority < 1 || minority > 2 || majority < 3) return 0xFF;
+    if(cnt < 3 || cnt > 6) return 0xFF;
+    // The vital point of an ALMOST-enclosed region is the GATE, not
+    // the eye centre: the region cell adjacent to the poke both stops
+    // the crawl and keeps the space whole (once the wall seals, the
+    // region turns single-colour and the regular max-degree scan
+    // takes over). Probe-verified on 5328: max-degree picked B9
+    // (q=33%, doesn't stop anything); the gate is D9, gnugo's move.
+    // Require a UNIQUE gate cell -- two gates = too broken to call.
+    uint8_t pokeColor = nB < nW ? BLACK : WHITE;
+    uint8_t gate = 0xFF;
+    for(uint8_t j = 0; j < cnt; j++) {
+        uint8_t q;
+        FOR_EACH_NEIGHBOR(q, region[j])
+            if(simBoard[q] == pokeColor) {
+                if(gate != 0xFF && gate != region[j]) return 0xFF;
+                gate = region[j];
+            }
+    }
+    return gate;
+}
+#endif
+
 // Fill simBoard from the game and collect the eyespace vital points.
 // Shared by think() and scoreDead().
 static void loadRootBoard(Game &game) {
@@ -1955,6 +2015,16 @@ static void loadRootBoard(Game &game) {
         if((uint8_t)rv && (rv >> 8) == i)
             rootVitals[nRootVitals++] = i;
     }
+#ifdef ALMOST_VITAL
+    // Second pass: contested-but-almost-enclosed eyespaces (see
+    // almostVital). The i == vital dedupe adds each region once;
+    // single-colour regions return 0xFF here, so no double entries.
+    for(uint8_t i = 0; i < BOARD_CELLS && nRootVitals < 3; i++) {
+        if(simBoard[i] != EMPTY) continue;
+        if(almostVital(i) == i)
+            rootVitals[nRootVitals++] = i;
+    }
+#endif
 }
 
 // The ownership vote itself, shared by scoreDead and the settle gate
