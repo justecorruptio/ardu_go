@@ -1460,9 +1460,14 @@ __attribute__((optimize("O2"), noinline))
 static uint32_t pattern3Edge(int8_t cx, int8_t cy, uint8_t color) {
     uint8_t clsx = (cx == 0) ? 0 : (cx == BOARD_SIZE - 1) ? 2 : 1;
     uint8_t clsy = (cy == 0) ? 0 : (cy == BOARD_SIZE - 1) ? 2 : 1;
-    uint16_t idx = 0;
+    // An edge/corner cell has at most 5 on-board neighbours, so idx
+    // <= 3^5-1 = 242 and mult tops out at 243: the whole base-3
+    // accumulation fits in 8 bits. v*mult becomes one 2-cycle mul and
+    // mult*=3 two adds, where the 16-bit originals cost a mul pair and
+    // a 16-bit triple. Same digits, same order -- identical values.
+    uint8_t idx = 0;
     uint8_t stones = 0;
-    uint16_t mult = 1;
+    uint8_t mult = 1;
     const uint8_t *b = simBoard + cy * BOARD_SIZE + cx;   // 3x3 centre
     for(int8_t dy = -1; dy <= 1; dy++) {
         int8_t r9 = dy * BOARD_SIZE;   // row offset, hoisted
@@ -1476,7 +1481,7 @@ static uint32_t pattern3Edge(int8_t cx, int8_t cy, uint8_t color) {
             uint8_t v = (s == EMPTY) ? 0 : (s == color) ? 1 : 2;
             if(v) stones++;
             idx += v * mult;
-            mult *= 3;
+            mult = (uint8_t)(mult + (mult << 1));   // mult *= 3, 8-bit
         }
     }
     return (uint32_t)idx | ((uint32_t)stones << 16) |
