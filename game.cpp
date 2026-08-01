@@ -63,6 +63,17 @@ uint8_t Game::floodFill(uint8_t x, uint8_t y, uint8_t color) {
     return count;
 }
 
+// Neighbour d of cell j on the packed board, 0xFF when off-board.
+// Shared by the two cold region scanners below (each inlined the
+// %/÷ split + bounds + index math).
+__attribute__((noinline))
+static uint8_t nbIndex(uint8_t j, uint8_t d) {
+    uint8_t gx = j % BOARD_SIZE, gy = j / BOARD_SIZE;
+    int8_t nx = gx + DX4[d], ny = gy + DY4[d];
+    if(nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) return 0xFF;
+    return (uint8_t)(ny * BOARD_SIZE + nx);
+}
+
 uint8_t Game::countLiberties(uint8_t x, uint8_t y) {
     uint8_t color = at(x, y);
     if(color == EMPTY) return 0;
@@ -75,11 +86,9 @@ uint8_t Game::countLiberties(uint8_t x, uint8_t y) {
     uint8_t liberties = 0;
     for(uint8_t i = 0; i < BOARD_CELLS; i++) {
         if(packedGet(visited, i) != 1) continue;
-        uint8_t gx = i % BOARD_SIZE, gy = i / BOARD_SIZE;
         for(uint8_t d = 0; d < 4; d++) {
-            int8_t nx = gx + DX4[d], ny = gy + DY4[d];
-            if(nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) continue;
-            uint8_t ni = ny * BOARD_SIZE + nx;
+            uint8_t ni = nbIndex(i, d);
+            if(ni == 0xFF) continue;
             if(packedGet(board, ni) == EMPTY && !packedGet(visited, ni)) {
                 packedSet(visited, ni, 2);
                 liberties++;
@@ -205,11 +214,10 @@ void Game::computeScore() {
         for(uint8_t j = 0; j < BOARD_CELLS; j++) {
             if(!packedGet(visited, j)) continue;
             count++;
-            uint8_t gx = j % BOARD_SIZE, gy = j / BOARD_SIZE;
             for(uint8_t d = 0; d < 4; d++) {
-                int8_t nx = gx + DX4[d], ny = gy + DY4[d];
-                if(nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) continue;
-                uint8_t nc = packedGet(board, ny * BOARD_SIZE + nx);
+                uint8_t ni = nbIndex(j, d);
+                if(ni == 0xFF) continue;
+                uint8_t nc = packedGet(board, ni);
                 if(nc == BLACK) touchesBlack = 1;
                 if(nc == WHITE) touchesWhite = 1;
             }
