@@ -1892,6 +1892,9 @@ void AI::scoreDead(Game &game) {
     game.computeScore();
 }
 
+#ifdef LATENT_DEBUG
+uint8_t dbgWatch = 0xFF;
+#endif
 static uint8_t newNode(uint8_t move) {
     uint8_t i;
     if(freeHead != 0xFF) {
@@ -1939,6 +1942,13 @@ static void freeSubtree(uint8_t v) {
 // path[] members keeps the active descent's indices valid. Returns 1
 // if anything was freed.
 static uint8_t reclaim() {
+#ifdef LATENT_DEBUG
+    if(path[0] != 0 || pathDepth > 31) {
+        fprintf(stderr, "PATH CORRUPT at reclaim: path[0]=%u pathDepth=%u poolUsed=%u\n",
+                path[0], pathDepth, poolUsed);
+        abort();
+    }
+#endif
     // Latents first: a pending pre-scanned candidate (move bit7) is
     // pure cache -- one node, no subtree, no information loss; a
     // future scan simply recreates it. Freeing one costs nothing,
@@ -1949,6 +1959,10 @@ static uint8_t reclaim() {
         for(uint8_t c = node(path[d]).firstChild; c != 0xFF;
             prev = c, c = node(c).nextSibling) {
             if(!(node(c).move & 0x80)) continue;
+#ifdef LATENT_DEBUG
+            fprintf(stderr, "RECLAIM latent c=%u move=%u parent=%u d=%u pathDepth=%u\n",
+                    c, node(c).move & 0x7F, path[d], d, pathDepth);
+#endif
             if(prev == 0xFF)
                 node(path[d]).firstChild = node(c).nextSibling;
             else
@@ -2399,6 +2413,23 @@ static uint8_t addChild(uint8_t nodeIdx, uint8_t move, int8_t bonus) {
     return c;
 }
 
+// Best pending latent of a node by RECOVERED prior: addChild seeded
+// (V+p, W+p) for p>=0 and (V-p, W) for p<0, so p = (w-W == v-V) ?
+// v-V : -(v-V). Order-independent, so partial batches and free-list
+// reuse cannot skew activation order.
+static uint8_t latentBest(uint8_t nodeIdx) {
+    uint8_t best = 0xFF;
+    int8_t bestP = -128;
+    for(uint8_t c = node(nodeIdx).firstChild; c != 0xFF;
+        c = node(c).nextSibling) {
+        if(!(node(c).move & 0x80)) continue;
+        int8_t dv = (int8_t)(nVisits(c) - PRIOR_BASE_V);
+        int8_t p = ((int8_t)(nWins(c) - PRIOR_BASE_W) == dv) ? dv : -dv;
+        if(p > bestP) { bestP = p; best = c; }
+    }
+    return best;
+}
+
 static uint8_t childCount(uint8_t nodeIdx) {
     // ACTIVE children only: latents (move bit7) hold a scanned-ahead
     // candidate but do not occupy a widening slot until activated
@@ -2422,10 +2453,7 @@ static void expandNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t last
         // burst-fill: drain stored latents before scanning again, so
         // the active set is the true prior top-N exactly as the
         // one-at-a-time schedule would build it
-        uint8_t lat = 0xFF;
-        for(uint8_t c = node(nodeIdx).firstChild; c != 0xFF;
-            c = node(c).nextSibling)
-            if(node(c).move & 0x80) { lat = c; break; }
+        uint8_t lat = latentBest(nodeIdx);
         if(lat != 0xFF) {
             node(lat).move &= 0x7F;
             continue;
@@ -2501,23 +2529,25 @@ static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t la
     // LATENT batch: #1 activates now; #2/#3 join the child list with
     // bit7 of move set (latent: invisible to selection until the widen
     // schedule reaches their slot and flips the flag -- see the
-    // trigger in mctsIterate). Added worst-first onto the prepend
-    // list, so walk order from the head is best-first: activation
-    // takes the FIRST flagged child. Latents only ever belong to the
-    // newest batch (the trigger drains before it rescans).
+    // trigger in mctsIterate). The ACTIVE child allocates FIRST: under
+    // pool pressure a partial batch must yield the active child, never
+    // a latent-only node (selectChild's fallback once returned such a
+    // latent and simPlay indexed simBoard[move|0x80] out of bounds --
+    // the memory-corruption bug this ordering fixes). Activation picks
+    // the best latent by RECOVERED PRIOR, so list order is free.
     uint8_t any = 0;
-    for(uint8_t k = WIDEN_BATCH; k-- > 1; ) {
-        if(bPos[k] == 0xFF) continue;
-        if(addChild(nodeIdx, bPos[k] | 0x80, bP[k]) == 0xFF) break;
-#ifdef WIDEN_PROBE
-        wpAdded++;
-#endif
-    }
     if(addChild(nodeIdx, bPos[0], bP[0]) != 0xFF) {
         any = 1;
 #ifdef WIDEN_PROBE
         wpAdded++;
 #endif
+        for(uint8_t k = 1; k < WIDEN_BATCH; k++) {
+            if(bPos[k] == 0xFF) continue;
+            if(addChild(nodeIdx, bPos[k] | 0x80, bP[k]) == 0xFF) break;
+#ifdef WIDEN_PROBE
+            wpAdded++;
+#endif
+        }
     }
     return any;
 }
@@ -2616,11 +2646,25 @@ static uint8_t selectChild(uint8_t nodeIdx) {
 
     uint8_t atRoot = (nodeIdx == 0);
     uint16_t best = 0;
+    // fallback: first NON-latent child (a latent fallback once leaked
+    // move|0x80 into simPlay = out-of-bounds board write)
     uint8_t bestC = node(nodeIdx).firstChild;
+    while(bestC != 0xFF && (node(bestC).move & 0x80))
+        bestC = node(bestC).nextSibling;
     for(uint8_t c = node(nodeIdx).firstChild; c != 0xFF; c = node(c).nextSibling) {
         Node &n = node(c);
         if(n.move & 0x80) continue; // latent: not yet in the schedule
         uint16_t nv = nVisits(c);
+#ifdef LATENT_DEBUG
+        if(nv == 0) {
+            fprintf(stderr,
+                "ZERO-VISIT CHILD: c=%u move=%u parent=%u poolUsed=%u "
+                "freeHead=%u firstChild=%u nextSib=%u\n",
+                c, n.move, nodeIdx, poolUsed, freeHead,
+                n.firstChild, n.nextSibling);
+            abort();
+        }
+#endif
         // Q6 win rate via a 16-bit divide (wins < 1024 so wins<<6 fits
         // uint16): (wins<<6)/nv == (wins<<12)/nv >> 6 exactly, so q is
         // the old Q12 value with its low 6 bits zeroed. That truncation
@@ -2715,18 +2759,24 @@ static void mctsIterate(Game &game) {
                 // a stored latent fills the slot without a scan; the
                 // FIRST flagged child in the walk is the best remaining
                 // (worst-first adds on a prepend list = best-first walk)
-                uint8_t lat = 0xFF;
-                for(uint8_t c = node(cur).firstChild; c != 0xFF;
-                    c = node(c).nextSibling)
-                    if(node(c).move & 0x80) { lat = c; break; }
+                uint8_t lat = latentBest(cur);
                 if(lat != 0xFF)
                     node(lat).move &= 0x7F;
                 else if(allocReady())
                     widenNode(cur, toMove, ko, lastMove);
             }
         }
+#ifdef LATENT_DEBUG
+        if(path[0] != 0) { fprintf(stderr,"CANARY post-trigger cur=%u pd=%u\n",cur,pathDepth); abort(); }
+#endif
         uint8_t c = selectChild(cur);
+#ifdef LATENT_DEBUG
+        if(path[0] != 0) { fprintf(stderr,"CANARY post-select cur=%u c=%u pd=%u\n",cur,c,pathDepth); abort(); }
+#endif
         uint8_t nk = simPlay(node(c).move, toMove, ko);
+#ifdef LATENT_DEBUG
+        if(path[0] != 0) { fprintf(stderr,"CANARY post-simPlay c=%u pd=%u\n",c,pathDepth); abort(); }
+#endif
         if(nk == ILLEGAL) {
             nSetStats(c, POISONED, 0);
             if(++retries >= 4) break;
