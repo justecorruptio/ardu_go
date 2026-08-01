@@ -35,7 +35,8 @@
 #define FRACT_INC ((MICROSECONDS_PER_TIMER0_OVERFLOW % 1000) >> 3)
 #define FRACT_MAX (1000 >> 3)
 
-volatile unsigned long timer0_overflow_count = 0;
+// timer0_overflow_count VENDORED OUT (2026-08-02): only micros()
+// read it, and micros() is gone.
 volatile unsigned long timer0_millis = 0;
 static unsigned char timer0_fract = 0;
 
@@ -59,7 +60,6 @@ ISR(TIMER0_OVF_vect)
 
 	timer0_fract = f;
 	timer0_millis = m;
-	timer0_overflow_count++;
 }
 
 unsigned long millis()
