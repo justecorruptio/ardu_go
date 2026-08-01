@@ -1830,6 +1830,25 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
             int8_t lpx = lpxy & 0x0F, lpy = lpxy >> 4;
             uint8_t matches[8];
             uint8_t nMatches = 0;
+            if(pgm_read_byte(NEIGHBOR_TABLE + last * 5 + 3) != 0xFF) {
+                // Interior last (4th neighbour exists): the whole 3x3 is
+                // on-board, so drop the bounds checks and the rowBase
+                // multiply -- the cell index just walks +1 across rows
+                // stepped by +9. Same visit order, same candidates.
+                uint8_t p0 = last - BOARD_SIZE - 1;
+                for(int8_t dy = -1; dy <= 1; dy++, p0 += BOARD_SIZE) {
+                    int8_t cy = lpy + dy;
+                    uint8_t pp = p0;
+                    for(int8_t dx = -1; dx <= 1; dx++, pp++) {
+                        // no (0,0) skip: the centre is `last`, always
+                        // occupied, so the EMPTY check rejects it
+                        if(boardAt(pp) != EMPTY || pp == ko) continue;
+                        if(isOwnEye(pp, toMove)) continue;
+                        if(patternBonus(lpx + dx, cy, toMove) > 0)
+                            matches[nMatches++] = pp;
+                    }
+                }
+            } else
             for(int8_t dy = -1; dy <= 1; dy++) {
                 int8_t cy = lpy + dy;
                 if((uint8_t)cy >= BOARD_SIZE) continue;  // hoisted row check
