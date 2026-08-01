@@ -3639,6 +3639,10 @@ static void mctsIterate(Game &game) {
 }
 
 void AI::think(Game &game) {
+#if !defined(ARDUINO) && defined(THINK_TRACE)
+    fprintf(stderr, "THINK rng=%u epoch=%u vk=%u pool=%u\n",
+            rngState, markEpoch, vKomi2, poolUsed);
+#endif
     // Opponent just passed: passing back ends the game right now, so
     // if the game as it stands is already won, take it — no search.
     // Dead enemy stones make computeScore undercount our territory,
@@ -3709,11 +3713,14 @@ void AI::think(Game &game) {
     rootTurn = game.turn;
     simKomi = game.kpieces;
 #ifndef ARDUINO
-    // Host: fresh libc-derived state per think, downstream of the
-    // harness's per-run srand. Device state free-runs from boot.
-    // forceThinkSeed (0 = off) replays a recorded seed; lastThinkSeed
-    // captures the seed used so a saved game reproduces move-for-move.
-    rngState = forceThinkSeed ? forceThinkSeed : (random(0xFFFF) | 1);
+    // Host: the engine RNG free-runs from the harness's per-game seed,
+    // exactly like the device free-runs from boot. (The old per-think
+    // random(0xFFFF) reseed was NEVER seeded -- srand() does not seed
+    // random() on macOS -- so every think drew from one process-global
+    // stream and no game could reproduce outside its batch position.)
+    // forceThinkSeed (0 = off) replays a recorded think; lastThinkSeed
+    // captures the state so a saved game reproduces move-for-move.
+    if(forceThinkSeed) rngState = forceThinkSeed;
     lastThinkSeed = rngState;
 #endif
 
@@ -3936,6 +3943,9 @@ uint8_t AI::bestMove(Game &game, uint8_t &x, uint8_t &y) {
 
         // Gate: prior-seeded children carry inflated q at tiny n and
         // would fake a strong LCB — demand real sampling first
+#ifdef ROBUST_PICK
+        continue;  // A/B probe: no LCB race, robust child via backup
+#endif
         if(v < LCB_GATE || v * LCB_REL_DIV < maxV) continue;
 
         uint16_t q6 = (nWins(c) << 6) / v;    // Q6 win rate, 16-bit divide
@@ -3944,6 +3954,14 @@ uint8_t AI::bestMove(Game &game, uint8_t &x, uint8_t &y) {
         // (var<<12)/v is Q24 of q(1-q)/n, so isqrt lands in Q12
         uint16_t term = isqrt32(((uint32_t)var << 12) / v);
         int16_t lcb = (int16_t)q - (int16_t)(((uint32_t)term * LCB_Z) >> 8);
+#ifdef LCB_LEADER_MEAN
+        // The visit leader competes with its plain mean, not its own
+        // LCB: a challenger must clear the best-sampled estimate after
+        // ITS uncertainty discount. Hunts 7000-7799: every close-game
+        // steal blunder (H2/F5/H6/J6/H8...) beat the leader only
+        // because the leader was discounted too.
+        if(v == maxV) lcb = (int16_t)q;
+#endif
         if(lcb <= bestL) continue;
         if(m != MOVE_PASS &&
            (!game.isValidMove(m % BOARD_SIZE, m / BOARD_SIZE) ||

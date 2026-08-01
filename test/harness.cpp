@@ -305,6 +305,9 @@ static int playGame(int gameNo, int level, uint8_t aiColor, bool verbose) {
     // silently unpaired past the first divergence, and batch games
     // could not be reproduced standalone. Knuth-hash the game number.
     rngState = (uint16_t)(2654435761u * (uint32_t)(gameNo + 1) >> 16) | 1;
+#ifdef THINK_TRACE
+    fprintf(stderr, "GAME %d seed=%u\n", gameNo, rngState);
+#endif
     sgfMoves.clear();
 
     std::string resp;
@@ -615,7 +618,10 @@ int main(int argc, char **argv) {
         srand(4242 + off);
         int w = 0, l = 0;
         for(int g = 0; g < games; g++) {
-            int r = playGame(g + off, level, (g & 1) ? WHITE : BLACK, false);
+            // colour is a function of the GAME NUMBER (not the loop
+            // index) so any game reproduces identically in any batch
+            int r = playGame(g + off, level,
+                             ((g + off) & 1) ? WHITE : BLACK, false);
             if(r > 0) w++; else l++;
             printf("RESULT %d %d\n", g + off, r > 0 ? 1 : 0);  // per-game for paired McNemar
         }
@@ -838,7 +844,8 @@ int main(int argc, char **argv) {
 
     int wins = 0, losses = 0, errs = 0;
     for(int g = 0; g < games; g++) {
-        int r = playGame(g + seedOffset, level, (g & 1) ? WHITE : BLACK, false);
+        int r = playGame(g + seedOffset, level,
+                         ((g + seedOffset) & 1) ? WHITE : BLACK, false);
         if(r > 0) wins++;
         else if(r == -1) losses++;
         else errs++;
