@@ -1586,10 +1586,21 @@ __attribute__((optimize("O2")))
 // comes back in the result, `last` is the caller's own pos -- the two
 // pointer out-params this replaces cost two derefs on entry and two
 // indirect stores on success, on a ~100K-calls-per-think path.
+// Entry for callers that GUARANTEE pos is on-board, empty and not ko
+// (the global probe pre-filters exactly these) -- skips re-checking.
+static uint16_t playoutTryOpen(uint8_t pos, uint8_t toMove, uint8_t ko,
+                               uint8_t m);
+
 static uint16_t playoutTry(uint8_t pos, uint8_t toMove, uint8_t ko,
                            uint8_t m) {
-    if(pos >= BOARD_CELLS || pos == ko || boardAt(pos) != EMPTY ||
-       isOwnEye(pos, toMove)) return 0;
+    if(pos >= BOARD_CELLS || pos == ko || boardAt(pos) != EMPTY)
+        return 0;
+    return playoutTryOpen(pos, toMove, ko, m);
+}
+
+static uint16_t playoutTryOpen(uint8_t pos, uint8_t toMove, uint8_t ko,
+                               uint8_t m) {
+    if(isOwnEye(pos, toMove)) return 0;
     uint8_t nk = simPlay(pos, toMove, ko, !scoreMode);
     if(nk == ILLEGAL) return 0;
     // barrier: raveMark below re-derives its bitmap address from this
@@ -1963,7 +1974,7 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                 if(!touch) continue;
             }
 
-            uint16_t r = playoutTry(pos, toMove, ko, m);
+            uint16_t r = playoutTryOpen(pos, toMove, ko, m);
             if(!r) continue;
             ko = (uint8_t)r;
             last = pos;
