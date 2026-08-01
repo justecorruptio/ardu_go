@@ -1189,6 +1189,30 @@ static uint8_t isOwnEye(uint8_t pos, uint8_t color) {
     uint8_t q;
     FOR_EACH_NEIGHBOR(q, pos)
         if(boardAt(q) != color) return 0;
+    // False-eye test (michi's is_eye): enemy-held diagonals make this
+    // a connection point, not an eye -- an "eye" whose diagonals the
+    // enemy controls must eventually be filled to connect, and the
+    // crude all-orthogonals rule made such points unplayable for both
+    // the playouts AND widen admission (hunt game 5110: the four-way
+    // connection E5 held a +19 prior and never entered the tree).
+    // Interior: false iff 2+ enemy diagonals; edge/corner: the
+    // off-board side counts as one false, so 1 enemy diagonal kills it.
+    {
+        uint8_t xy = posXY(pos);
+        uint8_t x = xy & 0x0F, y = xy >> 4;
+        uint8_t opp = 3 - color;
+        uint8_t falses =
+            (x == 0 || x == BOARD_SIZE - 1 ||
+             y == 0 || y == BOARD_SIZE - 1) ? 1 : 0;
+        for(int8_t dy = -1; dy <= 1; dy += 2) {
+            if((uint8_t)(y + dy) >= BOARD_SIZE) continue;
+            for(int8_t dx = -1; dx <= 1; dx += 2) {
+                if((uint8_t)(x + dx) >= BOARD_SIZE) continue;
+                if(simBoard[pos + dy * BOARD_SIZE + dx] == opp) falses++;
+            }
+        }
+        if(falses >= 2) return 0;
+    }
     return 1;
 }
 
