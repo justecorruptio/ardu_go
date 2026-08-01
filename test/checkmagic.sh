@@ -35,6 +35,13 @@ $NM -S -td "$B/ardu_go.ino.elf" | awk '
   # boardAt() (ai.cpp) builds &simBoard[q] with a constant high byte:
   # lo8(simBoard) + 80 must not carry or every flood loop reads the
   # wrong page. Assert lo8 <= 0xAF.
+  / [bBdD] _ZL7simMark$/ {
+    lo = ($1 % 8388608) % 256
+    printf "%-16s lo8=0x%X", "simMark", lo
+    if (lo > 175) { print "  *** markPtr CARRY: lo8(simMark)+80 > 0xFF ***"; bad = 1 }
+    else print "  ok (markPtr carry-free)"
+    seen_simmark = 1
+  }
   / [bBdD] _ZL8simBoard$/ {
     lo = ($1 % 8388608) % 256
     printf "%-16s lo8=0x%X", "simBoard", lo
@@ -50,5 +57,6 @@ $NM -S -td "$B/ardu_go.ino.elf" | awk '
   END {
     if (!seen_sbuf) { print "*** sBuffer symbol not found ***"; bad = 1 }
     if (!seen_simboard) { print "*** simBoard symbol not found ***"; bad = 1 }
+    if (!seen_simmark) { print "*** simMark symbol not found ***"; bad = 1 }
     exit bad
   }'

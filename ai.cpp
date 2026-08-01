@@ -708,6 +708,21 @@ static inline uint8_t boardAt(uint8_t q) {
 static inline uint8_t boardAt(uint8_t q) { return simBoard[q]; }
 #endif
 static uint8_t simMark[BOARD_CELLS];   // epoch marks for flood fill
+#ifdef ARDUINO
+// &simMark[q] by the same carry-free trick (checkmagic.sh asserts
+// lo8(simMark) <= 0xAF). Returns a pointer: the flood loops both
+// read and write the mark.
+static inline uint8_t *markPtr(uint8_t q) {
+    uint8_t *p;
+    asm("mov %A0,%1\n\t"
+        "subi %A0,lo8(-(%2))\n\t"
+        "ldi %B0,hi8(%2)"
+        : "=&d"(p) : "r"(q), "i"(simMark));
+    return p;
+}
+#else
+static inline uint8_t *markPtr(uint8_t q) { return &simMark[q]; }
+#endif
 // Chain map, computed once per EXPANSION while the board is frozen.
 // One byte per cell: (libs << 6) | id — the capped 1/2/3+ liberty
 // class lives in the top 2 bits, the chain id in the low 6 (0 =
@@ -849,9 +864,12 @@ static uint8_t hasLiberty(uint8_t start) {
         while((q = lpmNext(e)) != 0xFF) {
             uint8_t s = boardAt(q);
             if(s == EMPTY) return 1;
-            if(s == color && simMark[q] != markEpoch) {
-                simMark[q] = markEpoch;
-                floodSlot(wr++) = q;
+            if(s == color) {
+                uint8_t *mp = markPtr(q);
+                if(*mp != markEpoch) {
+                    *mp = markEpoch;
+                    floodSlot(wr++) = q;
+                }
             }
         }
     } while(rd != wr);
@@ -942,9 +960,12 @@ static uint32_t groupLibsCore(uint8_t start, uint8_t markAll, uint8_t cap) {
                     count++;
                     if(!markAll && count >= cap) break;
                 }
-            } else if(s == color && simMark[q] != markEpoch) {
-                simMark[q] = markEpoch;
-                floodSlot(sp++) = q;
+            } else if(s == color) {
+                uint8_t *mp = markPtr(q);
+                if(*mp != markEpoch) {
+                    *mp = markEpoch;
+                    floodSlot(sp++) = q;
+                }
             }
         }
     }
@@ -2340,7 +2361,6 @@ static int16_t settleVote(Game &game) {
     // the SAME vote game-over scoring applies, so passing on it is
     // self-consistent. Coin-flip cells only appear over genuinely
     // open space, which is what the old guard was protecting against.
-    uint8_t stones = countStones(game);
     // The node pool is rebuilt from scratch every think, so the screen
     // buffer is free scratch here just as it is in scoreDead.
     uint8_t *own = Arduboy2Base::sBuffer;
@@ -2351,7 +2371,7 @@ static int16_t settleVote(Game &game) {
         if(own[i] > SCORE_PLAYOUTS / 4 && own[i] < 3 * SCORE_PLAYOUTS / 4)
             und++;
     }
-    if(stones < 45 && und > 8) return SETTLE_NONE;
+    if(countStones(game) < 45 && und > 8) return SETTLE_NONE;
     int16_t m2 = (int16_t)b * 4 - BOARD_CELLS * 2; // 2*(black - white) area
     return (game.turn == BLACK) ? m2 - (int16_t)simKomi
                                 : (int16_t)simKomi - m2;
