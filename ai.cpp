@@ -684,6 +684,7 @@ static uint8_t regionDone[11];
 static uint8_t markEpoch;
 // Set only inside scoreDead's vote playouts (see playoutTry)
 static uint8_t scoreMode;
+
 // xorshift16 state; 0 is sticky, so every seeding path must |1.
 // On the DEVICE this is seeded once at boot (see setup()) and
 // free-runs — routing every random draw through it lets the AVR
@@ -1420,17 +1421,58 @@ static uint8_t playoutTry(uint8_t pos, uint8_t toMove, uint8_t *ko,
     return 1;
 }
 
+#ifdef PLAYOUT_STATS
+uint32_t plN, plMoves, plEndCap, plEndPass, plEndMercy;
+#endif
+#ifdef PLAYOUT_SNAP
+// probe-only: board snapshots at fixed playout depths
+uint8_t plSnap40[81], plSnap60[81], plSnap80[81];
+#endif
+#ifdef PLAYOUT_SNAP_EMPT
+// probe-only: snapshots when the empty count first reaches thresholds
+uint8_t plSnapThresh[4] = {12, 10, 8, 6};
+uint8_t plSnapE[4][81];
+uint8_t plSnapMove[4]; // 0xFF = not yet reached
+#endif
 // Random playout from current simBoard; returns winning color.
 // `last` = the previous move (0xFF/pass = none).
 __attribute__((optimize("O2")))
 static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
     uint8_t passes = 0;
     capB = capW = 0;
+#ifdef PLAYOUT_STATS
+    uint8_t psM = 0, psMercy = 0;
+#define PS_TICK psM = m + 1;
+#else
+#define PS_TICK
+#endif
     for(uint8_t m = 0; m < PLAYOUT_CAP && passes < 2; m++) {
+        PS_TICK
+#ifdef PLAYOUT_SNAP
+        if(m == 40) memcpy(plSnap40, simBoard, 81);
+        else if(m == 60) memcpy(plSnap60, simBoard, 81);
+        else if(m == 80) memcpy(plSnap80, simBoard, 81);
+#endif
+#ifdef PLAYOUT_SNAP_EMPT
+        {
+            uint8_t emp = 0;
+            for(uint8_t i = 0; i < BOARD_CELLS; i++)
+                if(simBoard[i] == EMPTY) emp++;
+            for(uint8_t t = 0; t < 4; t++)
+                if(emp <= plSnapThresh[t] && plSnapMove[t] == 0xFF) {
+                    memcpy(plSnapE[t], simBoard, 81);
+                    plSnapMove[t] = m;
+                }
+        }
+#endif
         // Mercy rule: a lopsided capture balance has decided the game;
         // the area score already reflects it, skip the remaining fill
-        if(capB > capW + MERCY_MARGIN || capW > capB + MERCY_MARGIN)
+        if(capB > capW + MERCY_MARGIN || capW > capB + MERCY_MARGIN) {
+#ifdef PLAYOUT_STATS
+            psMercy = 1;
+#endif
             break;
+        }
 
         // Tactical: if the opponent's just-moved group is in atari,
         // capture it. Uniform-random playouts ignore atari, which
@@ -1719,6 +1761,13 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
         }
         toMove = 3 - toMove;
     }
+#ifdef PLAYOUT_STATS
+    plN++; plMoves += psM;
+    if(psMercy) plEndMercy++;
+    else if(passes >= 2) plEndPass++;
+    else plEndCap++;
+#endif
+#undef PS_TICK
     return scoreWinner();
 }
 
