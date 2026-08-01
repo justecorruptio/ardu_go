@@ -506,6 +506,10 @@ uint8_t AI::chooseMove(Game &game) {
 #ifndef WIDEN_CAP
 #define WIDEN_CAP 16
 #endif
+// Candidates added per widenNode scan (see the batch comment there)
+#ifndef WIDEN_BATCH
+#define WIDEN_BATCH 3
+#endif
 // A leaf must collect this many visits (prior seed included) before it
 // may grow a child: playouts from a cold leaf are as informative as a
 // one-child subtree, and each expansion costs a full prior scan.
@@ -1424,6 +1428,14 @@ static uint8_t playoutTry(uint8_t pos, uint8_t toMove, uint8_t *ko,
 #ifdef PLAYOUT_STATS
 uint32_t plN, plMoves, plEndCap, plEndPass, plEndMercy;
 #endif
+#ifdef DECIDE_PROBE
+// probe-only: iteration at which the visit-argmax last changed
+uint16_t dpLastChange; uint8_t dpPrevBest;
+#endif
+#ifdef WIDEN_PROBE
+// probe-only: widening-waste statistics
+uint16_t wpCalls, wpAdded, wpEmpty, wpAllocFail;
+#endif
 #ifdef PLAYOUT_SNAP
 // probe-only: board snapshots at fixed playout depths
 uint8_t plSnap40[81], plSnap60[81], plSnap80[81];
@@ -1927,6 +1939,25 @@ static void freeSubtree(uint8_t v) {
 // path[] members keeps the active descent's indices valid. Returns 1
 // if anything was freed.
 static uint8_t reclaim() {
+    // Latents first: a pending pre-scanned candidate (move bit7) is
+    // pure cache -- one node, no subtree, no information loss; a
+    // future scan simply recreates it. Freeing one costs nothing,
+    // unlike evicting a real subtree. Latents are never on the path
+    // (path nodes were selected, which latents cannot be).
+    for(uint8_t d = 0; d < pathDepth; d++) {
+        uint8_t prev = 0xFF;
+        for(uint8_t c = node(path[d]).firstChild; c != 0xFF;
+            prev = c, c = node(c).nextSibling) {
+            if(!(node(c).move & 0x80)) continue;
+            if(prev == 0xFF)
+                node(path[d]).firstChild = node(c).nextSibling;
+            else
+                node(prev).nextSibling = node(c).nextSibling;
+            node(c).nextSibling = freeHead;
+            freeHead = c;
+            return 1;
+        }
+    }
     uint8_t victim = 0xFF;
     uint16_t worst = 0xFFFF;
     for(uint8_t d = 0; d < pathDepth; d++) {
@@ -2369,9 +2400,11 @@ static uint8_t addChild(uint8_t nodeIdx, uint8_t move, int8_t bonus) {
 }
 
 static uint8_t childCount(uint8_t nodeIdx) {
+    // ACTIVE children only: latents (move bit7) hold a scanned-ahead
+    // candidate but do not occupy a widening slot until activated
     uint8_t n = 0;
     for(uint8_t c = node(nodeIdx).firstChild; c != 0xFF; c = node(c).nextSibling)
-        n++;
+        if(!(node(c).move & 0x80)) n++;
     return n;
 }
 
@@ -2385,8 +2418,20 @@ static void expandNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t last
         uint8_t c = addChild(nodeIdx, MOVE_PASS, 0);
         nSetStats(c, PRIOR_BASE_V, 0); // passing is a last resort
     }
-    for(uint8_t k = 0; k < ROOT_INIT; k++)
+    for(uint8_t k = 0; k < ROOT_INIT; k++) {
+        // burst-fill: drain stored latents before scanning again, so
+        // the active set is the true prior top-N exactly as the
+        // one-at-a-time schedule would build it
+        uint8_t lat = 0xFF;
+        for(uint8_t c = node(nodeIdx).firstChild; c != 0xFF;
+            c = node(c).nextSibling)
+            if(node(c).move & 0x80) { lat = c; break; }
+        if(lat != 0xFF) {
+            node(lat).move &= 0x7F;
+            continue;
+        }
         if(!widenNode(nodeIdx, toMove, ko, last)) break;
+    }
 }
 
 // Progressive widening: add the single best not-yet-present candidate.
@@ -2396,15 +2441,22 @@ static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t la
     uint8_t have[11];
     memset(have, 0, sizeof(have));
     for(uint8_t c = node(nodeIdx).firstChild; c != 0xFF; c = node(c).nextSibling)
-        if(node(c).move < BOARD_CELLS)
-            have[node(c).move >> 3] |= bitMask(node(c).move);
+        if((node(c).move & 0x7F) < BOARD_CELLS)
+            have[(node(c).move & 0x7F) >> 3] |= bitMask(node(c).move & 0x7F);
 
     uint8_t near[12];  // 12 not 11: buildNearMask's run write touches byte 11
     uint8_t anyStone = buildNearMask(near);
     buildChainMap();
 
-    int8_t bestP = -128;
-    uint8_t bestPos = 0xFF;
+    // Batch widening: one scan yields the top WIDEN_BATCH candidates
+    // (the scan already ranks everything to find #1; tracking three is
+    // ~free). Callers gate on childCount < maxKids, so a node that
+    // received a batch simply skips its next widen triggers until the
+    // visit schedule catches up -- same candidate sets, ~3x fewer
+    // 81-cell scans (widenNode was 17.7% of think).
+    int8_t bP[WIDEN_BATCH];
+    uint8_t bPos[WIDEN_BATCH];
+    for(uint8_t k = 0; k < WIDEN_BATCH; k++) { bP[k] = -128; bPos[k] = 0xFF; }
     uint8_t startPos = rndMod<BOARD_CELLS>();
     // Same two-phase circular scan as playout's global probe (see there).
     uint8_t pos = startPos, scanEnd = BOARD_CELLS;
@@ -2426,13 +2478,48 @@ static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t la
         }
         if(isOwnEye(pos, toMove)) continue;
         int8_t p = candidatePrior(pos, toMove, last, isFar);
-        if(p > bestP) {
-            bestP = p;
-            bestPos = pos;
+        if(p > bP[WIDEN_BATCH - 1]) {
+            uint8_t k = WIDEN_BATCH - 1;
+            while(k > 0 && p > bP[k - 1]) {
+                bP[k] = bP[k - 1];
+                bPos[k] = bPos[k - 1];
+                k--;
+            }
+            bP[k] = p;
+            bPos[k] = pos;
         }
     }
-    if(bestPos == 0xFF) return 0;
-    return addChild(nodeIdx, bestPos, bestP) != 0xFF;
+    if(bPos[0] == 0xFF) {
+#ifdef WIDEN_PROBE
+        wpCalls++; wpEmpty++;
+#endif
+        return 0;
+    }
+#ifdef WIDEN_PROBE
+    wpCalls++;
+#endif
+    // LATENT batch: #1 activates now; #2/#3 join the child list with
+    // bit7 of move set (latent: invisible to selection until the widen
+    // schedule reaches their slot and flips the flag -- see the
+    // trigger in mctsIterate). Added worst-first onto the prepend
+    // list, so walk order from the head is best-first: activation
+    // takes the FIRST flagged child. Latents only ever belong to the
+    // newest batch (the trigger drains before it rescans).
+    uint8_t any = 0;
+    for(uint8_t k = WIDEN_BATCH; k-- > 1; ) {
+        if(bPos[k] == 0xFF) continue;
+        if(addChild(nodeIdx, bPos[k] | 0x80, bP[k]) == 0xFF) break;
+#ifdef WIDEN_PROBE
+        wpAdded++;
+#endif
+    }
+    if(addChild(nodeIdx, bPos[0], bP[0]) != 0xFF) {
+        any = 1;
+#ifdef WIDEN_PROBE
+        wpAdded++;
+#endif
+    }
+    return any;
 }
 
 // Bitwise integer sqrt: isqrt32(x*2^24)/4096 approximates sqrt(x)
@@ -2532,6 +2619,7 @@ static uint8_t selectChild(uint8_t nodeIdx) {
     uint8_t bestC = node(nodeIdx).firstChild;
     for(uint8_t c = node(nodeIdx).firstChild; c != 0xFF; c = node(c).nextSibling) {
         Node &n = node(c);
+        if(n.move & 0x80) continue; // latent: not yet in the schedule
         uint16_t nv = nVisits(c);
         // Q6 win rate via a 16-bit divide (wins < 1024 so wins<<6 fits
         // uint16): (wins<<6)/nv == (wins<<12)/nv >> 6 exactly, so q is
@@ -2623,8 +2711,19 @@ static void mctsIterate(Game &game) {
                 maxKids = 1 + nVisits(cur) / WIDEN_RATE;
                 if(maxKids > WIDEN_CAP) maxKids = WIDEN_CAP;
             }
-            if(childCount(cur) < maxKids && allocReady())
-                widenNode(cur, toMove, ko, lastMove);
+            if(childCount(cur) < maxKids) {
+                // a stored latent fills the slot without a scan; the
+                // FIRST flagged child in the walk is the best remaining
+                // (worst-first adds on a prepend list = best-first walk)
+                uint8_t lat = 0xFF;
+                for(uint8_t c = node(cur).firstChild; c != 0xFF;
+                    c = node(c).nextSibling)
+                    if(node(c).move & 0x80) { lat = c; break; }
+                if(lat != 0xFF)
+                    node(lat).move &= 0x7F;
+                else if(allocReady())
+                    widenNode(cur, toMove, ko, lastMove);
+            }
         }
         uint8_t c = selectChild(cur);
         uint8_t nk = simPlay(node(c).move, toMove, ko);
@@ -2780,8 +2879,21 @@ void AI::think(Game &game) {
     if(rootStones < OPENING_BOOST_STONES) iters += iters / 2;
     uint16_t total = iters;
     uint8_t extended = 0;
+#ifdef DECIDE_PROBE
+    dpLastChange = 0; dpPrevBest = 0xFF;
+#endif
     for(uint16_t i = 0; i < total; i++) {
         mctsIterate(game);
+#ifdef DECIDE_PROBE
+        {
+            uint16_t bv = 0; uint8_t bc = 0xFF;
+            for(uint8_t c = node(0).firstChild; c != 0xFF; c = node(c).nextSibling) {
+                uint16_t v = nVisits(c);
+                if(v < POISONED && v > bv) { bv = v; bc = c; }
+            }
+            if(bc != dpPrevBest) { dpPrevBest = bc; dpLastChange = i; }
+        }
+#endif
         // Flat-root check at budget end (see UNCERTAIN_MIN)
         if(i + 1 == total && !extended) {
             extended = 1;
@@ -2906,6 +3018,7 @@ uint8_t AI::bestMove(Game &game, uint8_t &x, uint8_t &y) {
     for(uint8_t c = node(0).firstChild; c != 0xFF; c = node(c).nextSibling) {
         uint16_t v = nVisits(c);
         if(v >= POISONED) continue;
+        if(node(c).move & 0x80) continue; // latent: never activated
         uint8_t m = node(c).move;
 
         // Fallback: most-visited, in case no child clears the LCB gate
