@@ -1197,11 +1197,12 @@ static uint16_t regionVital(uint8_t seed) {
     // flag them done, so other candidates in this region skip the flood.
     // Harmless outside the widen scan (chainId/regionDone are rebuilt by
     // the next buildChainMap and never read during playouts).
-    uint8_t code = (unsettled || !owner) ? 0 : owner;
+    uint8_t code6 = (uint8_t)(((unsettled || !owner) ? 0 : owner) << 6);
     for(uint8_t j = 0; j < cnt; j++) {
         uint8_t c = region[j];
-        chainId[c] = (chainId[c] & 0x3F) | (code << 6);
-        regionDone[c >> 3] |= bitMask(c);
+        chainId[c] = (chainId[c] & 0x3F) | code6;
+        uint8_t cb = c >> 3;   // 8-bit shift (promoted index = 16-bit loop)
+        regionDone[cb] |= bitMask(c);
     }
     if(vit != 0xFF)
         chainId[vit] = (chainId[vit] & 0x3F) | (3 << 6);
