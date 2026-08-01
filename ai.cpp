@@ -2028,6 +2028,16 @@ static uint8_t almostVital(uint8_t seed) {
 static uint8_t ldStatus[64];   // per complex root id
 static uint8_t ldMove[64];     // settling move for LD_CRIT
 static uint8_t ldParent[64];
+#ifdef LD_CRIT
+#ifndef PRIOR_CRIT_BOOST
+#define PRIOR_CRIT_BOOST 6   // capture-grade (dose 1)
+#endif
+// Stage 2: settling moves of CRITICAL complexes on the ROOT board,
+// consumed by candidatePrior during root widening only (the board
+// matches; deeper nodes have descended away from it).
+static uint8_t ldCritBoost[11];
+static uint8_t ldAtRoot;
+#endif
 static uint8_t ldFind(uint8_t x) {
     while(ldParent[x] != x) { ldParent[x] = ldParent[ldParent[x]]; x = ldParent[x]; }
     return x;
@@ -2172,6 +2182,16 @@ static void loadRootBoard(Game &game) {
         if((uint8_t)rv && (rv >> 8) == i)
             rootVitals[nRootVitals++] = i;
     }
+#ifdef LD_CRIT
+    memset(ldCritBoost, 0, sizeof(ldCritBoost));
+    ldClassify();
+    for(uint8_t i = 1; i < 64; i++)
+        if(ldFind(i) == i && ldStatus[i] == LD_CRIT &&
+           ldMove[i] < BOARD_CELLS) {
+            uint8_t mb = ldMove[i] >> 3;
+            ldCritBoost[mb] |= bitMask(ldMove[i]);
+        }
+#endif
 #ifdef ALMOST_VITAL
     // Second pass: contested-but-almost-enclosed eyespaces (see
     // almostVital). The i == vital dedupe adds each region once;
@@ -2852,6 +2872,16 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     // Big open point: the territory-staking move
     if(isFar) bonus += PRIOR_BIG;
 
+#ifdef LD_CRIT
+    // Settling move of a CRITICAL group (stage-2 L&D consumer):
+    // capture-grade priority so the search races it while the budget
+    // is unspent -- the late-discovery fix at the admission layer.
+    if(ldAtRoot) {
+        uint8_t pb = pos >> 3;  // 8-bit shift (see widenNode scan)
+        if(ldCritBoost[pb] & bitMask(pos)) bonus += PRIOR_CRIT_BOOST;
+    }
+#endif
+
     return bonus;
 }
 
@@ -2938,6 +2968,9 @@ static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t la
 
     uint8_t near[12];  // 12 not 11: buildNearMask's run write touches byte 11
     uint8_t anyStone = buildNearMask(near);
+#ifdef LD_CRIT
+    ldAtRoot = (nodeIdx == 0);
+#endif
     buildChainMap();
 #ifdef CFG_PRIOR
     buildCfgDist(last);

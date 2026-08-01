@@ -43,6 +43,26 @@ int main() {
            candidatePrior(5 * 9 + 1, game.turn, 4, 0));
     printf("rootVitals: n=%u [%u %u %u]\n", nRootVitals,
            rootVitals[0], rootVitals[1], rootVitals[2]);
+#ifdef LD_CRIT
+    {
+        for(uint8_t i = 0; i < BOARD_CELLS; i++)
+            simBoard[i] = packedGet(game.board, i);
+        ldClassify();
+        printf("LD complexes:");
+        for(uint8_t i = 1; i < 64; i++)
+            if(ldFind(i) == i && ldStatus[i] != LD_NONE) {
+                uint8_t m = ldMove[i];
+                printf(" [id%u %s", i,
+                       ldStatus[i] == LD_ALIVE ? "ALIVE" :
+                       ldStatus[i] == LD_DEAD ? "DEAD" : "CRIT");
+                if(ldStatus[i] == LD_CRIT && m < BOARD_CELLS)
+                    printf(" mv=%c%d", 'A' + (m % 9) + ((m % 9) >= 8 ? 1 : 0),
+                           9 - (m / 9));
+                printf("]");
+            }
+        printf("\n");
+    }
+#endif
 #ifdef FORCED_EXT
     if(fxChallenger != 0xFF) {
         uint8_t fm = node(fxChallenger).move & 0x7F;
