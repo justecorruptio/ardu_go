@@ -3202,15 +3202,20 @@ static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t la
     for(uint8_t k = 0; k < WIDEN_BATCH; k++) { bP[k] = -128; bPos[k] = 0xFF; }
     uint8_t startPos = rndMod<BOARD_CELLS>();
     // Same two-phase circular scan as playout's global probe (see there).
+    // The bitmap byte/mask pair (pb, pm) walks incrementally with pos --
+    // shift the mask, step the byte on wrap -- instead of a >>3 and a
+    // bitMask lpm per cell. Same values at every cell.
     uint8_t pos = startPos, scanEnd = BOARD_CELLS;
-    for(;; pos++) {
+    uint8_t pb = pos >> 3;
+    uint8_t pm = bitMask(pos);
+    for(;; pos++,
+           pm = (uint8_t)(pm << 1), pm || (pm = 1, ++pb)) {
         if(pos >= scanEnd) {
             if(scanEnd != BOARD_CELLS || startPos == 0) break;
             pos = 0; scanEnd = startPos;    // phase 2: 0..startPos-1
+            pb = 0; pm = 1;
         }
         if(boardAt(pos) != EMPTY || pos == ko) continue;
-        uint8_t pb = pos >> 3;      // 8-bit shift, shared with near[]
-        uint8_t pm = bitMask(pos);
         if(have[pb] & pm) continue;
         uint8_t isFar = 0;
         if(anyStone && !(near[pb] & pm)) {
