@@ -43,6 +43,14 @@ int main() {
            candidatePrior(5 * 9 + 1, game.turn, 4, 0));
     printf("rootVitals: n=%u [%u %u %u]\n", nRootVitals,
            rootVitals[0], rootVitals[1], rootVitals[2]);
+#ifdef FORCED_EXT
+    if(fxChallenger != 0xFF) {
+        uint8_t fm = node(fxChallenger).move & 0x7F;
+        printf("fxChallenger=%u move=%c%d fxForcedCount=%u\n", fxChallenger,
+               'A' + (fm % 9) + ((fm % 9) >= 8 ? 1 : 0), 9 - (fm / 9),
+               fxForcedCount);
+    } else printf("fxChallenger=none\n");
+#endif
     printf("thinkSims=%u wins=%u (%d%%)\n", thinkSims, thinkSimWins,
            thinkSims ? (int)(100L * thinkSimWins / thinkSims) : 0);
     return 0;
