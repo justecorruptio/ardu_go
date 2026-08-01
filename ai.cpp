@@ -2903,7 +2903,10 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
             uint8_t penalized = 0;
             uint16_t kmask = pgm_read_word(KEIMA_MX + x) &
                              pgm_read_word(KEIMA_MY + y);
-            for(uint8_t ki = 0; ki < 12 && !penalized; ki++, kmask >>= 1) {
+            // terminate at the mask's last set bit: edge candidates
+            // have sparse masks and the tail iterations were all
+            // continue-spins (interior = all 12 bits, identical work)
+            for(uint8_t ki = 0; kmask && !penalized; ki++, kmask >>= 1) {
                 if(!(kmask & 1)) continue;  // partner off-board
                 int8_t a = (int8_t)pgm_read_byte(KEIMA_A + ki);
                 {
