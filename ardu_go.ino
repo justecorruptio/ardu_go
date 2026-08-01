@@ -83,10 +83,17 @@ void setup() {
     jay.flashlight();
     jay.invert(1);
     jay.clear();
-    // Seed the engine's xorshift directly instead of initRandomSeed():
-    // no libc random() user remains, dropping random_r from flash
+    // Seed the engine's xorshift directly. Vendored (2026-08-02): the
+    // Arduboy2 generateRandomSeed() mixes an ADC read with micros(),
+    // and that micros() reference was the last thing keeping the stock
+    // wiring.c.o linked (multiple-definition wall against wiring_v.c).
+    // Same entropy sources, sub-ms timer bits from raw TCNT0 instead:
     extern uint16_t rngState;
-    rngState = (uint16_t)jay.generateRandomSeed() | 1;
+    power_adc_enable();
+    ADCSRA |= _BV(ADSC);                       // unconnected-pin read
+    while(bit_is_set(ADCSRA, ADSC)) { }
+    rngState = (uint16_t)((ADC << 8) ^ millis() ^ TCNT0) | 1;
+    power_adc_disable();
 
     //jay.smallPrint(99, 46, itoa((uint16_t)&game, 16), 1);
     //jay.smallPrint(99, 56, itoa((uint16_t)&ai, 16), 1);
