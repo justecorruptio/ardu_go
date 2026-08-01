@@ -1800,6 +1800,9 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
             uint8_t matches[8];
             uint8_t nMatches = 0;
             for(int8_t dy = -1; dy <= 1; dy++) {
+                int8_t cy = lpy + dy;
+                if((uint8_t)cy >= BOARD_SIZE) continue;  // hoisted row check
+                uint8_t rowBase = (uint8_t)cy * BOARD_SIZE;
                 for(int8_t dx = -1; dx <= 1; dx++) {
                     // no (0,0) skip: the centre is `last` itself, always
                     // occupied by the stone just played, so the EMPTY
@@ -1807,10 +1810,9 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                     // PROGMEM-table flatten of this loop measured +0.16%
                     // SLOWER: 3 lpm/point beats the loop machinery here,
                     // unlike keima where most iterations were filtered.)
-                    int8_t cx = lpx + dx, cy = lpy + dy;
-                    if(cx < 0 || cx >= BOARD_SIZE || cy < 0 || cy >= BOARD_SIZE)
-                        continue;
-                    uint8_t pos = cy * BOARD_SIZE + cx;
+                    int8_t cx = lpx + dx;
+                    if((uint8_t)cx >= BOARD_SIZE) continue;
+                    uint8_t pos = rowBase + (uint8_t)cx;
                     if(boardAt(pos) != EMPTY || pos == ko) continue;
                     if(isOwnEye(pos, toMove)) continue;
                     if(
