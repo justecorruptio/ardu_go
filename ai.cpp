@@ -885,22 +885,39 @@ static uint8_t hasLiberty(uint8_t start, uint8_t color) {
     // color = simBoard[start], passed in: every hot caller already
     // holds it in a register, and the reload cost ~6 cycles x 180K
     // calls/think
+    // Seed pre-scan (same shape as groupLibsCore's): most queries find an
+    // empty neighbour of the seed itself, so scan those four cells before
+    // paying for newMark and the flood machinery. Same-colour neighbours
+    // are recorded straight into floodScratch[1..] as we go -- dead
+    // scratch if an empty settles it, and exactly the stack the old
+    // first-iteration scan would have pushed (same table order) if not.
+    uint8_t *rp = &floodSlot(0);
+    uint8_t *wp = rp + 1;
+    {
+        const uint8_t *e = NEIGHBOR_TABLE + start * 5;
+        uint8_t q;
+        while((q = lpmNext(e)) != 0xFF) {
+            uint8_t s = boardAt(q);
+            if(s == EMPTY) return 1;
+            if(s == color) *wp++ = q;
+        }
+    }
     newMark();
     // BFS with chasing read/write POINTERS into floodScratch (indexed
     // access paid a 16-bit extend per push/pop; floodScratch's address
     // carries, so the boardAt trick can't apply -- pointers can):
     // stones are appended (wp) and consumed front-to-back (rp), so the
     // group accumulates append-only and is still there on a full
-    // flood. Done when rp meets wp.
-    uint8_t *rp = &floodSlot(0);
-    uint8_t *wp = rp + 1;
-    *rp = start;
+    // flood. Done when rp meets wp. The seed's scan already happened
+    // above, so slot 0 is stamped for the group list and the loop
+    // starts from its recorded neighbours. A doubled seed neighbour
+    // (two list entries of one chain) dedups here at mark time exactly
+    // as the old push-time check did.
+    *rp++ = start;
     simMark[start] = markEpoch;
-    do {
+    for(uint8_t *dp = rp; dp != wp; dp++) simMark[*dp] = markEpoch;
+    while(rp != wp) {
         uint8_t p = *rp++;
-        // neighbors() inlined and fused: walk the 0xFF-terminated neighbour
-        // list straight from PROGMEM (lpm Z+). An empty neighbour = a
-        // liberty; exit before reading the rest.
         const uint8_t *e = NEIGHBOR_TABLE + p * 5;
         uint8_t q;
         while((q = lpmNext(e)) != 0xFF) {
@@ -914,7 +931,7 @@ static uint8_t hasLiberty(uint8_t start, uint8_t color) {
                 }
             }
         }
-    } while(rp != wp);
+    }
     capturedGroupN = (uint8_t)(wp - &floodSlot(0));
     return 0;
 }
