@@ -618,8 +618,15 @@ int main(int argc, char **argv) {
                 simBoard[i] = packedGet(game.board, i);
             pw += playout(game.turn, 0xFF, 4 * 9 + 4) == game.turn;
         }
-        printf("FINGERPRINT prior(D5)=%+d iters=%u pw=%d/200\n",
-               pr, (unsigned)mctsIterations, pw);
+        // Tree fingerprint: one deterministic think from the seed
+        // position (fixed rng) — catches tree/search-side changes the
+        // playout hash cannot see.
+        rngState = 31337;
+        ai.think(game);
+        uint8_t tx = 0xFF, ty = 0xFF;
+        uint8_t tmv = ai.bestMove(game, tx, ty) ? (uint8_t)(ty * 9 + tx) : 81;
+        printf("FINGERPRINT prior(D5)=%+d iters=%u pw=%d/200 think=%u/%u\n",
+               pr, (unsigned)mctsIterations, pw, tmv, thinkSims);
         return 0;
     }
 
