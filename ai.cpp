@@ -845,8 +845,10 @@ static uint32_t groupLibsCore(uint8_t start, uint8_t markAll, uint8_t cap);
 static uint8_t capturedGroupN;
 
 __attribute__((optimize("O2")))
-static uint8_t hasLiberty(uint8_t start) {
-    uint8_t color = simBoard[start];
+static uint8_t hasLiberty(uint8_t start, uint8_t color) {
+    // color = simBoard[start], passed in: every hot caller already
+    // holds it in a register, and the reload cost ~6 cycles x 180K
+    // calls/think
     newMark();
     // BFS with chasing read/write indices into floodScratch: stones are
     // appended (wr) and consumed front-to-back (rd), so the group accumulates
@@ -1267,7 +1269,7 @@ static uint8_t simPlay(uint8_t pos, uint8_t color, uint8_t ko,
     FOR_EACH_NEIGHBOR(q, pos) {
         uint8_t s = boardAt(q);
         if(s == opp) {
-            if(!hasLiberty(q)) {
+            if(!hasLiberty(q, opp)) {
                 capPos = q;
                 captured += removeGroup(q);
             }
@@ -1321,7 +1323,7 @@ static uint8_t simPlay(uint8_t pos, uint8_t color, uint8_t ko,
             cacheL1 = a;
             cacheL2 = b;
         } else {
-            if(!hasLiberty(pos)) { // suicide
+            if(!hasLiberty(pos, color)) { // suicide
                 asm volatile("" : "+r"(pos));  // barrier: see above
                 simBoard[pos] = EMPTY;
                 return ILLEGAL;
@@ -3721,7 +3723,7 @@ static uint8_t rootSelfAtari(uint8_t pos, uint8_t toMove) {
         // enemy neighbor chain reads zero liberties
         uint8_t q;
         FOR_EACH_NEIGHBOR(q, pos)
-            if(simBoard[q] == 3 - toMove && !hasLiberty(q)) {
+            if(simBoard[q] == 3 - toMove && !hasLiberty(q, 3 - toMove)) {
                 r = 0;
                 break;
             }
