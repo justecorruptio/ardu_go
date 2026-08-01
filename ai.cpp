@@ -1166,13 +1166,32 @@ static uint8_t simPlay(uint8_t pos, uint8_t color, uint8_t ko,
     uint8_t opp = 3 - color;
     simBoard[pos] = color;
 
+    // ONE fused neighbour walk (was three): the capture check, the
+    // fast-path classification (empties a/b/e, connectivity) and the
+    // material for ko detection all come from this pass.
+    // - The a/b/e/connected tallies are consumed only when captured==0,
+    //   exactly when the board was unchanged during the walk, so they
+    //   equal what a second walk would see. (When a capture DID happen
+    //   mid-walk the tallies can be stale -- and are unused.)
+    // - Ko (captured==1, single stone off): post-capture liberties of
+    //   the placed lone stone = e + 1 (the captured cell), no other
+    //   neighbour changed; lone = !connected. So the old third walk is
+    //   `!connected && e == 0`.
     uint8_t captured = 0, capPos = 0;
+    uint8_t a = 0xFF, b = 0xFF, e = 0, connected = 0;
     uint8_t q;
     FOR_EACH_NEIGHBOR(q, pos) {
-        if(simBoard[q] == opp && !hasLiberty(q)) {
-            capPos = q;
-            captured += removeGroup(q);
-        }
+        uint8_t s = simBoard[q];
+        if(s == opp) {
+            if(!hasLiberty(q)) {
+                capPos = q;
+                captured += removeGroup(q);
+            }
+        } else if(s == EMPTY) {
+            if(a == 0xFF) a = q; else if(b == 0xFF) b = q;
+            e++;
+        } else
+            connected = 1;
     }
 
     if(!captured) {
@@ -1185,14 +1204,6 @@ static uint8_t simPlay(uint8_t pos, uint8_t color, uint8_t ko,
             // One flood/scan covers both suicide (0 libs) and self-atari
             // (1); the result is cached for the next playout move, which
             // classifies this same group on an unchanged board.
-            uint8_t a = 0xFF, b = 0xFF, e = 0, connected = 0, r;
-            FOR_EACH_NEIGHBOR(r, pos) {
-                uint8_t s = simBoard[r];
-                if(s == EMPTY) {
-                    if(a == 0xFF) a = r; else if(b == 0xFF) b = r;
-                    e++;
-                } else if(s == color) { connected = 1; break; }
-            }
             uint8_t libs;
             if(connected) {
                 uint32_t gr = groupLibsFind(pos);
@@ -1235,16 +1246,8 @@ static uint8_t simPlay(uint8_t pos, uint8_t color, uint8_t ko,
     }
     simCaptured = captured;
 
-    // Simple ko: lone stone with one liberty that captured exactly one
-    if(captured == 1) {
-        uint8_t lone = 1, libs = 0;
-        uint8_t q;
-        FOR_EACH_NEIGHBOR(q, pos) {
-            if(simBoard[q] == color) lone = 0;
-            else if(simBoard[q] == EMPTY) libs++;
-        }
-        if(lone && libs == 1) return capPos;
-    }
+    // Simple ko (see the fused-walk comment above)
+    if(captured == 1 && !connected && e == 0) return capPos;
     return NO_KO;
 }
 
