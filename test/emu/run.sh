@@ -9,7 +9,11 @@ OUT=/tmp/ardugo_avrbench
 CLI="/Applications/Arduino IDE.app/Contents/Resources/app/lib/backend/resources/arduino-cli"
 NM=~/Library/Arduino15/packages/arduino/tools/avr-gcc/7.3.0-atmel3.6.1-arduino7/bin/avr-nm
 
-"$CLI" compile --fqbn arduino:avr:leonardo --output-dir "$OUT" "$SKETCH" >/dev/null
+# --clean is NOT optional: the CLI build cache does not reliably
+# invalidate through bench_avr's SYMLINKED sources, and a stale cached
+# binary once produced a phantom -25.6% "win" (213M) that survived two
+# re-runs before clean builds exposed it.
+"$CLI" compile --clean --fqbn arduino:avr:leonardo --output-dir "$OUT" "$SKETCH" >/dev/null
 ADDR=$("$NM" "$OUT/bench_avr.ino.elf" | grep -iw benchMark | cut -d' ' -f1)
 ADDR=${ADDR: -4}   # low 16 bits = data-space address
 echo "marker benchMark @ 0x$ADDR"
