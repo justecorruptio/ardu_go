@@ -1180,7 +1180,7 @@ static uint8_t settledRegionColor(uint8_t seed) {
 static uint8_t isOwnEye(uint8_t pos, uint8_t color) {
     uint8_t q;
     FOR_EACH_NEIGHBOR(q, pos)
-        if(simBoard[q] != color) return 0;
+        if(boardAt(q) != color) return 0;
     return 1;
 }
 
@@ -1212,7 +1212,7 @@ static uint8_t simPlay(uint8_t pos, uint8_t color, uint8_t ko,
     uint8_t a = 0xFF, b = 0xFF, e = 0, connected = 0;
     uint8_t q;
     FOR_EACH_NEIGHBOR(q, pos) {
-        uint8_t s = simBoard[q];
+        uint8_t s = boardAt(q);
         if(s == opp) {
             if(!hasLiberty(q)) {
                 capPos = q;
@@ -1503,7 +1503,7 @@ __attribute__((optimize("O2")))
 // indirect stores on success, on a ~100K-calls-per-think path.
 static uint16_t playoutTry(uint8_t pos, uint8_t toMove, uint8_t ko,
                            uint8_t m) {
-    if(pos >= BOARD_CELLS || pos == ko || simBoard[pos] != EMPTY ||
+    if(pos >= BOARD_CELLS || pos == ko || boardAt(pos) != EMPTY ||
        isOwnEye(pos, toMove)) return 0;
     uint8_t nk = simPlay(pos, toMove, ko, !scoreMode);
     if(nk == ILLEGAL) return 0;
@@ -1727,7 +1727,7 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                     if(cx < 0 || cx >= BOARD_SIZE || cy < 0 || cy >= BOARD_SIZE)
                         continue;
                     uint8_t pos = cy * BOARD_SIZE + cx;
-                    if(simBoard[pos] != EMPTY || pos == ko) continue;
+                    if(boardAt(pos) != EMPTY || pos == ko) continue;
                     if(isOwnEye(pos, toMove)) continue;
                     if(
                        patternBonus(cx, cy, toMove) > 0
@@ -1831,7 +1831,7 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                 if(scanEnd != BOARD_CELLS || start == 0) break;
                 pos = 0; scanEnd = start;   // phase 2: 0..start-1
             }
-            if(simBoard[pos] != EMPTY || pos == ko) continue;
+            if(boardAt(pos) != EMPTY || pos == ko) continue;
 
             // Lonely first-line moves are pure noise: skip unless the
             // point touches a stone. Slot 3 == 0xFF <=> <4 neighbours
@@ -2682,7 +2682,7 @@ static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t la
             if(scanEnd != BOARD_CELLS || startPos == 0) break;
             pos = 0; scanEnd = startPos;    // phase 2: 0..startPos-1
         }
-        if(simBoard[pos] != EMPTY || pos == ko) continue;
+        if(boardAt(pos) != EMPTY || pos == ko) continue;
         uint8_t pb = pos >> 3;      // 8-bit shift, shared with near[]
         uint8_t pm = bitMask(pos);
         if(have[pb] & pm) continue;
