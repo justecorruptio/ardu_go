@@ -2299,9 +2299,9 @@ static void ldClassify() {
 
 // Fill simBoard from the game and collect the eyespace vital points.
 // Shared by think() and scoreDead().
+static void unpackBoard(Game &game);
 static void loadRootBoard(Game &game) {
-    for(uint8_t i = 0; i < BOARD_CELLS; i++)
-        simBoard[i] = packedGet(game.board, i);
+    unpackBoard(game);
     nRootVitals = 0;
     for(uint8_t i = 0; i < BOARD_CELLS && nRootVitals < 3; i++) {
         if(simBoard[i] != EMPTY) continue;
@@ -3407,10 +3407,24 @@ static uint8_t selectChild(uint8_t nodeIdx) {
     return bestC;
 }
 
+// Unpack the 2-bit game board into the byte-per-cell sim board.
+// packedGet per cell pays a variable-shift loop at -Os; walking the
+// packed bytes with constant shifts unrolls flat (4 cells/byte).
+static void unpackBoard(Game &game) {
+    const uint8_t *src = game.board;
+    uint8_t *dst = simBoard;
+    for(uint8_t b = 0; b < BOARD_CELLS / 4; b++) {
+        uint8_t v = *src++;
+        *dst++ = v & 3;
+        *dst++ = (v >> 2) & 3;
+        *dst++ = (v >> 4) & 3;
+        *dst++ = (v >> 6) & 3;
+    }
+    *dst = *src & 3;   // cell 80
+}
+
 static void mctsIterate(Game &game) {
-    // Unpack the 2-bit game board into the byte-per-cell sim board
-    for(uint8_t i = 0; i < BOARD_CELLS; i++)
-        simBoard[i] = packedGet(game.board, i);
+    unpackBoard(game);
     memset(raveMask, 0, sizeof(raveMask));
     cacheLibsPos = 0xFF; // fresh position: liberty cache is stale
     uint8_t ko = rootKo;
