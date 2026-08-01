@@ -656,6 +656,9 @@ static uint16_t thinkSims, thinkSimWins;
 // eventual scoreDead count marks positions the playout policy misreads.
 static int32_t thinkMargin2Sum;
 int16_t thinkAvgMargin2;
+// Wait accounting for the FASTPLAY experiment: iterations actually
+// run vs budgeted, across all thinks (host tools print the ratio)
+uint32_t thinkItersRun, thinkItersBudget;
 #endif
 // Vital points of small eyespaces on the ROOT board, found once per
 // search. Playouts probe these no matter where the last move was —
@@ -3043,6 +3046,9 @@ void AI::think(Game &game) {
     dpLastChange = 0; dpPrevBest = 0xFF;
 #endif
     for(uint16_t i = 0; i < total; i++) {
+#ifndef ARDUINO
+        thinkItersRun++;
+#endif
         mctsIterate(game);
 #ifdef DECIDE_PROBE
         {
@@ -3072,17 +3078,41 @@ void AI::think(Game &game) {
         // almost always implies a dominant LCB, but not provably.
         if((i & 31) == 31) {
             uint16_t top1 = 0, top2 = 0;
+#ifdef FASTPLAY_STOP
+            uint8_t topC = 0xFF;
+#endif
             for(uint8_t c = node(0).firstChild; c != 0xFF; c = node(c).nextSibling) {
                 uint16_t v = nVisits(c);
                 if(v >= POISONED) continue;
-                if(v > top1) { top2 = top1; top1 = v; }
+                if(v > top1) {
+                    top2 = top1; top1 = v;
+#ifdef FASTPLAY_STOP
+                    topC = c;
+#endif
+                }
                 else if(v > top2) top2 = v;
             }
             if(top1 - top2 > total - 1 - i) break;
+#ifdef FASTPLAY_STOP
+            // michi's FASTPLAY: a decisively winning leader ends the
+            // search early (their 5%/20% sim tiers at 0.95/0.80,
+            // adapted to our budget). The 32-real-visit floor keeps
+            // seeded q honest: at (14,10) max seed, faking q>=0.95
+            // needs more wins than real visits -- impossible.
+            // (dose 1 with michi's second tier -- wr>0.80 at 25% of
+            // budget -- lost -6.4pp/1000: at 400 iters the 25% leader
+            // has ~40 visits and 0.80 has a +-0.12 CI; it stopped in
+            // merely-good games and blew won ones. 0.95-only retry.)
+            if(topC != 0xFF && top1 >= 32 && i >= total / 8) {
+                uint16_t q6 = winRate6(nWins(topC), top1);
+                if(q6 >= 61) break;                  // wr > 0.95
+            }
+#endif
         }
     }
 
 #ifndef ARDUINO
+    thinkItersBudget += total;
     thinkAvgMargin2 = thinkSims
         ? (int16_t)(thinkMargin2Sum / (int32_t)thinkSims) : 0;
 #endif

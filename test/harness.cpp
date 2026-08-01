@@ -584,6 +584,8 @@ int main(int argc, char **argv) {
         fclose(huntLog);
         printf("hunt done: %d games (%d-%d), %d blunders -> hunt_report.txt\n",
                games, w, l, huntCount);
+        printf("ITERS %u %u\n", (unsigned)thinkItersRun,
+               (unsigned)thinkItersBudget);
         return 0;
     }
     // priorprobe: print the D5 prior in the seed-0 peeped-jump
