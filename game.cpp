@@ -67,11 +67,14 @@ uint8_t Game::floodFill(uint8_t x, uint8_t y, uint8_t color) {
 // Shared by the two cold region scanners below (each inlined the
 // %/÷ split + bounds + index math).
 __attribute__((noinline))
-static uint8_t nbIndex(uint8_t j, uint8_t d) {
-    uint8_t gx = j % BOARD_SIZE, gy = j / BOARD_SIZE;
+static uint8_t nbIndexXY(uint8_t gx, uint8_t gy, uint8_t d) {
     int8_t nx = gx + DX4[d], ny = gy + DY4[d];
     if(nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) return 0xFF;
     return (uint8_t)(ny * BOARD_SIZE + nx);
+}
+__attribute__((noinline))
+static uint8_t nbIndex(uint8_t j, uint8_t d) {
+    return nbIndexXY(j % BOARD_SIZE, j / BOARD_SIZE, d);
 }
 
 uint8_t Game::countLiberties(uint8_t x, uint8_t y) {
@@ -122,9 +125,10 @@ uint8_t Game::isValidMove(uint8_t x, uint8_t y) {
     // Check if move captures opponent stones
     uint8_t captures = 0;
     for(uint8_t d = 0; d < 4; d++) {
-        int8_t nx = x + DX4[d], ny = y + DY4[d];
-        if(nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) continue;
-        if(at(nx, ny) == opponent && countLiberties(nx, ny) == 0)
+        uint8_t ni = nbIndexXY(x, y, d);
+        if(ni == 0xFF) continue;
+        if(packedGet(board, ni) == opponent &&
+           countLiberties(ni % BOARD_SIZE, ni / BOARD_SIZE) == 0)
             captures = 1;
     }
 
@@ -141,10 +145,11 @@ uint8_t Game::isValidMove(uint8_t x, uint8_t y) {
 
     // Do captures on temp
     for(uint8_t d = 0; d < 4; d++) {
-        int8_t nx = x + DX4[d], ny = y + DY4[d];
-        if(nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) continue;
-        if(packedGet(tempBoard, ny * BOARD_SIZE + nx) == opponent) {
+        uint8_t ni = nbIndexXY(x, y, d);
+        if(ni == 0xFF) continue;
+        if(packedGet(tempBoard, ni) == opponent) {
             // Check liberties in temp context — use board directly
+            uint8_t nx = ni % BOARD_SIZE, ny = ni / BOARD_SIZE;
             if(countLiberties(nx, ny) == 0) {
                 memset(visited, 0, sizeof(visited));
                 floodFill(nx, ny, opponent);
@@ -172,8 +177,9 @@ uint8_t Game::playMove(uint8_t x, uint8_t y) {
     uint8_t captureIdx = turn == BLACK ? 0 : 1;
 
     for(uint8_t d = 0; d < 4; d++) {
-        int8_t nx = x + DX4[d], ny = y + DY4[d];
-        if(nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) continue;
+        uint8_t ni = nbIndexXY(x, y, d);
+        if(ni == 0xFF) continue;
+        uint8_t nx = ni % BOARD_SIZE, ny = ni / BOARD_SIZE;
         if(at(nx, ny) == opponent && countLiberties(nx, ny) == 0) {
             captures[captureIdx] += captureGroup(nx, ny);
         }
