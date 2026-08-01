@@ -94,7 +94,7 @@ void Jaylib::smallPrintWrapped(uint8_t x, uint8_t y, uint8_t w, const uint8_t * 
 void Jaylib::largePrint(uint8_t x, uint8_t y, const uint8_t * str, uint8_t kern, uint8_t color) {
     char c;
     for(;c = *str ++;) {
-        c -= 32;
+        c = pgm_read_byte(LARGE_REMAP + (uint8_t)(c - 32));
         drawBand(x, y, PRINTABLE_CHARS_LARGE + 5 * c, 5, color);
         x += 5 + kern;
     }
@@ -104,7 +104,7 @@ void Jaylib::largePrintPgm(uint8_t x, uint8_t y, const __FlashStringHelper * str
     char c;
     uint8_t * ptr = (uint8_t *) str;
     for(;c = pgm_read_byte(ptr ++);) {
-        c -= 32;
+        c = pgm_read_byte(LARGE_REMAP + (uint8_t)(c - 32));
         drawBand(x, y, PRINTABLE_CHARS_LARGE + 5 * c, 5, color);
         x += 5 + kern;
     }
