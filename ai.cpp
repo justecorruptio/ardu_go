@@ -3520,16 +3520,24 @@ static void mctsIterate(Game &game) {
 #endif
     if(vKomi2) winner = vKomiWinner();
 
-    // Fold this simulation into the root RAVE tables
+    // Fold this simulation into the root RAVE tables. Byte-walk the
+    // mask: an all-zero byte skips 8 cells for one load, and the
+    // per-cell test becomes a constant-mask AND on a cached byte
+    // (same cells, same ascending order).
     uint8_t rootWin = (winner == rootTurn);
-    for(uint8_t i = 0; i < BOARD_CELLS; i++) {
-        if(!(raveMask[i >> 3] & bitMask(i))) continue;
-        if(raveV[i] == 255) { // saturate by halving, keeps the ratio
-            raveV[i] >>= 1;
-            raveW[i] >>= 1;
+    for(uint8_t b = 0; b < (BOARD_CELLS + 7) / 8; b++) {
+        uint8_t m = raveMask[b];
+        if(!m) continue;
+        uint8_t i = (uint8_t)(b << 3);
+        for(uint8_t bit = 1; bit && i < BOARD_CELLS; bit <<= 1, i++) {
+            if(!(m & bit)) continue;
+            if(raveV[i] == 255) { // saturate by halving, keeps the ratio
+                raveV[i] >>= 1;
+                raveW[i] >>= 1;
+            }
+            raveV[i]++;
+            if(rootWin) raveW[i]++;
         }
-        raveV[i]++;
-        if(rootWin) raveW[i]++;
     }
 
     // Backprop. path[1] was played by rootTurn, path[2] by the opponent, ...
