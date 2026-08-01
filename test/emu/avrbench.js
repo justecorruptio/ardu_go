@@ -68,6 +68,12 @@ if (!intervals.length) { _log('no thinks measured — boot may have hung'); proc
 report();
 
 function report() {
+  // Stack high-water: Atcore tracks the lowest SP seen. 32u4 RAM ends
+  // at 0xAFF; statics end where .bss does (see avr-size), so
+  // minStack - bssEnd is the TRUE remaining margin during thinks.
+  if (core.minStack !== 0xFFFFFFFF)
+    _log('stack: minSP=0x' + core.minStack.toString(16) +
+         ' used=' + (0xAFF - core.minStack) + 'B from RAMEND');
   intervals.sort((a, b) => a - b);
   const min = intervals[0], max = intervals[intervals.length - 1];
   const med = intervals[intervals.length >> 1];
