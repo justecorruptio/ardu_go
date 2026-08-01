@@ -2577,10 +2577,17 @@ static uint8_t buildNearMask(uint8_t *near) {
         // most 2 bytes, so near[] is sized 12 (byte 11 is write-only).
         uint8_t run = (uint8_t)((1u << (x1 - x0 + 1)) - 1);
         uint8_t b = y0 * BOARD_SIZE + x0;
+        // b += 9 advances the bit offset (b & 7) by exactly 1 mod 8, so
+        // the variable 16-bit shift (a per-row shift loop on AVR) is paid
+        // once per stone; each row then just doubles m, resetting to run
+        // when the offset wraps to 0.
+        uint8_t sh = b & 7;
+        uint16_t m = (uint16_t)run << sh;
         for(uint8_t yy = y0; yy <= y1; yy++, b += BOARD_SIZE) {
-            uint16_t m = (uint16_t)run << (b & 7);
             near[b >> 3]       |= (uint8_t)m;
             near[(b >> 3) + 1] |= (uint8_t)(m >> 8);
+            if(++sh == 8) { sh = 0; m = run; }
+            else m <<= 1;
         }
     }
     return anyStone;
