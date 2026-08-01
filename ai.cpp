@@ -2684,7 +2684,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
         if(dup) continue;
         seen[nSeen++] = id;
         uint8_t l = LIBS_OF(chainId[q]);
-        if(boardAt(q) == opp) {
+        if(simBoard[q] == opp) {
             eGroups++;
             if(l < eMinLibs) eMinLibs = l;
             if(l == 1) {
