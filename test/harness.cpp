@@ -588,6 +588,79 @@ int main(int argc, char **argv) {
                (unsigned)thinkItersBudget);
         return 0;
     }
+    // ldcheck: stage-1 L&D classifier accuracy vs the ownership vote.
+    // Reads SGF paths on stdin, replays each, samples positions every
+    // 8 moves from move 20, tags stones via ldClassify, then scores
+    // the same position with ownVote (64 scoring playouts) as ground
+    // truth. Reports a confusion matrix + CRITICAL trigger rate.
+#ifdef LD_CLASS
+    if(argc > 1 && std::string(argv[1]) == "ldcheck") {
+        char path[512];
+        long conf[4][3] = {{0}};   // [tag][voteAlive, voteDead, undecided]
+        long posN = 0, posCrit = 0, gamesN = 0;
+        while(fgets(path, sizeof(path), stdin)) {
+            std::string p(path);
+            while(!p.empty() && (p.back() == '\n' || p.back() == ' ')) p.pop_back();
+            if(p.empty()) continue;
+            FILE *f = fopen(p.c_str(), "r");
+            if(!f) continue;
+            std::string sgf;
+            char buf[4096]; size_t r;
+            while((r = fread(buf, 1, sizeof(buf), f)) > 0) sgf.append(buf, r);
+            fclose(f);
+            // collect moves
+            std::vector<std::pair<uint8_t,uint8_t>> mv;
+            for(size_t i = 0; i + 5 < sgf.size(); i++)
+                if(sgf[i] == ';' && (sgf[i+1] == 'B' || sgf[i+1] == 'W') &&
+                   sgf[i+2] == '[') {
+                    if(sgf[i+3] == ']') { mv.push_back({0xFF, 0xFF}); continue; }
+                    mv.push_back({(uint8_t)(sgf[i+3]-'a'), (uint8_t)(sgf[i+4]-'a')});
+                }
+            if(mv.size() < 24) continue;
+            gamesN++;
+            game.reset();
+            for(size_t m = 0; m < mv.size(); m++) {
+                if(mv[m].first == 0xFF) game.pass();
+                else game.playMove(mv[m].first, mv[m].second);
+                if(m + 1 < 20 || (m + 1 - 20) % 8 || m + 8 >= mv.size())
+                    continue;
+                // sample this position
+                for(uint8_t i = 0; i < BOARD_CELLS; i++)
+                    simBoard[i] = packedGet(game.board, i);
+                ldClassify();
+                uint8_t snap[BOARD_CELLS];
+                uint8_t anyCrit = 0;
+                for(uint8_t i = 0; i < BOARD_CELLS; i++) {
+                    snap[i] = ldCellStatus(i);
+                    if(snap[i] == LD_CRIT) anyCrit = 1;
+                }
+                posN++; posCrit += anyCrit;
+                uint8_t own[BOARD_CELLS];
+                ownVote(game, own);
+                for(uint8_t i = 0; i < BOARD_CELLS; i++) {
+                    uint8_t st = packedGet(game.board, i);
+                    if(st == EMPTY) continue;
+                    uint8_t o = own[i]; // black-owned count of SCORE_PLAYOUTS
+                    uint8_t aliveT = (st == BLACK) ? (o >= 48) : (o <= 16);
+                    uint8_t deadT  = (st == BLACK) ? (o <= 16) : (o >= 48);
+                    conf[snap[i]][aliveT ? 0 : deadT ? 1 : 2]++;
+                }
+            }
+        }
+        const char *nm[4] = {"none", "ALIVE", "DEAD", "CRIT"};
+        printf("games %ld  positions %ld  critical-rate %.1f%%\n",
+               gamesN, posN, posN ? 100.0 * posCrit / posN : 0);
+        printf("%-6s %10s %10s %10s   precision(decided)\n",
+               "tag", "voteAlive", "voteDead", "undecided");
+        for(int t = 0; t < 4; t++) {
+            long a = conf[t][0], d = conf[t][1], u = conf[t][2];
+            long dec = a + d;
+            double prec = dec ? (t == 2 ? 100.0 * d / dec : 100.0 * a / dec) : 0;
+            printf("%-6s %10ld %10ld %10ld   %.1f%%\n", nm[t], a, d, u, prec);
+        }
+        return 0;
+    }
+#endif
     // priorprobe: print the D5 prior in the seed-0 peeped-jump
     // position — a build FINGERPRINT so gauntlet arms can prove which
     // prior code they contain before burning 1000 games (stale arm

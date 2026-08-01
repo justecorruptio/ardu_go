@@ -2003,6 +2003,163 @@ static uint8_t almostVital(uint8_t seed) {
 }
 #endif
 
+#ifdef LD_CLASS
+// ---- Stage-1 life-and-death classifier (design study 2026-08-01) ----
+// Static group status, computed once per think on the root board.
+// Chains sharing an eyespace wall are unioned into a COMPLEX (they
+// live or die together, to first order); each complex accumulates
+// eye value in HALF-EYE units from its adjacent regions:
+//   size 1: 2 if a real eye (the shipped diagonal test), else 0
+//   size 2: 2 (one eye, throw-in proof)
+//   size 3-6, unique vital: secure 2 / max 4 -- CRITICAL, vital = move
+//     (square four: secure 0 / max 2, the known dead shape)
+//   size >= 7: 4 (two eyes)
+//   poked wall (1-2 enemy stones, majority >= 3): secure 0 / max 4,
+//     CRITICAL, the gate cell = move (the almostVital lesson)
+//   contested / oversize: no value; wall chains get an open liberty
+// Status: ALIVE (secure >= 4); DEAD (max < 4, no open liberties);
+// CRITICAL (secure < 4 <= max, settling move recorded); else untagged.
+// Consumers must treat DEAD as the least trusted tag (static analysis
+// cannot see seki or ko) -- stage 2 gives it only the weakest role.
+#define LD_NONE 0
+#define LD_ALIVE 1
+#define LD_DEAD 2
+#define LD_CRIT 3
+static uint8_t ldStatus[64];   // per complex root id
+static uint8_t ldMove[64];     // settling move for LD_CRIT
+static uint8_t ldParent[64];
+static uint8_t ldFind(uint8_t x) {
+    while(ldParent[x] != x) { ldParent[x] = ldParent[ldParent[x]]; x = ldParent[x]; }
+    return x;
+}
+static void ldUnion(uint8_t a, uint8_t b) {
+    a = ldFind(a); b = ldFind(b);
+    if(a != b) ldParent[b] = a;
+}
+// status of the chain occupying `cell` (0xFF cell / empty = LD_NONE)
+static uint8_t ldCellStatus(uint8_t cell) {
+    if(cell >= BOARD_CELLS || simBoard[cell] == EMPTY) return LD_NONE;
+    return ldStatus[ldFind(CHAIN_OF(chainId[cell]))];
+}
+static void ldClassify() {
+    uint8_t eyes2s[64], eyes2m[64], openL[64], critMv[64];
+    for(uint8_t i = 0; i < 64; i++) {
+        ldParent[i] = i;
+        eyes2s[i] = eyes2m[i] = openL[i] = 0;
+        critMv[i] = ldMove[i] = 0xFF;
+        ldStatus[i] = LD_NONE;
+    }
+    buildChainMap();
+    newMark();
+    for(uint8_t seed = 0; seed < BOARD_CELLS; seed++) {
+        if(simBoard[seed] != EMPTY || simMark[seed] == markEpoch) continue;
+        // flood this empty region (cap 10: bigger = open space)
+        uint8_t region[10];
+        uint8_t cnt = 0, head = 0, over = 0;
+        uint8_t nB = 0, nW = 0;
+        uint8_t wall[8]; uint8_t nWall = 0; // distinct wall chain ids
+        region[cnt++] = seed;
+        simMark[seed] = markEpoch;
+        while(head < cnt) {
+            uint8_t q;
+            FOR_EACH_NEIGHBOR(q, region[head]) {
+                uint8_t st = simBoard[q];
+                if(st != EMPTY) {
+                    if(st == BLACK) nB++; else nW++; // stone-adjacency count
+                    uint8_t id = CHAIN_OF(chainId[q]);
+                    uint8_t known = 0;
+                    for(uint8_t k = 0; k < nWall; k++)
+                        if(wall[k] == id) { known = 1; break; }
+                    if(!known && nWall < 8) wall[nWall++] = id;
+                    continue;
+                }
+                if(simMark[q] == markEpoch) continue;
+                if(cnt >= 10) { over = 1; continue; }
+                simMark[q] = markEpoch;
+                region[cnt++] = q;
+            }
+            head++;
+        }
+        // classify the wall (adjacency counts, not distinct stones:
+        // cheaper, and a 2-cell poke still reads as small)
+        uint8_t minC = nB < nW ? nB : nW;
+        uint8_t majColor = nB < nW ? WHITE : BLACK;
+        uint8_t pokeColor = 3 - majColor;
+        if(over || (minC > 2 && nB >= 3 && nW >= 3)) {
+            // open space / genuinely contested: escape route for all
+            for(uint8_t k = 0; k < nWall; k++) openL[ldFind(wall[k])] = 1;
+            continue;
+        }
+        // union the majority-colour wall chains through this region
+        uint8_t root = 0xFF;
+        for(uint8_t k = 0; k < nWall; k++) {
+            // wall[] ids belong to either colour; union majority only
+            uint8_t cell = 0xFF, q2;
+            // find a wall stone of this id to check its colour
+            for(uint8_t j = 0; j < cnt && cell == 0xFF; j++)
+                FOR_EACH_NEIGHBOR(q2, region[j])
+                    if(simBoard[q2] != EMPTY &&
+                       CHAIN_OF(chainId[q2]) == wall[k]) { cell = q2; break; }
+            if(cell == 0xFF || simBoard[cell] != majColor) continue;
+            if(root == 0xFF) root = ldFind(wall[k]);
+            else ldUnion(root, wall[k]);
+        }
+        if(root == 0xFF) continue;
+        root = ldFind(root);
+        uint8_t s2 = 0, m2 = 0, cm = 0xFF;
+        if(minC == 0) {                       // enclosed, single colour
+            if(cnt == 1) {
+                // real single-point eye? (isOwnEye includes the shipped
+                // false-eye diagonal test; colour = wall colour)
+                s2 = m2 = isOwnEye(region[0], majColor) ? 2 : 0;
+            } else if(cnt == 2) { s2 = m2 = 2; }
+            else if(cnt >= 7)   { s2 = m2 = 4; }
+            else {
+                uint8_t bd, ties;
+                uint8_t vit = regionVitalCell(region, cnt, &bd, &ties);
+                if(ties == 1 && vit != 0xFF) { s2 = 2; m2 = 4; cm = vit; }
+                else if(cnt == 4 && bd == 2 && ties == 4)
+                    { s2 = 0; m2 = 2; cm = vit; }  // square four
+                else { s2 = 2; m2 = 2; }
+            }
+        } else {                              // poked wall: gate cell
+            uint8_t gate = 0xFF, multi = 0;
+            for(uint8_t j = 0; j < cnt && !multi; j++) {
+                uint8_t q3;
+                FOR_EACH_NEIGHBOR(q3, region[j])
+                    if(simBoard[q3] == pokeColor) {
+                        if(gate != 0xFF && gate != region[j]) { multi = 1; break; }
+                        gate = region[j];
+                    }
+            }
+            s2 = 0;
+            m2 = (cnt >= 3) ? 4 : 2;
+            if(!multi) cm = gate;
+        }
+        eyes2s[root] = (eyes2s[root] + s2 > 8) ? 8 : eyes2s[root] + s2;
+        eyes2m[root] = (eyes2m[root] + m2 > 8) ? 8 : eyes2m[root] + m2;
+        if(cm != 0xFF && critMv[root] == 0xFF) critMv[root] = cm;
+    }
+    // fold accumulators onto union roots and tag
+    for(uint8_t i = 1; i < 64; i++) {
+        uint8_t r = ldFind(i);
+        if(r != i) {
+            eyes2s[r] = (eyes2s[r] + eyes2s[i] > 8) ? 8 : eyes2s[r] + eyes2s[i];
+            eyes2m[r] = (eyes2m[r] + eyes2m[i] > 8) ? 8 : eyes2m[r] + eyes2m[i];
+            openL[r] |= openL[i];
+            if(critMv[r] == 0xFF) critMv[r] = critMv[i];
+        }
+    }
+    for(uint8_t i = 1; i < 64; i++) {
+        if(ldFind(i) != i) continue;
+        if(eyes2s[i] >= 4) ldStatus[i] = LD_ALIVE;
+        else if(openL[i]) ldStatus[i] = LD_NONE;      // can run: no tag
+        else if(eyes2m[i] < 4) ldStatus[i] = LD_DEAD;
+        else { ldStatus[i] = LD_CRIT; ldMove[i] = critMv[i]; }
+    }
+}
+#endif
+
 // Fill simBoard from the game and collect the eyespace vital points.
 // Shared by think() and scoreDead().
 static void loadRootBoard(Game &game) {
