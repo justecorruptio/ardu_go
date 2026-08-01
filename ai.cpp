@@ -2160,6 +2160,12 @@ static const int8_t PROGMEM KEIMA_A[12] = {-2, -2, -1, -1,  1,  1,  2,  2,
                                             0,  0, -2,  2};
 static const int8_t PROGMEM KEIMA_B[12] = {-1,  1, -2,  2, -2,  2, -1,  1,
                                            -2,  2,  0,  0};
+// Per-coordinate keima bounds masks: bit ki of KEIMA_MX[x] is set iff
+// x + KEIMA_A[ki] is on-board (KEIMA_MY likewise for y + KEIMA_B[ki]).
+// Their AND decides all 12 bounds tests at once; KEIMA_B itself is now
+// used only by the table generator above.
+static const uint16_t PROGMEM KEIMA_MX[9] = {0xBF0, 0xBFC, 0xFFF, 0xFFF, 0xFFF, 0xFFF, 0xFFF, 0x73F, 0x70F};
+static const uint16_t PROGMEM KEIMA_MY[9] = {0xEAA, 0xEEB, 0xFFF, 0xFFF, 0xFFF, 0xFFF, 0xFFF, 0xDD7, 0xD55};
 
 // Prior for one candidate: tactics + center + locality + shape, minus
 // early-game low-line penalties. Negative = virtual losses. isFar
@@ -2368,13 +2374,12 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
             }
         if(!hasDiagFriend) {
             uint8_t penalized = 0;
-            for(uint8_t ki = 0; ki < 12 && !penalized; ki++) {
+            uint16_t kmask = pgm_read_word(KEIMA_MX + x) &
+                             pgm_read_word(KEIMA_MY + y);
+            for(uint8_t ki = 0; ki < 12 && !penalized; ki++, kmask >>= 1) {
+                if(!(kmask & 1)) continue;  // partner off-board
                 int8_t a = (int8_t)pgm_read_byte(KEIMA_A + ki);
-                int8_t b = (int8_t)pgm_read_byte(KEIMA_B + ki);
                 {
-                    int8_t kx = x + a, ky = y + b;
-                    if(kx < 0 || kx >= BOARD_SIZE ||
-                       ky < 0 || ky >= BOARD_SIZE) continue;
                     int8_t L = (int8_t)pgm_read_byte(KEIMA_L + ki);
                     if(simBoard[pos + L] != toMove) continue;
                     if(ki >= 8) {
@@ -2434,16 +2439,18 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
         if(!isFar && ed == 1 && rootStones >= EARLY_STONES) {
             // (isFar: the 5x5 is provably empty; nearEnemy stays 0
             // either way -- byte-identical skip)
-            for(int8_t dy = -2; dy <= 2 && !nearEnemy; dy++)
+            const uint8_t *rp = simBoard + pos - 2 * BOARD_SIZE;
+            for(int8_t dy = -2; dy <= 2 && !nearEnemy;
+                dy++, rp += BOARD_SIZE) {
+                if((uint8_t)(y + dy) >= BOARD_SIZE) continue; // row off-board
                 for(int8_t dx = -2; dx <= 2; dx++) {
-                    int8_t nx = x + dx, ny = y + dy;
-                    if(nx < 0 || nx >= BOARD_SIZE ||
-                       ny < 0 || ny >= BOARD_SIZE) continue;
-                    if(simBoard[ny * BOARD_SIZE + nx] == opp) {
+                    if((uint8_t)(x + dx) >= BOARD_SIZE) continue;
+                    if(rp[dx] == opp) {
                         nearEnemy = 1;
                         break;
                     }
                 }
+            }
         }
         if(!nearEnemy) {
             lowLineBad = 1;
