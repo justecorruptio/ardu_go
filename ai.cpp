@@ -1139,7 +1139,7 @@ static uint16_t regionVital(uint8_t seed) {
     while(head < cnt && !unsettled) {
         uint8_t q;
         FOR_EACH_NEIGHBOR(q, region[head++]) {
-            uint8_t s = simBoard[q];
+            uint8_t s = boardAt(q);
             if(s != EMPTY) {
                 if(!owner) owner = s;
                 else if(owner != s) { unsettled = 1; break; } // both colors
@@ -1198,7 +1198,7 @@ static uint8_t settledRegionColor(uint8_t seed) {
     while(head < cnt) {
         uint8_t p = floodSlot(head++), q;
         FOR_EACH_NEIGHBOR(q, p) {
-            uint8_t s = simBoard[q];
+            uint8_t s = boardAt(q);
             if(s == EMPTY) {
                 if(simMark[q] != markEpoch) { simMark[q] = markEpoch; floodSlot(cnt++) = q; }
             } else if(!owner) {
