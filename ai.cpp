@@ -1373,7 +1373,13 @@ static uint16_t pattern3Index(int8_t cx, int8_t cy, uint8_t color,
         uint8_t R = vNE + 3*vE + 9*vSE;   // right column 0..26
         uint8_t M = vN + 3*vS;            // middle spine 0..8
         if(L > R) { uint8_t t = L; L = R; R = t; }
-        idx = (uint16_t)(M*378 + L*27 - L*(L-1)/2 + (R-L));
+        // M*378 + L*27 - L*(L-1)/2 by table: the combine's three 16-bit
+        // multiplies have tiny domains (M<=8, L<=26), so two PROGMEM
+        // word loads replace them. Same values by construction.
+        static const uint16_t PROGMEM FOLD_M[9] = {0, 378, 756, 1134, 1512, 1890, 2268, 2646, 3024};
+        static const uint16_t PROGMEM FOLD_TRI[27] = {0, 27, 53, 78, 102, 125, 147, 168, 188, 207, 225, 242, 258, 273, 287, 300, 312, 323, 333, 342, 350, 357, 363, 368, 372, 375, 377};
+        idx = pgm_read_word(FOLD_M + M) + pgm_read_word(FOLD_TRI + L) +
+              (uint8_t)(R - L);
     } else {
         uint32_t r = pattern3Edge(cx, cy, color);
         *pcls = (uint8_t)(r >> 24);
