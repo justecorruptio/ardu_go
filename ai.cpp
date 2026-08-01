@@ -304,6 +304,15 @@ uint8_t AI::chooseMove(Game &game) {
 #endif
 #ifndef PRIOR_LOCAL
 #define PRIOR_LOCAL 2       // adjacent or diagonal to the previous move
+#ifdef CFG_PRIOR
+// michi's common-fate-graph locality (its heaviest prior, [24,22,8]
+// against an even prior of 10): chains contract to a point, so "near
+// the last move" follows walls and groups instead of a Chebyshev
+// circle. Replaces PRIOR_LOCAL. Dose 1 scaled to our prior units.
+#define CFG_PRIOR_1 5
+#define CFG_PRIOR_2 4
+#define CFG_PRIOR_3 2
+#endif
 #endif
 #ifndef PRIOR_BIG
 #define PRIOR_BIG 2         // big open point (far from every stone)
@@ -954,6 +963,7 @@ static uint8_t regionVitalCell(const uint8_t *region, uint8_t cnt,
 // liberties, then a second cheap walk stamps the libs bits. A lazy
 // eyespace map also lives in the empty cells' top bits, filled on
 // demand by regionVital; buildChainMap just clears its cache flags.
+__attribute__((optimize("O2")))
 static void buildChainMap() {
     memset(chainId, 0, sizeof(chainId));
     uint8_t nextId = 0;
@@ -2183,6 +2193,46 @@ static const int8_t PROGMEM KEIMA_B[12] = {-1,  1, -2,  2, -2,  2, -1,  1,
 static const uint16_t PROGMEM KEIMA_MX[9] = {0xBF0, 0xBFC, 0xFFF, 0xFFF, 0xFFF, 0xFFF, 0xFFF, 0x73F, 0x70F};
 static const uint16_t PROGMEM KEIMA_MY[9] = {0xEAA, 0xEEB, 0xFFF, 0xFFF, 0xFFF, 0xFFF, 0xFFF, 0xDD7, 0xD55};
 
+#ifdef CFG_PRIOR
+// CFG distance from the opponent's last move, chain-contracted:
+// BFS on the graph where every chain is one super-node. Assigning a
+// chain atomically (all stones labeled+enqueued together, via the
+// chain map) keeps plain FIFO BFS correct despite the zero-cost
+// intra-chain edges. Distances >3 stay 0xFF. Computed once per widen
+// scan; the queue borrows floodScratch, which is free until the
+// scan's tactical floods start.
+static uint8_t cfgDist[BOARD_CELLS];
+static void cfgChainAt(uint8_t q, uint8_t nd, uint8_t &tail) {
+    uint8_t id = CHAIN_OF(chainId[q]);
+    for(uint8_t t = 0; t < BOARD_CELLS; t++)
+        if(simBoard[t] != EMPTY && CHAIN_OF(chainId[t]) == id &&
+           cfgDist[t] == 0xFF) {
+            cfgDist[t] = nd;
+            floodScratch[tail++] = t;
+        }
+}
+static void buildCfgDist(uint8_t last) {
+    memset(cfgDist, 0xFF, BOARD_CELLS);
+    if(last >= BOARD_CELLS) return;
+    uint8_t head = 0, tail = 0;
+    cfgChainAt(last, 0, tail);
+    while(head < tail) {
+        uint8_t c = floodScratch[head++];
+        uint8_t d = cfgDist[c];
+        if(d >= 3) continue;
+        uint8_t q;
+        FOR_EACH_NEIGHBOR(q, c) {
+            if(cfgDist[q] != 0xFF) continue;
+            if(simBoard[q] == EMPTY) {
+                cfgDist[q] = d + 1;
+                floodScratch[tail++] = q;
+            } else
+                cfgChainAt(q, d + 1, tail);
+        }
+    }
+}
+#endif
+
 // Prior for one candidate: tactics + center + locality + shape, minus
 // early-game low-line penalties. Negative = virtual losses. isFar
 // marks a big open point, which can never earn tactical or local
@@ -2477,6 +2527,12 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
 
     // Locality: adjacent or diagonal to the previous move.
     if(!lowLineBad && last < BOARD_CELLS) {
+#ifdef CFG_PRIOR
+        uint8_t cd = cfgDist[pos];
+        if(cd == 1)      bonus += CFG_PRIOR_1;
+        else if(cd == 2) bonus += CFG_PRIOR_2;
+        else if(cd == 3) bonus += CFG_PRIOR_3;
+#else
         int8_t dx = x - last % BOARD_SIZE; if(dx < 0) dx = -dx;
         int8_t dy = y - last / BOARD_SIZE; if(dy < 0) dy = -dy;
         if(dx <= 1 && dy <= 1) {
@@ -2486,6 +2542,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
             // ORTHOGONALLY (the junction does; diagonal near-misses
             // scored alike in a real cut-through game until this)
         }
+#endif
     }
 
     // Local shape: the same 3x3 patterns the playouts use. This is what
@@ -2586,6 +2643,9 @@ static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t la
     uint8_t near[12];  // 12 not 11: buildNearMask's run write touches byte 11
     uint8_t anyStone = buildNearMask(near);
     buildChainMap();
+#ifdef CFG_PRIOR
+    buildCfgDist(last);
+#endif
 
     // Batch widening: one scan yields the top WIDEN_BATCH candidates
     // (the scan already ranks everything to find #1; tracking three is
@@ -2827,6 +2887,7 @@ static uint8_t selectChild(uint8_t nodeIdx) {
     return bestC;
 }
 
+__attribute__((optimize("O2")))
 static void mctsIterate(Game &game) {
     // Unpack the 2-bit game board into the byte-per-cell sim board
     for(uint8_t i = 0; i < BOARD_CELLS; i++)
