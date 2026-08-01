@@ -11,7 +11,11 @@ Jaylib jay;
 // loudly if they do — it fired after a RAM-layout change). This
 // stomp-tolerant pad shifts them clear; retune the size if the
 // hazard screen ever reappears, and verify with test/checkmagic.sh.
-uint8_t magicPad[46] __attribute__((used));
+// (Retuned 46 -> 24 in the 2026-08-02 RAM hunt: the minimum where the
+// 0x800 clearance AND the boardAt/markPtr lo8 bounds all hold --
+// empirically swept; the bss shift is nonlinear in pad size, and 16
+// already breaks boardAt. checkmagic.sh verifies every constraint.)
+uint8_t magicPad[24] __attribute__((used));
 Game game;
 AI ai;
 Display display(jay, game);
