@@ -18,7 +18,24 @@ extern uint16_t rngState;  // engine PRNG; seed it for repeatable runs
 // the emulator routes through write() where the harness hooks it.
 volatile uint8_t benchMark;
 
-// A realistic mid-game position (same as test/bench.cpp)
+// Two benchmark positions. Default: the realistic mid-game board
+// (same as test/bench.cpp), thinks at the shipped 400 iterations.
+// -DBENCH_OPENING: an 8-stone opening (game_002 to move 8, Black to
+// play) -- under OPENING_BOOST_STONES the think naturally runs 600
+// iterations, so this benches the true opening wait-peak.
+#ifdef BENCH_OPENING
+static const char rows[9][10] = {
+    ".........",
+    ".....O...",
+    "..OO.....",
+    "...XX.O..",
+    ".........",
+    "...XX....",
+    ".........",
+    ".........",
+    ".........",
+};
+#else
 static const char rows[9][10] = {
     "....XO...",
     "..X.XO.O.",
@@ -30,6 +47,7 @@ static const char rows[9][10] = {
     "...OO.OO.",
     ".O.O...O.",
 };
+#endif
 
 void setup() {
     game.reset();
@@ -40,7 +58,11 @@ void setup() {
         }
     for(uint8_t i = 0; i < 81; i++) {} // (prevBoard already copied by set? no)
     memcpy(game.prevBoard, game.board, sizeof(game.board));
+#ifdef BENCH_OPENING
+    game.turn = BLACK;
+#else
     game.turn = WHITE;
+#endif
 
     for(;;) {
         rngState = 12345;      // identical search every iteration
