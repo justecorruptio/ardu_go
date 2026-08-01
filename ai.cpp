@@ -3248,6 +3248,22 @@ static inline uint16_t raveRatio(uint16_t nv) {
     return ratio;
 }
 
+// Root RAVE beta by table for the hot visit range: beta(nv) =
+// isqrt32(raveRatio(nv) << 12) is a pure function of nv, and the
+// blend recomputed a 12-step restoring divide plus an isqrt for
+// every root child on every selection. Exact values (host-verified
+// against the integer pipeline); nv >= 64 falls back to computing.
+PROGMEM const uint16_t BETA_TAB[64] = {
+     4096,  4075,  4055,  4035,  4016,  3996,  3978,  3959,
+     3941,  3922,  3905,  3887,  3870,  3852,  3835,  3819,
+     3803,  3786,  3770,  3754,  3738,  3723,  3708,  3693,
+     3678,  3663,  3648,  3634,  3620,  3606,  3591,  3578,
+     3565,  3551,  3537,  3525,  3511,  3498,  3486,  3473,
+     3461,  3448,  3436,  3425,  3413,  3401,  3389,  3378,
+     3366,  3354,  3343,  3332,  3321,  3311,  3300,  3289,
+     3279,  3268,  3258,  3248,  3238,  3228,  3217,  3207
+};
+
 static uint8_t selectChild(uint8_t nodeIdx) {
     // UCB1-Tuned in Q12 fixed point — software floats cost several ms
     // per root scan, so everything here is integer.
@@ -3318,8 +3334,9 @@ static uint8_t selectChild(uint8_t nodeIdx) {
            && !(ldCritBoost[n.move >> 3] & bitMask(n.move))
 #endif
            ) {
-            uint16_t ratio = raveRatio(nv);
-            uint16_t beta = isqrt32((uint32_t)ratio << 12);
+            uint16_t beta = (nv < 64)
+                ? pgm_read_word(BETA_TAB + nv)
+                : isqrt32((uint32_t)raveRatio(nv) << 12);
             uint16_t qr = winRate6(raveW[n.move], raveV[n.move]) << 6;
             q = ((uint32_t)(4096 - beta) * q + (uint32_t)beta * qr) >> 12;
         }
