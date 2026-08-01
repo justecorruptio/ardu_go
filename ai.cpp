@@ -1680,7 +1680,7 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                 // next to it into atari — extend at its last liberty
                 uint8_t q;
                 FOR_EACH_NEIGHBOR(q, last) {
-                    if(simBoard[q] != toMove) continue;
+                    if(boardAt(q) != toMove) continue;
                     uint8_t sl = soleLiberty(q);
                     // Short read: playouts rarely need long ladders,
                     // and a truncated read defaults to "escape"
@@ -1727,7 +1727,7 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
             uint8_t vcand = 0xFF;
             uint8_t q;
             FOR_EACH_NEIGHBOR(q, last) {
-                if(simBoard[q] != EMPTY) continue;
+                if(boardAt(q) != EMPTY) continue;
                 uint16_t rv = regionVital(q);
                 if((uint8_t)rv) vcand = rv >> 8;
                 break; // only the first adjacent region
@@ -1845,7 +1845,7 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                 uint8_t nbl[4], nl = 0, contact = 0, answer = 0, q;
                 FOR_EACH_NEIGHBOR(q, last) {
                     nbl[nl++] = q;
-                    if(simBoard[q] == toMove) contact = 1; // contact push
+                    if(boardAt(q) == toMove) contact = 1; // contact push
                 }
                 if(contact) {
                     answer = (p & (CONTACT_ANSWER_MASK << 1)) != 0;
@@ -1900,7 +1900,7 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
             if(fourth == 0xFF) {
                 uint8_t contact = 0, q;
                 while((q = pgm_read_byte(ne++)) != 0xFF) {
-                    if(simBoard[q] != EMPTY) { contact = 1; break; }
+                    if(boardAt(q) != EMPTY) { contact = 1; break; }
                 }
                 if(!contact) continue;
             }
