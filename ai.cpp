@@ -627,7 +627,14 @@ static inline Node& node(uint8_t i) {
     return (i < NODE_POOL_SB) ? pool[i] : poolExt[i - NODE_POOL_SB];
 }
 
-// Packed 12-bit stat accessors
+// Packed 12-bit stat accessors. The Node& variants skip the pool-split
+// resolution when the caller already holds the reference.
+static inline uint16_t nRefVisits(Node &n) {
+    return n.s[0] | ((uint16_t)(n.s[1] & 0x0F) << 8);
+}
+static inline uint16_t nRefWins(Node &n) {
+    return (n.s[1] >> 4) | ((uint16_t)n.s[2] << 4);
+}
 static inline uint16_t nVisits(uint8_t i) {
     Node &n = node(i);
     return n.s[0] | ((uint16_t)(n.s[1] & 0x0F) << 8);
@@ -3300,10 +3307,13 @@ static uint8_t selectChild(uint8_t nodeIdx) {
     uint8_t bestC = node(nodeIdx).firstChild;
     while(bestC != 0xFF && (node(bestC).move & 0x80))
         bestC = node(bestC).nextSibling;
-    for(uint8_t c = node(nodeIdx).firstChild; c != 0xFF; c = node(c).nextSibling) {
+    uint8_t c = node(nodeIdx).firstChild;
+    for(; c != 0xFF;) {
         Node &n = node(c);
+        uint8_t cur = c;
+        c = n.nextSibling;
         if(n.move & 0x80) continue; // latent: not yet in the schedule
-        uint16_t nv = nVisits(c);
+        uint16_t nv = nRefVisits(n);
 #ifdef LATENT_DEBUG
         if(nv == 0) {
             fprintf(stderr,
@@ -3318,7 +3328,7 @@ static uint8_t selectChild(uint8_t nodeIdx) {
         // uint16): (wins<<6)/nv == (wins<<12)/nv >> 6 exactly, so q is
         // the old Q12 value with its low 6 bits zeroed. That truncation
         // is well under the sampling noise (>=2.5% even at the root).
-        uint16_t q6 = winRate6(nWins(c), nv);
+        uint16_t q6 = winRate6(nRefWins(n), nv);
         uint16_t q = q6 << 6;                 // Q12 (Q6 precision)
 
         // Variance-aware exploration from the raw win rate: with binary
@@ -3373,7 +3383,7 @@ static uint8_t selectChild(uint8_t nodeIdx) {
         uint16_t u = q + (isqrt32((uint32_t)lnOverN * v) >> UCB_EXPLORE_SHIFT);
         if(u > best) {
             best = u;
-            bestC = c;
+            bestC = cur;
         }
     }
     return bestC;
