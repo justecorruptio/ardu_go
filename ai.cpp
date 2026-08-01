@@ -1443,6 +1443,10 @@ static uint16_t playoutTry(uint8_t pos, uint8_t toMove, uint8_t ko,
        isOwnEye(pos, toMove)) return 0;
     uint8_t nk = simPlay(pos, toMove, ko, !scoreMode);
     if(nk == ILLEGAL) return 0;
+    // barrier: raveMark below re-derives its bitmap address from this
+    // one register instead of GCC also keeping a zero-extended copy of
+    // pos in a second call-saved pair across the simPlay call
+    asm volatile("" : "+r"(pos));
     if(toMove == rootTurn && m < RAVE_HORIZON) raveMark(pos);
     if(simCaptured) {
         if(toMove == BLACK) capB += simCaptured;
