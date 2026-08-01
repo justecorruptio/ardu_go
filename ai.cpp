@@ -1671,7 +1671,7 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
         // Heuristics fire probabilistically (michi-style): applied
         // every time, all playouts make the SAME systematic errors and
         // those don't average out. Tactical ~7/8, patterns ~15/16.
-        if(last < BOARD_CELLS && simBoard[last] != EMPTY && (rnd16() & 7)) {
+        if(last < BOARD_CELLS && boardAt(last) != EMPTY && (rnd16() & 7)) {
             uint8_t tac = 0xFF, isSave = 0;
 
             // Classify the opponent's just-moved group — free when
@@ -1843,7 +1843,7 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
         // remaining coin, ~7/8 total: without that, random invasions
         // of settled territory live far too often, the single
         // biggest playout evaluation bias.
-        if(last < BOARD_CELLS && simBoard[last] != EMPTY) {
+        if(last < BOARD_CELLS && boardAt(last) != EMPTY) {
             uint16_t p = rnd16();
             uint8_t pos = 0xFF;
             uint8_t lxy = posXY(last);
@@ -1866,7 +1866,7 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                 // or one with no support within 2 (an invasion);
                 // either way the reply is a contact move. The two
                 // cases carry SEPARATE probability masks.
-                uint8_t lastColor = simBoard[last];
+                uint8_t lastColor = boardAt(last);
                 // One pass over last's neighbours: collect them into nbl[]
                 // (needed for the random pick nbl[rnd(nl)] below), count nl,
                 // and flag a contact push -- no break, nl must count all.
@@ -1880,17 +1880,19 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                 } else if((p & (LONE_ANSWER_MASK << 1)) != 0) {
                     // 5x5 support scan only after the coin passes
                     answer = 1; // lone unless support found
-                    for(int8_t dy = -2; dy <= 2 && answer; dy++)
+                    const uint8_t *rp = simBoard + last - 2 * BOARD_SIZE;
+                    for(int8_t dy = -2; dy <= 2 && answer;
+                        dy++, rp += BOARD_SIZE) {
+                        if((uint8_t)(ly + dy) >= BOARD_SIZE) continue;
                         for(int8_t dx = -2; dx <= 2; dx++) {
                             if(!dx && !dy) continue;
-                            int8_t nx = lx + dx, ny = ly + dy;
-                            if(nx < 0 || nx >= BOARD_SIZE ||
-                               ny < 0 || ny >= BOARD_SIZE) continue;
-                            if(simBoard[ny * BOARD_SIZE + nx] == lastColor) {
+                            if((uint8_t)(lx + dx) >= BOARD_SIZE) continue;
+                            if(rp[dx] == lastColor) {
                                 answer = 0;
                                 break;
                             }
                         }
+                    }
                 }
                 if(answer) pos = nbl[rnd(nl)];
             }
