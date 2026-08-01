@@ -2278,7 +2278,11 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     // candidate's 3x3, so neither patterns nor the thin-stretch check
     // can see this shape. Applies only when the keima is the sole link
     // (no orthogonal contact — checked above — and no diagonal one).
-    if(!sawCapture && !sawSave && !sawAtari && !hasOrthFriend) {
+    if(!isFar && !sawCapture && !sawSave && !sawAtari && !hasOrthFriend) {
+        // (isFar: no stone within Chebyshev 2, and every cell this
+        // block reads -- diagonals, keima partners, jump midpoints --
+        // lies within that radius, so all 16 probes are guaranteed
+        // misses; skipping is byte-identical)
         // All board reads here are cells of a fixed shape around the
         // candidate, so they're pos + a linear offset -- no Y*9 multiply.
         // Bounds are still checked on the (x,y) coords before each read.
@@ -2356,7 +2360,9 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     uint8_t lowLineBad = 0;
     if(ed <= 1 && !sawCapture && !sawSave && !sawAtari && !vitalHere) {
         uint8_t nearEnemy = 0;
-        if(ed == 1 && rootStones >= EARLY_STONES) {
+        if(!isFar && ed == 1 && rootStones >= EARLY_STONES) {
+            // (isFar: the 5x5 is provably empty; nearEnemy stays 0
+            // either way -- byte-identical skip)
             for(int8_t dy = -2; dy <= 2 && !nearEnemy; dy++)
                 for(int8_t dx = -2; dx <= 2; dx++) {
                     int8_t nx = x + dx, ny = y + dy;
@@ -2390,7 +2396,10 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     // Local shape: the same 3x3 patterns the playouts use. This is what
     // makes cut-defense (blocking a keima push, connecting a jump)
     // visible to the tree instead of only to the rollouts.
-    if(!lowLineBad) bonus += patternBonus(x, y, toMove);
+    if(!lowLineBad && !isFar) bonus += patternBonus(x, y, toMove);
+    // (isFar: the 3x3 is provably empty -> stones<2 -> patternBonus
+    // returns 0, but only after computing the full pattern index;
+    // skipping is byte-identical)
 
     // Big open point: the territory-staking move
     if(isFar) bonus += PRIOR_BIG;
