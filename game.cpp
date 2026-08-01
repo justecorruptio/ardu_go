@@ -24,8 +24,10 @@ uint8_t floodScratch[BOARD_CELLS];
 
 // Shared orthogonal offsets: four functions each materialized these
 // as stack locals (init code + 8 stack bytes per instance).
-static const int8_t DX4[] = {-1, 1, 0, 0};
-static const int8_t DY4[] = {0, 0, -1, 1};
+static const int8_t PROGMEM DX4[] = {-1, 1, 0, 0};
+static const int8_t PROGMEM DY4[] = {0, 0, -1, 1};
+#define DX4_(d) ((int8_t)pgm_read_byte(DX4 + (d)))
+#define DY4_(d) ((int8_t)pgm_read_byte(DY4 + (d)))
 
 // Flood step shared by the four direction probes below (each was ~50
 // unrolled bytes; the function is cold - real moves only).
@@ -76,7 +78,7 @@ static void sweepVisited(Game *g, uint8_t *dst, uint8_t value) {
 
 __attribute__((noinline))
 static uint8_t nbIndexXY(uint8_t gx, uint8_t gy, uint8_t d) {
-    int8_t nx = gx + DX4[d], ny = gy + DY4[d];
+    int8_t nx = gx + DX4_(d), ny = gy + DY4_(d);
     if(nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) return 0xFF;
     return (uint8_t)(ny * BOARD_SIZE + nx);
 }
