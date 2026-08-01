@@ -2285,7 +2285,8 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
         // region code — 0=open, 1=black, 2=white, 3=vital. Filled lazily
         // by regionVital (first candidate in a region floods it; the rest
         // read the cache), so this is O(1) per candidate.
-        if(!(regionDone[pos >> 3] & bitMask(pos)))
+        uint8_t rb = pos >> 3;  // 8-bit shift (see widenNode scan)
+        if(!(regionDone[rb] & bitMask(pos)))
             regionVital(pos); // cache side-effect only
         uint8_t rc = chainId[pos] >> 6;
         if(rc == 3) {
@@ -2555,9 +2556,16 @@ static void expandNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t last
 static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t last) {
     uint8_t have[11];
     memset(have, 0, sizeof(have));
-    for(uint8_t c = node(nodeIdx).firstChild; c != 0xFF; c = node(c).nextSibling)
-        if((node(c).move & 0x7F) < BOARD_CELLS)
-            have[(node(c).move & 0x7F) >> 3] |= bitMask(node(c).move & 0x7F);
+    for(uint8_t c = node(nodeIdx).firstChild; c != 0xFF;) {
+        Node &n = node(c);
+        uint8_t m = n.move & 0x7F;
+        if(m < BOARD_CELLS) {
+            uint8_t mb = m >> 3;  // 8-bit shift: a promoted index shifts
+                                  // in a 16-bit asr/ror loop at -Os
+            have[mb] |= bitMask(m);
+        }
+        c = n.nextSibling;
+    }
 
     uint8_t near[12];  // 12 not 11: buildNearMask's run write touches byte 11
     uint8_t anyStone = buildNearMask(near);
@@ -2581,9 +2589,11 @@ static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t la
             pos = 0; scanEnd = startPos;    // phase 2: 0..startPos-1
         }
         if(simBoard[pos] != EMPTY || pos == ko) continue;
-        if(have[pos >> 3] & bitMask(pos)) continue;
+        uint8_t pb = pos >> 3;      // 8-bit shift, shared with near[]
+        uint8_t pm = bitMask(pos);
+        if(have[pb] & pm) continue;
         uint8_t isFar = 0;
-        if(anyStone && !(near[pos >> 3] & bitMask(pos))) {
+        if(anyStone && !(near[pb] & pm)) {
             uint8_t bxy = posXY(pos);
             uint8_t bx = bxy & 0x0F, by = bxy >> 4;
             uint8_t bex = bx < BOARD_SIZE - 1 - bx ? bx : BOARD_SIZE - 1 - bx;
