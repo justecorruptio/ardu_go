@@ -606,6 +606,18 @@ int main(int argc, char **argv) {
             simBoard[i] = packedGet(game.board, i);
         rootStones = 4;
         buildChainMap();
+#ifdef CFG_PRIOR
+        buildCfgDist(4 * 9 + 4);   // last = E5, engine path runs this in widenNode
+        {
+            uint8_t r1 = 0, r2 = 0, r3 = 0;
+            for(uint8_t i = 0; i < BOARD_CELLS; i++) {
+                if(cfgDist[i] == 1) r1++;
+                else if(cfgDist[i] == 2) r2++;
+                else if(cfgDist[i] == 3) r3++;
+            }
+            printf("CFGRINGS %u/%u/%u ", r1, r2, r3);
+        }
+#endif
         // Prior FIRST (the playout hash below trashes simBoard/chainId)
         int8_t pr = candidatePrior(4 * 9 + 3, game.turn, 4 * 9 + 4, 0);
         // Playout-policy hash: 200 fixed-seed playouts from this

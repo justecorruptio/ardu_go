@@ -309,9 +309,13 @@ uint8_t AI::chooseMove(Game &game) {
 // against an even prior of 10): chains contract to a point, so "near
 // the last move" follows walls and groups instead of a Chebyshev
 // circle. Replaces PRIOR_LOCAL. Dose 1 scaled to our prior units.
-#define CFG_PRIOR_1 5
-#define CFG_PRIOR_2 4
-#define CFG_PRIOR_3 2
+// dose 1 (+5/+4/+2) lost -3.3pp p=0.045: with batch widening the
+// prior is an ADMISSION ranking, and hot locality displaces tactical
+// candidates from the tree (michi expands everything and only
+// reorders). dose 2: half weight.
+#define CFG_PRIOR_1 3
+#define CFG_PRIOR_2 2
+#define CFG_PRIOR_3 1
 #endif
 #endif
 #ifndef PRIOR_BIG
