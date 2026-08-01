@@ -32,6 +32,16 @@ $NM -S -td "$B/ardu_go.ino.elf" | awk '
     else print "  ok"
   }
   / [bBdD] (game|ai|floodScratch)$/ { check($4, $1 % 8388608, $2 + 0) }
+  # boardAt() (ai.cpp) builds &simBoard[q] with a constant high byte:
+  # lo8(simBoard) + 80 must not carry or every flood loop reads the
+  # wrong page. Assert lo8 <= 0xAF.
+  / [bBdD] _ZL8simBoard$/ {
+    lo = ($1 % 8388608) % 256
+    printf "%-16s lo8=0x%X", "simBoard", lo
+    if (lo > 175) { print "  *** boardAt CARRY: lo8(simBoard)+80 > 0xFF ***"; bad = 1 }
+    else print "  ok (boardAt carry-free)"
+    seen_simboard = 1
+  }
   / [bBdD] _ZL7poolExt$/           { check("poolExt", $1 % 8388608, $2 + 0) }
   / [bBdD] _ZN12Arduboy2Base7sBufferE$/ {
     check("pool(nodes)", $1 % 8388608, 858)   # RAVE tables above 858B may own 0x800
@@ -39,5 +49,6 @@ $NM -S -td "$B/ardu_go.ino.elf" | awk '
   }
   END {
     if (!seen_sbuf) { print "*** sBuffer symbol not found ***"; bad = 1 }
+    if (!seen_simboard) { print "*** simBoard symbol not found ***"; bad = 1 }
     exit bad
   }'

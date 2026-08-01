@@ -682,6 +682,22 @@ static uint8_t cacheLibsPos; // group's stone position, 0xFF = invalid
 static uint8_t cacheLibs, cacheL1, cacheL2;
 static uint8_t simCaptured;  // stones captured by the last simPlay
 static uint8_t simBoard[BOARD_CELLS];
+#ifdef ARDUINO
+// simBoard[q] in 3 instructions instead of the 4-cycle 16-bit index
+// extend: a board index (<=80) added to lo8(simBoard) cannot carry --
+// checkmagic.sh asserts this stays true across RAM-layout changes --
+// so the pointer's high byte is the link-time constant hi8(simBoard).
+static inline uint8_t boardAt(uint8_t q) {
+    const uint8_t *p;
+    asm("mov %A0,%1\n\t"
+        "subi %A0,lo8(-(%2))\n\t"
+        "ldi %B0,hi8(%2)"
+        : "=&d"(p) : "r"(q), "i"(simBoard));
+    return *p;
+}
+#else
+static inline uint8_t boardAt(uint8_t q) { return simBoard[q]; }
+#endif
 static uint8_t simMark[BOARD_CELLS];   // epoch marks for flood fill
 // Chain map, computed once per EXPANSION while the board is frozen.
 // One byte per cell: (libs << 6) | id — the capped 1/2/3+ liberty
@@ -822,8 +838,9 @@ static uint8_t hasLiberty(uint8_t start) {
         const uint8_t *e = NEIGHBOR_TABLE + p * 5;
         uint8_t q;
         while((q = lpmNext(e)) != 0xFF) {
-            if(simBoard[q] == EMPTY) return 1;
-            if(simBoard[q] == color && simMark[q] != markEpoch) {
+            uint8_t s = boardAt(q);
+            if(s == EMPTY) return 1;
+            if(s == color && simMark[q] != markEpoch) {
                 simMark[q] = markEpoch;
                 floodSlot(wr++) = q;
             }
@@ -883,7 +900,7 @@ static uint32_t groupLibsCore(uint8_t start, uint8_t markAll, uint8_t cap) {
         // re-scanned.
         uint8_t q;
         FOR_EACH_NEIGHBOR(q, start) {
-            uint8_t s = simBoard[q];
+            uint8_t s = boardAt(q);
             if(s == EMPTY) {
                 if(lib1 == 0xFF) lib1 = q;
                 else if(lib2 == 0xFF) lib2 = q;
@@ -908,14 +925,15 @@ static uint32_t groupLibsCore(uint8_t start, uint8_t markAll, uint8_t cap) {
         uint8_t p = floodSlot(--sp);
         uint8_t q;
         FOR_EACH_NEIGHBOR(q, p) {
-            if(simBoard[q] == EMPTY) {
+            uint8_t s = boardAt(q);
+            if(s == EMPTY) {
                 if(count < 3 && q != lib1 && q != lib2) {
                     if(lib1 == 0xFF) lib1 = q;
                     else if(lib2 == 0xFF) lib2 = q;
                     count++;
                     if(!markAll && count >= cap) break;
                 }
-            } else if(simBoard[q] == color && simMark[q] != markEpoch) {
+            } else if(s == color && simMark[q] != markEpoch) {
                 simMark[q] = markEpoch;
                 floodSlot(sp++) = q;
             }
