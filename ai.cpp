@@ -1322,14 +1322,42 @@ static uint8_t ladderEscapes(uint8_t defStart, uint8_t esc,
 // on-board neighbors (colors relative to the mover; the set is
 // color-swap closed, so this is exact) plus one bit test.
 // Shared base-3 index over the on-board neighbors; sets *pcls, *pstones.
-static uint16_t pattern3Index(int8_t cx, int8_t cy, uint8_t color,
-                              uint8_t *pcls, uint8_t *pstones) {
+// Edge-class half of pattern3Index, kept out of line so the interior
+// majority of patternBonus calls doesn't inherit this path's register
+// frame (the x/y counters + 16-bit mult/idx pairs drove a 9-register
+// prologue on every call). Packed return: idx | stones<<16 | cls<<24.
+__attribute__((optimize("O2"), noinline))
+static uint32_t pattern3Edge(int8_t cx, int8_t cy, uint8_t color) {
     uint8_t clsx = (cx == 0) ? 0 : (cx == BOARD_SIZE - 1) ? 2 : 1;
     uint8_t clsy = (cy == 0) ? 0 : (cy == BOARD_SIZE - 1) ? 2 : 1;
-
     uint16_t idx = 0;
     uint8_t stones = 0;
-    if(clsx == 1 && clsy == 1) {
+    uint16_t mult = 1;
+    const uint8_t *b = simBoard + cy * BOARD_SIZE + cx;   // 3x3 centre
+    for(int8_t dy = -1; dy <= 1; dy++) {
+        int8_t r9 = dy * BOARD_SIZE;   // row offset, hoisted
+        uint8_t rowOff = (uint8_t)(cy + dy) >= BOARD_SIZE; // hoisted y check
+        for(int8_t dx = -1; dx <= 1; dx++) {
+            if(dx == 0 && dy == 0) continue;
+            int8_t x = cx + dx;
+            if(rowOff || x < 0 || x >= BOARD_SIZE)
+                continue; // off-board cells are implied by the class
+            uint8_t s = b[dx + r9];
+            uint8_t v = (s == EMPTY) ? 0 : (s == color) ? 1 : 2;
+            if(v) stones++;
+            idx += v * mult;
+            mult *= 3;
+        }
+    }
+    return (uint32_t)idx | ((uint32_t)stones << 16) |
+           ((uint32_t)(clsy * 3 + clsx) << 24);
+}
+
+static uint16_t pattern3Index(int8_t cx, int8_t cy, uint8_t color,
+                              uint8_t *pcls, uint8_t *pstones) {
+    uint16_t idx = 0;
+    uint8_t stones = 0;
+    if((uint8_t)(cx - 1) < BOARD_SIZE - 2 && (uint8_t)(cy - 1) < BOARD_SIZE - 2) {
         // Left-right mirror fold: read the 8 neighbours as own(1)/opp(2)/
         // empty(0), then index the interior by (middle spine, unordered pair
         // of {left,right} columns) with a dense triangular index. Halves the
@@ -1347,25 +1375,12 @@ static uint16_t pattern3Index(int8_t cx, int8_t cy, uint8_t color,
         if(L > R) { uint8_t t = L; L = R; R = t; }
         idx = (uint16_t)(M*378 + L*27 - L*(L-1)/2 + (R-L));
     } else {
-        uint16_t mult = 1;
-        const uint8_t *b = simBoard + cy * BOARD_SIZE + cx;   // 3x3 centre
-        for(int8_t dy = -1; dy <= 1; dy++) {
-            int8_t r9 = dy * BOARD_SIZE;   // row offset, hoisted
-            uint8_t rowOff = (uint8_t)(cy + dy) >= BOARD_SIZE; // hoisted y check
-            for(int8_t dx = -1; dx <= 1; dx++) {
-                if(dx == 0 && dy == 0) continue;
-                int8_t x = cx + dx;
-                if(rowOff || x < 0 || x >= BOARD_SIZE)
-                    continue; // off-board cells are implied by the class
-                uint8_t s = b[dx + r9];
-                uint8_t v = (s == EMPTY) ? 0 : (s == color) ? 1 : 2;
-                if(v) stones++;
-                idx += v * mult;
-                mult *= 3;
-            }
-        }
+        uint32_t r = pattern3Edge(cx, cy, color);
+        *pcls = (uint8_t)(r >> 24);
+        *pstones = (uint8_t)(r >> 16);
+        return (uint16_t)r;
     }
-    *pcls = clsy * 3 + clsx;
+    *pcls = 4;   // interior: clsy*3+clsx == 4 by construction
     *pstones = stones;
     return idx;
 }
