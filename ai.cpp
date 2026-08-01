@@ -3034,14 +3034,12 @@ static uint8_t addChild(uint8_t nodeIdx, uint8_t move, int8_t bonus) {
 static uint8_t latentBest(uint8_t nodeIdx) {
     uint8_t best = 0xFF;
     int8_t bestP = -128;
-    for(uint8_t c = node(nodeIdx).firstChild; c != 0xFF;) {
-        Node &nd = node(c);
-        uint8_t cur = c;
-        c = nd.nextSibling;
-        if(!(nd.move & 0x80)) continue;
-        int8_t dv = (int8_t)(nRefVisits(nd) - PRIOR_BASE_V);
-        int8_t p = ((int8_t)(nRefWins(nd) - PRIOR_BASE_W) == dv) ? dv : -dv;
-        if(p > bestP) { bestP = p; best = cur; }
+    for(uint8_t c = node(nodeIdx).firstChild; c != 0xFF;
+        c = node(c).nextSibling) {
+        if(!(node(c).move & 0x80)) continue;
+        int8_t dv = (int8_t)(nVisits(c) - PRIOR_BASE_V);
+        int8_t p = ((int8_t)(nWins(c) - PRIOR_BASE_W) == dv) ? dv : -dv;
+        if(p > bestP) { bestP = p; best = c; }
     }
     return best;
 }
@@ -3050,11 +3048,8 @@ static uint8_t childCount(uint8_t nodeIdx) {
     // ACTIVE children only: latents (move bit7) hold a scanned-ahead
     // candidate but do not occupy a widening slot until activated
     uint8_t n = 0;
-    for(uint8_t c = node(nodeIdx).firstChild; c != 0xFF;) {
-        Node &nd = node(c);
-        if(!(nd.move & 0x80)) n++;
-        c = nd.nextSibling;
-    }
+    for(uint8_t c = node(nodeIdx).firstChild; c != 0xFF; c = node(c).nextSibling)
+        if(!(node(c).move & 0x80)) n++;
     return n;
 }
 
