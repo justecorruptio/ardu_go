@@ -66,6 +66,14 @@ uint8_t Game::floodFill(uint8_t x, uint8_t y, uint8_t color) {
 // Neighbour d of cell j on the packed board, 0xFF when off-board.
 // Shared by the two cold region scanners below (each inlined the
 // %/÷ split + bounds + index math).
+// Write `value` into dst at every cell the last flood visited.
+// Shared by captureGroup, computeScore and the ko simulation.
+__attribute__((noinline))
+static void sweepVisited(Game *g, uint8_t *dst, uint8_t value) {
+    for(uint8_t i = 0; i < BOARD_CELLS; i++)
+        if(packedGet(g->visited, i)) packedSet(dst, i, value);
+}
+
 __attribute__((noinline))
 static uint8_t nbIndexXY(uint8_t gx, uint8_t gy, uint8_t d) {
     int8_t nx = gx + DX4[d], ny = gy + DY4[d];
@@ -108,9 +116,7 @@ uint8_t Game::captureGroup(uint8_t x, uint8_t y) {
     memset(visited, 0, sizeof(visited));
     uint8_t count = floodFill(x, y, color);
 
-    for(uint8_t i = 0; i < BOARD_CELLS; i++) {
-        if(packedGet(visited, i)) packedSet(board, i, EMPTY);
-    }
+    sweepVisited(this, board, EMPTY);
     return count;
 }
 
@@ -153,9 +159,7 @@ uint8_t Game::isValidMove(uint8_t x, uint8_t y) {
             if(countLiberties(nx, ny) == 0) {
                 memset(visited, 0, sizeof(visited));
                 floodFill(nx, ny, opponent);
-                for(uint8_t i = 0; i < BOARD_CELLS; i++) {
-                    if(packedGet(visited, i)) packedSet(tempBoard, i, EMPTY);
-                }
+                sweepVisited(this, tempBoard, EMPTY);
             }
         }
     }
@@ -233,9 +237,7 @@ void Game::computeScore() {
         if(touchesBlack && !touchesWhite) regionOwner = BLACK;
         if(touchesWhite && !touchesBlack) regionOwner = WHITE;
 
-        for(uint8_t j = 0; j < BOARD_CELLS; j++) {
-            if(packedGet(visited, j)) packedSet(owner, j, regionOwner);
-        }
+        sweepVisited(this, owner, regionOwner);
 
         if(regionOwner == BLACK) territory[0] += count;
         if(regionOwner == WHITE) territory[1] += count;
