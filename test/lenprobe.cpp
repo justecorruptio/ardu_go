@@ -22,6 +22,7 @@ static void runPhase(const char *name, int nmoves){
   }
   game.turn=color;
   plN=plMoves=plEndCap=plEndPass=plEndMercy=0;
+  spLoneOK=spLoneRej=spFloodOK=spFloodRej=0;
   simKomi=game.kpieces; rootTurn=game.turn;
   scoreMode=0;
   loadRootBoard(game); // builds the no-go masks
@@ -35,6 +36,12 @@ static void runPhase(const char *name, int nmoves){
   printf("%-22s stones=%2u  avg len %5.1f  endings: pass %4.1f%%  mercy %4.1f%%  cap %4.1f%%\n",
     name, rootStones, (double)plMoves/plN,
     100.0*plEndPass/plN, 100.0*plEndMercy/plN, 100.0*plEndCap/plN);
+  {
+    unsigned long tot=spLoneOK+spLoneRej+spFloodOK+spFloodRej;
+    if(tot) printf("    gated simPlay calls %8lu:  lone %4.1f%% (rej %4.1f%%)   FLOOD %4.1f%% (rej %4.1f%%)\n",
+      tot, 100.0*(spLoneOK+spLoneRej)/tot, 100.0*spLoneRej/tot,
+      100.0*(spFloodOK+spFloodRej)/tot, 100.0*spFloodRej/tot);
+  }
 }
 static const char *LOST[9]={
  "X.XO...X.","XXXXX.XOO","XOXOXOXO.","XOOOX.XOO","O..OX.XXX","OO.OXXXOO",".OOOOOXO.","....OOXOX",".....OXO."};
@@ -47,6 +54,7 @@ int main(){
   for(uint8_t y=0;y<9;y++)for(uint8_t x=0;x<9;x++){char c=LOST[y][x];game.set(x,y,c=='X'?BLACK:c=='O'?WHITE:EMPTY);}
   game.turn=WHITE;
   plN=plMoves=plEndCap=plEndPass=plEndMercy=0;
+  spLoneOK=spLoneRej=spFloodOK=spFloodRej=0;
   simKomi=game.kpieces; rootTurn=game.turn; scoreMode=0;
   loadRootBoard(game);
   uint8_t rootSim[81]; memcpy(rootSim,simBoard,81);

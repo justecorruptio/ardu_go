@@ -688,6 +688,9 @@ static uint8_t regionDone[11];
 static uint8_t markEpoch;
 // Set only inside scoreDead's vote playouts (see playoutTry)
 static uint8_t scoreMode;
+#ifdef PLAYOUT_STATS
+uint32_t spLoneOK, spLoneRej, spFloodOK, spFloodRej;
+#endif
 
 // xorshift16 state; 0 is sticky, so every seeding path must |1.
 // On the DEVICE this is seeded once at boot (see setup()) and
@@ -1190,6 +1193,10 @@ static uint8_t simPlay(uint8_t pos, uint8_t color, uint8_t ko,
                 } else if(s == color) { connected = 1; break; }
             }
             uint8_t libs = connected ? groupLibsFind(pos, &a, &b) : e;
+#ifdef PLAYOUT_STATS
+            if(libs >= 2) { if(connected) spFloodOK++; else spLoneOK++; }
+            else          { if(connected) spFloodRej++; else spLoneRej++; }
+#endif
             if(libs < 2) {
 #if PLAYOUT_THROWIN_RATE
                 // throw-in exception (see PLAYOUT_THROWIN_RATE above)
@@ -1409,20 +1416,22 @@ static uint8_t capB, capW;
 // ownership tallies stay honest. (scoreMode is declared up top.)
 __attribute__((noinline))
 __attribute__((optimize("O2")))
-static uint8_t playoutTry(uint8_t pos, uint8_t toMove, uint8_t *ko,
-                          uint8_t *last, uint8_t m) {
-    if(pos >= BOARD_CELLS || pos == *ko || simBoard[pos] != EMPTY ||
+// Returns 0 on failure, else (0x100 | newKo): ko travels by VALUE and
+// comes back in the result, `last` is the caller's own pos -- the two
+// pointer out-params this replaces cost two derefs on entry and two
+// indirect stores on success, on a ~100K-calls-per-think path.
+static uint16_t playoutTry(uint8_t pos, uint8_t toMove, uint8_t ko,
+                           uint8_t m) {
+    if(pos >= BOARD_CELLS || pos == ko || simBoard[pos] != EMPTY ||
        isOwnEye(pos, toMove)) return 0;
-    uint8_t nk = simPlay(pos, toMove, *ko, !scoreMode);
+    uint8_t nk = simPlay(pos, toMove, ko, !scoreMode);
     if(nk == ILLEGAL) return 0;
     if(toMove == rootTurn && m < RAVE_HORIZON) raveMark(pos);
     if(simCaptured) {
         if(toMove == BLACK) capB += simCaptured;
         else capW += simCaptured;
     }
-    *ko = nk;
-    *last = pos;
-    return 1;
+    return 0x100 | nk;
 }
 
 #ifdef PLAYOUT_STATS
@@ -1576,7 +1585,10 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                 if((uint8_t)rv) vcand = rv >> 8;
                 break; // only the first adjacent region
             }
-            if(playoutTry(vcand, toMove, &ko, &last, m)) {
+            uint16_t r = playoutTry(vcand, toMove, ko, m);
+            if(r) {
+                ko = (uint8_t)r;
+                last = vcand;
                 passes = 0;
                 toMove = 3 - toMove;
                 continue;
@@ -1595,7 +1607,10 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                     vp = rootVitals[i];
                     break;
                 }
-            if(playoutTry(vp, toMove, &ko, &last, m)) {
+            uint16_t r = playoutTry(vp, toMove, ko, m);
+            if(r) {
+                ko = (uint8_t)r;
+                last = vp;
                 passes = 0;
                 toMove = 3 - toMove;
                 continue;
@@ -1632,11 +1647,16 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                         matches[nMatches++] = pos;
                 }
             }
-            if(nMatches &&
-               playoutTry(matches[rnd(nMatches)], toMove, &ko, &last, m)) {
-                passes = 0;
-                toMove = 3 - toMove;
-                continue;
+            if(nMatches) {
+                uint8_t mp = matches[rnd(nMatches)];
+                uint16_t r = playoutTry(mp, toMove, ko, m);
+                if(r) {
+                    ko = (uint8_t)r;
+                    last = mp;
+                    passes = 0;
+                    toMove = 3 - toMove;
+                    continue;
+                }
             }
         }
 
@@ -1699,10 +1719,15 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                 }
                 if(answer) pos = nbl[rnd(nl)];
             }
-            if(pos != 0xFF && playoutTry(pos, toMove, &ko, &last, m)) {
-                passes = 0;
-                toMove = 3 - toMove;
-                continue;
+            if(pos != 0xFF) {
+                uint16_t r = playoutTry(pos, toMove, ko, m);
+                if(r) {
+                    ko = (uint8_t)r;
+                    last = pos;
+                    passes = 0;
+                    toMove = 3 - toMove;
+                    continue;
+                }
             }
         }
 
@@ -1761,7 +1786,10 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                 if(!touch) continue;
             }
 
-            if(!playoutTry(pos, toMove, &ko, &last, m)) continue;
+            uint16_t r = playoutTry(pos, toMove, ko, m);
+            if(!r) continue;
+            ko = (uint8_t)r;
+            last = pos;
             played = 1;
             passes = 0;
             break;
