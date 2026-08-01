@@ -12,7 +12,7 @@ void Display::renderBoard() {
     }
 
     // Draw star points (hoshi) for 9x9 as 3x3 squares
-    const uint8_t hoshi[][2] = {{2,2},{6,2},{4,4},{2,6},{6,6}};
+    static const uint8_t hoshi[][2] = {{2,2},{6,2},{4,4},{2,6},{6,6}};
     for(uint8_t i = 0; i < 5; i++) {
         uint8_t x = GRID_LEFT + hoshi[i][0] * CELL_SIZE;
         uint8_t y = GRID_TOP + hoshi[i][1] * CELL_SIZE;
