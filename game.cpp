@@ -27,6 +27,17 @@ uint8_t floodScratch[BOARD_CELLS];
 static const int8_t DX4[] = {-1, 1, 0, 0};
 static const int8_t DY4[] = {0, 0, -1, 1};
 
+// Flood step shared by the four direction probes below (each was ~50
+// unrolled bytes; the function is cold - real moves only).
+__attribute__((noinline))
+static uint8_t ffPush(Game *g, uint8_t p2, uint8_t color, uint8_t sp) {
+    if(!packedGet(g->visited, p2) && packedGet(g->board, p2) == color) {
+        packedSet(g->visited, p2, 1);
+        floodSlot(sp++) = p2;
+    }
+    return sp;
+}
+
 uint8_t Game::floodFill(uint8_t x, uint8_t y, uint8_t color) {
     // Marks the connected region of `color` containing (x,y) in visited[]
     // and returns its size. Iterative: recursion would overflow the AVR
@@ -44,26 +55,10 @@ uint8_t Game::floodFill(uint8_t x, uint8_t y, uint8_t color) {
         count++;
         uint8_t px = p % BOARD_SIZE;
         uint8_t py = p / BOARD_SIZE;
-        if(px > 0 && !packedGet(visited, p - 1) &&
-           packedGet(board, p - 1) == color) {
-            packedSet(visited, p - 1, 1);
-            floodSlot(sp++) = p - 1;
-        }
-        if(px < BOARD_SIZE - 1 && !packedGet(visited, p + 1) &&
-           packedGet(board, p + 1) == color) {
-            packedSet(visited, p + 1, 1);
-            floodSlot(sp++) = p + 1;
-        }
-        if(py > 0 && !packedGet(visited, p - BOARD_SIZE) &&
-           packedGet(board, p - BOARD_SIZE) == color) {
-            packedSet(visited, p - BOARD_SIZE, 1);
-            floodSlot(sp++) = p - BOARD_SIZE;
-        }
-        if(py < BOARD_SIZE - 1 && !packedGet(visited, p + BOARD_SIZE) &&
-           packedGet(board, p + BOARD_SIZE) == color) {
-            packedSet(visited, p + BOARD_SIZE, 1);
-            floodSlot(sp++) = p + BOARD_SIZE;
-        }
+        if(px > 0)              sp = ffPush(this, p - 1, color, sp);
+        if(px < BOARD_SIZE - 1) sp = ffPush(this, p + 1, color, sp);
+        if(py > 0)              sp = ffPush(this, p - BOARD_SIZE, color, sp);
+        if(py < BOARD_SIZE - 1) sp = ffPush(this, p + BOARD_SIZE, color, sp);
     }
     return count;
 }
