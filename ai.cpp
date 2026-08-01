@@ -739,6 +739,23 @@ static inline uint8_t *markPtr(uint8_t q) { return &simMark[q]; }
 // worse. Replaces per-candidate chain floods (once ~38% of think
 // time). Valid only inside one expandNode/widenNode call.
 static uint8_t chainId[BOARD_CELLS];
+#ifdef ARDUINO
+// &chainId[q] by the boardAt/markPtr carry-free trick (checkmagic.sh
+// asserts lo8(chainId) <= 0xAF). Hot readers (the candidatePrior
+// neighbour scan, the regionVital stamp) paid a 16-bit index extend
+// per access. NOT used in buildChainMap (spill cascade, see the
+// boardAt fences).
+static inline uint8_t *chainPtr(uint8_t q) {
+    uint8_t *p;
+    asm("mov %A0,%1\n\t"
+        "subi %A0,lo8(-(%2))\n\t"
+        "ldi %B0,hi8(%2)"
+        : "=&d"(p) : "r"(q), "i"(chainId));
+    return p;
+}
+#else
+static inline uint8_t *chainPtr(uint8_t q) { return &chainId[q]; }
+#endif
 // Which empty cells' eyespace code (chainId bits 6-7) is cached this
 // widen (see buildChainMap / regionVital's lazy stamp). 81 bits.
 static uint8_t regionDone[11];
@@ -1194,12 +1211,15 @@ static uint16_t regionVital(uint8_t seed) {
     uint8_t code6 = (uint8_t)(((unsettled || !owner) ? 0 : owner) << 6);
     for(uint8_t j = 0; j < cnt; j++) {
         uint8_t c = region[j];
-        chainId[c] = (chainId[c] & 0x3F) | code6;
+        uint8_t *cp = chainPtr(c);  // carry-free RMW, no 16-bit extend
+        *cp = (*cp & 0x3F) | code6;
         uint8_t cb = c >> 3;   // 8-bit shift (promoted index = 16-bit loop)
         regionDone[cb] |= bitMask(c);
     }
-    if(vit != 0xFF)
-        chainId[vit] = (chainId[vit] & 0x3F) | (3 << 6);
+    if(vit != 0xFF) {
+        uint8_t *vp2 = chainPtr(vit);
+        *vp2 = (*vp2 & 0x3F) | (3 << 6);
+    }
     return ((uint16_t)vit << 8) | (unsettled ? 0 : owner);
 }
 
@@ -2718,14 +2738,15 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
 #endif
     uint8_t q;
     FOR_EACH_NEIGHBOR(q, pos) {
-        uint8_t id = CHAIN_OF(chainId[q]);
+        uint8_t cq = *chainPtr(q);  // one carry-free read serves id AND libs
+        uint8_t id = CHAIN_OF(cq);
         if(!id) { emptyN++; continue; }   // empty neighbour = a liberty
         uint8_t dup = 0;
         for(uint8_t k = 0; k < nSeen; k++)
             if(seen[k] == id) { dup = 1; break; }
         if(dup) continue;
         seen[nSeen++] = id;
-        uint8_t l = LIBS_OF(chainId[q]);
+        uint8_t l = LIBS_OF(cq);
         if(simBoard[q] == opp) {
             eGroups++;
             if(l < eMinLibs) eMinLibs = l;
@@ -2826,7 +2847,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
         uint8_t rb = pos >> 3;  // 8-bit shift (see widenNode scan)
         if(!(regionDone[rb] & bitMask(pos)))
             regionVital(pos); // cache side-effect only
-        uint8_t rc = chainId[pos] >> 6;
+        uint8_t rc = *chainPtr(pos) >> 6;
         if(rc == 3) {
             bonus += PRIOR_VITAL;
             vitalHere = 1;

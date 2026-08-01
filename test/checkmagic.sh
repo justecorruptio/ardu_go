@@ -49,6 +49,13 @@ $NM -S -td "$B/ardu_go.ino.elf" | awk '
     else print "  ok (boardAt carry-free)"
     seen_simboard = 1
   }
+  / [bBdD] _ZL7chainId$/ {
+    lo = ($1 % 8388608) % 256
+    printf "%-16s lo8=0x%X", "chainId", lo
+    if (lo > 175) { print "  *** chainPtr CARRY: lo8(chainId)+80 > 0xFF ***"; bad = 1 }
+    else print "  ok (chainPtr carry-free)"
+    seen_chainid = 1
+  }
   / [bBdD] _ZL7poolExt$/           { check("poolExt", $1 % 8388608, $2 + 0) }
   / [bBdD] _ZN12Arduboy2Base7sBufferE$/ {
     check("pool(nodes)", $1 % 8388608, 858)   # RAVE tables above 858B may own 0x800
@@ -58,5 +65,6 @@ $NM -S -td "$B/ardu_go.ino.elf" | awk '
     if (!seen_sbuf) { print "*** sBuffer symbol not found ***"; bad = 1 }
     if (!seen_simboard) { print "*** simBoard symbol not found ***"; bad = 1 }
     if (!seen_simmark) { print "*** simMark symbol not found ***"; bad = 1 }
+    if (!seen_chainid) { print "*** chainId symbol not found ***"; bad = 1 }
     exit bad
   }'
