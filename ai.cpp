@@ -11,8 +11,13 @@ static uint8_t rnd(uint8_t n);
 #define SYS_RND(n)   rnd((uint8_t)(n))
 #define SYS_RNDW(n)  (int16_t)(rnd16() % (uint16_t)(n))
 #else
-#define SYS_RND(n)   random(n)
-#define SYS_RNDW(n)  random(n)
+// Host uses the same engine RNG as the device (2026-08): the old
+// libc random(n) here was NEVER seeded by the harness's srand --
+// on macOS srand() does not seed random() -- so book root picks
+// free-ran across a whole batch, silently unpairing every "paired"
+// gauntlet and making batch games irreproducible standalone.
+#define SYS_RND(n)   rnd((uint8_t)(n))
+#define SYS_RNDW(n)  (int16_t)(rnd16() % (uint16_t)(n))
 #endif
 
 // Dynamic-komi state for graceful losing — adapted at the end of
@@ -3052,7 +3057,16 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
         }
         if(!nearEnemy) {
             lowLineBad = 1;
-            bonus -= (ed == 0) ? PRIOR_EDGE_PENALTY : PRIOR_LINE2_PENALTY;
+            uint8_t pen = (ed == 0) ? PRIOR_EDGE_PENALTY : PRIOR_LINE2_PENALTY;
+#ifdef LOWLINE_EARLY_X2
+            // Hunt 2026-08: 7 of the close-game blunders across 600
+            // games were line-1/2 moves at mv 7-15 reaching the tree
+            // early and winning it (A4 mv7, A5 mv12, B2 mv9...).
+            // Doubling the penalty before EARLY_STONES delays their
+            // widen admission.
+            if(rootStones < EARLY_STONES) pen <<= 1;
+#endif
+            bonus -= pen;
         }
     }
 
@@ -3822,8 +3836,13 @@ void AI::think(Game &game) {
         resignCount2++;
     else
         resignCount2 = 0;
+#ifdef NO_RESIGN
+    // A/B probe: measure the swindle equity resignation concedes
+    resigned = 0;
+#else
     resigned = (resignCount >= resignStreak) ||
                (resignCount2 >= RESIGN2_STREAK);
+#endif
 
     // Dynamic-komi adaptation for the NEXT search (see vKomi2):
     // clearly losing -> ask for two points less, so the tree fights

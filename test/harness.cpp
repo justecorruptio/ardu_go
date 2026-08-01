@@ -135,6 +135,18 @@ static bool huntMode = false;
 static double huntThresh = 6.0;
 static FILE *huntLog = NULL;
 static int huntCount = 0;
+// Phase-leak histogram: exchange balance, parity-clean. gnugo's
+// estimate swings with the side to move, so single-move deltas are
+// contaminated (~-10/move offset); instead compare the PRE-move
+// estimate at our turn k to the one at our previous turn — one full
+// exchange (our move + their reply). Positive = we lost ground.
+// phase 0 = opening (mv<=15), 1 = middle (<=35), 2 = endgame;
+// classes: <0 (gained), 0-1, 1-3, 3-6, >6.
+static long phaseN[3][5];
+static double exchSum[3];
+static long exchMoves[3];
+static double lastPreMargin;
+static int lastPreValid = 0, lastPreGame = -1;
 static FILE *openDiagLog = NULL;
 
 static void debugRootStats(int moveNo, uint8_t toMove) {
@@ -287,6 +299,12 @@ static int playGame(int gameNo, int level, uint8_t aiColor, bool verbose) {
     if(useGnugo) gtpStart(level, gameNo + 1);
     game.reset();
     ai.reset();
+    // Per-game engine RNG seed (2026-08): previously rngState free-ran
+    // across a worker's whole batch, so any behavioral divergence in
+    // game k desynced every later game -- "paired" gauntlets were
+    // silently unpaired past the first divergence, and batch games
+    // could not be reproduced standalone. Knuth-hash the game number.
+    rngState = (uint16_t)(2654435761u * (uint32_t)(gameNo + 1) >> 16) | 1;
     sgfMoves.clear();
 
     std::string resp;
@@ -335,7 +353,10 @@ static int playGame(int gameNo, int level, uint8_t aiColor, bool verbose) {
                         y = i / BOARD_SIZE;
                     }
             } else {
-                if(huntMode && useGnugo) {
+                if(huntMode && useGnugo && huntThresh <= 100) {
+                    // thresh > 100 = pure paired-gauntlet mode: skip the
+                    // per-move estimate/suggest GTP round trips (~2x faster;
+                    // read-only queries, game results identical)
                     gtpCmd("estimate_score", preEst);
                     preEst = preEst.substr(0, preEst.find(' '));
                     gtpCmd(std::string("reg_genmove ") + cname, gnugoSuggest);
@@ -385,6 +406,25 @@ static int playGame(int gameNo, int level, uint8_t aiColor, bool verbose) {
                         // evaluator noise, not a blunder (seen live:
                         // a "22.5-point drop" on gnugo's own choice).
                         if(gnugoSuggest == toVertex(x, y)) drop = 0;
+                        {
+                            double m = estMargin(preEst, color);
+                            if(gameNo != lastPreGame) {
+                                lastPreGame = gameNo;
+                                lastPreValid = 0;
+                            }
+                            if(lastPreValid) {
+                                double exch = lastPreMargin - m;
+                                int ph = moves <= 15 ? 0 :
+                                         moves <= 35 ? 1 : 2;
+                                int sc = exch < 0 ? 0 : exch < 1 ? 1 :
+                                         exch < 3 ? 2 : exch < 6 ? 3 : 4;
+                                phaseN[ph][sc]++;
+                                exchSum[ph] += exch;
+                                exchMoves[ph]++;
+                            }
+                            lastPreMargin = m;
+                            lastPreValid = 1;
+                        }
                         if(openDiagLog && moves <= 200)
                             fprintf(openDiagLog,
                                 "game %d mv %2d %s AI=%-3s gnugo=%-3s drop=%5.1f  %s->%s\n",
@@ -581,6 +621,14 @@ int main(int argc, char **argv) {
         }
         fprintf(huntLog, "== done: %d games, %d blunders logged\n",
                 games, huntCount);
+        for(int ph = 0; ph < 3; ph++)
+            fprintf(huntLog,
+                "== phase %s: exch %ld avgloss %+.2f  gained:%ld 0-1:%ld"
+                " 1-3:%ld 3-6:%ld >6:%ld\n",
+                ph == 0 ? "open" : ph == 1 ? "mid " : "end ",
+                exchMoves[ph], exchMoves[ph] ? exchSum[ph] / exchMoves[ph] : 0,
+                phaseN[ph][0], phaseN[ph][1], phaseN[ph][2], phaseN[ph][3],
+                phaseN[ph][4]);
         fclose(huntLog);
         printf("hunt done: %d games (%d-%d), %d blunders -> hunt_report.txt\n",
                games, w, l, huntCount);
