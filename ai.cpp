@@ -850,14 +850,18 @@ static uint8_t hasLiberty(uint8_t start, uint8_t color) {
     // holds it in a register, and the reload cost ~6 cycles x 180K
     // calls/think
     newMark();
-    // BFS with chasing read/write indices into floodScratch: stones are
-    // appended (wr) and consumed front-to-back (rd), so the group accumulates
-    // append-only and is still there on a full flood. Done when rd meets wr.
-    uint8_t rd = 0, wr = 1;
-    floodSlot(0) = start;
+    // BFS with chasing read/write POINTERS into floodScratch (indexed
+    // access paid a 16-bit extend per push/pop; floodScratch's address
+    // carries, so the boardAt trick can't apply -- pointers can):
+    // stones are appended (wp) and consumed front-to-back (rp), so the
+    // group accumulates append-only and is still there on a full
+    // flood. Done when rp meets wp.
+    uint8_t *rp = &floodSlot(0);
+    uint8_t *wp = rp + 1;
+    *rp = start;
     simMark[start] = markEpoch;
     do {
-        uint8_t p = floodSlot(rd++);
+        uint8_t p = *rp++;
         // neighbors() inlined and fused: walk the 0xFF-terminated neighbour
         // list straight from PROGMEM (lpm Z+). An empty neighbour = a
         // liberty; exit before reading the rest.
@@ -870,12 +874,12 @@ static uint8_t hasLiberty(uint8_t start, uint8_t color) {
                 uint8_t *mp = markPtr(q);
                 if(*mp != markEpoch) {
                     *mp = markEpoch;
-                    floodSlot(wr++) = q;
+                    *wp++ = q;
                 }
             }
         }
-    } while(rd != wr);
-    capturedGroupN = wr;   // whole group left in floodScratch[0..wr-1]
+    } while(rp != wp);
+    capturedGroupN = (uint8_t)(wp - &floodSlot(0));
     return 0;
 }
 
