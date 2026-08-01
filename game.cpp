@@ -22,6 +22,11 @@ void Game::set(uint8_t x, uint8_t y, uint8_t val) {
 
 uint8_t floodScratch[BOARD_CELLS];
 
+// Shared orthogonal offsets: four functions each materialized these
+// as stack locals (init code + 8 stack bytes per instance).
+static const int8_t DX4[] = {-1, 1, 0, 0};
+static const int8_t DY4[] = {0, 0, -1, 1};
+
 uint8_t Game::floodFill(uint8_t x, uint8_t y, uint8_t color) {
     // Marks the connected region of `color` containing (x,y) in visited[]
     // and returns its size. Iterative: recursion would overflow the AVR
@@ -76,10 +81,8 @@ uint8_t Game::countLiberties(uint8_t x, uint8_t y) {
     for(uint8_t i = 0; i < BOARD_CELLS; i++) {
         if(packedGet(visited, i) != 1) continue;
         uint8_t gx = i % BOARD_SIZE, gy = i / BOARD_SIZE;
-        const int8_t dx[] = {-1, 1, 0, 0};
-        const int8_t dy[] = {0, 0, -1, 1};
         for(uint8_t d = 0; d < 4; d++) {
-            int8_t nx = gx + dx[d], ny = gy + dy[d];
+            int8_t nx = gx + DX4[d], ny = gy + DY4[d];
             if(nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) continue;
             uint8_t ni = ny * BOARD_SIZE + nx;
             if(packedGet(board, ni) == EMPTY && !packedGet(visited, ni)) {
@@ -114,10 +117,8 @@ uint8_t Game::isValidMove(uint8_t x, uint8_t y) {
 
     // Check if move captures opponent stones
     uint8_t captures = 0;
-    const int8_t dx[] = {-1, 1, 0, 0};
-    const int8_t dy[] = {0, 0, -1, 1};
     for(uint8_t d = 0; d < 4; d++) {
-        int8_t nx = x + dx[d], ny = y + dy[d];
+        int8_t nx = x + DX4[d], ny = y + DY4[d];
         if(nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) continue;
         if(at(nx, ny) == opponent && countLiberties(nx, ny) == 0)
             captures = 1;
@@ -136,7 +137,7 @@ uint8_t Game::isValidMove(uint8_t x, uint8_t y) {
 
     // Do captures on temp
     for(uint8_t d = 0; d < 4; d++) {
-        int8_t nx = x + dx[d], ny = y + dy[d];
+        int8_t nx = x + DX4[d], ny = y + DY4[d];
         if(nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) continue;
         if(packedGet(tempBoard, ny * BOARD_SIZE + nx) == opponent) {
             // Check liberties in temp context — use board directly
@@ -166,10 +167,8 @@ uint8_t Game::playMove(uint8_t x, uint8_t y) {
     uint8_t opponent = (turn == BLACK) ? WHITE : BLACK;
     uint8_t captureIdx = turn == BLACK ? 0 : 1;
 
-    const int8_t dx[] = {-1, 1, 0, 0};
-    const int8_t dy[] = {0, 0, -1, 1};
     for(uint8_t d = 0; d < 4; d++) {
-        int8_t nx = x + dx[d], ny = y + dy[d];
+        int8_t nx = x + DX4[d], ny = y + DY4[d];
         if(nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) continue;
         if(at(nx, ny) == opponent && countLiberties(nx, ny) == 0) {
             captures[captureIdx] += captureGroup(nx, ny);
@@ -212,10 +211,8 @@ void Game::computeScore() {
             if(!packedGet(visited, j)) continue;
             count++;
             uint8_t gx = j % BOARD_SIZE, gy = j / BOARD_SIZE;
-            const int8_t dx[] = {-1, 1, 0, 0};
-            const int8_t dy[] = {0, 0, -1, 1};
             for(uint8_t d = 0; d < 4; d++) {
-                int8_t nx = gx + dx[d], ny = gy + dy[d];
+                int8_t nx = gx + DX4[d], ny = gy + DY4[d];
                 if(nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) continue;
                 uint8_t nc = packedGet(board, ny * BOARD_SIZE + nx);
                 if(nc == BLACK) touchesBlack = 1;
