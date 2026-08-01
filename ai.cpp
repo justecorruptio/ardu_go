@@ -3253,6 +3253,23 @@ static inline uint16_t raveRatio(uint16_t nv) {
 // blend recomputed a 12-step restoring divide plus an isqrt for
 // every root child on every selection. Exact values (host-verified
 // against the integer pipeline); nv >= 64 falls back to computing.
+// Reciprocals 2^16/nv for the lnN/nv divide (below): for nv < 64,
+// q0 = (lnN * RECIP_TAB[nv]) >> 16 is within one of lnN/nv, and a
+// single correction step makes it exact - the same floor as the
+// divide, ~70 cycles cheaper, on the same hot per-child path the
+// beta table just left. (RECIP_TAB[1] saturates to 65535; the
+// correction absorbs it.)
+PROGMEM const uint16_t RECIP_TAB[64] = {
+        0, 65535, 32768, 21845, 16384, 13107, 10922,  9362,
+     8192,  7281,  6553,  5957,  5461,  5041,  4681,  4369,
+     4096,  3855,  3640,  3449,  3276,  3120,  2978,  2849,
+     2730,  2621,  2520,  2427,  2340,  2259,  2184,  2114,
+     2048,  1985,  1927,  1872,  1820,  1771,  1724,  1680,
+     1638,  1598,  1560,  1524,  1489,  1456,  1424,  1394,
+     1365,  1337,  1310,  1285,  1260,  1236,  1213,  1191,
+     1170,  1149,  1129,  1110,  1092,  1074,  1057,  1040
+};
+
 PROGMEM const uint16_t BETA_TAB[64] = {
      4096,  4075,  4055,  4035,  4016,  3996,  3978,  3959,
      3941,  3922,  3905,  3887,  3870,  3852,  3835,  3819,
@@ -3302,7 +3319,13 @@ static uint8_t selectChild(uint8_t nodeIdx) {
         // rewards the sample variance is just q(1-q). Q6*Q6 = Q12, so
         // q6*(64-q6) is the SAME Q12 variance as (q*(4096-q))>>12 but a
         // 16-bit multiply instead of a 32-bit one.
-        uint16_t lnOverN = lnN / nv;
+        uint16_t lnOverN;
+        if(nv < 64) {
+            lnOverN = (uint16_t)(((uint32_t)lnN *
+                                  pgm_read_word(RECIP_TAB + nv)) >> 16);
+            if((uint16_t)((lnOverN + 1) * nv) <= lnN) lnOverN++;
+        } else
+            lnOverN = lnN / nv;
         // The confidence term sqrt(2 lnN/n_j) alone saturates the min(1/4, .)
         // cap once 2*lnOverN >= 256 (lnOverN >= 128), because isqrt32(256<<12)
         // == 1024. So for those children v is provably 1024 — skip the isqrt
