@@ -985,7 +985,6 @@ static uint8_t regionVitalCell(const uint8_t *region, uint8_t cnt,
 // liberties, then a second cheap walk stamps the libs bits. A lazy
 // eyespace map also lives in the empty cells' top bits, filled on
 // demand by regionVital; buildChainMap just clears its cache flags.
-__attribute__((optimize("O2")))
 static void buildChainMap() {
     memset(chainId, 0, sizeof(chainId));
     uint8_t nextId = 0;
@@ -2909,7 +2908,6 @@ static uint8_t selectChild(uint8_t nodeIdx) {
     return bestC;
 }
 
-__attribute__((optimize("O2")))
 static void mctsIterate(Game &game) {
     // Unpack the 2-bit game board into the byte-per-cell sim board
     for(uint8_t i = 0; i < BOARD_CELLS; i++)
