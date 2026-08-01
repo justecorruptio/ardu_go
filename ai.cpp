@@ -1351,10 +1351,11 @@ static uint16_t pattern3Index(int8_t cx, int8_t cy, uint8_t color,
         const uint8_t *b = simBoard + cy * BOARD_SIZE + cx;   // 3x3 centre
         for(int8_t dy = -1; dy <= 1; dy++) {
             int8_t r9 = dy * BOARD_SIZE;   // row offset, hoisted
+            uint8_t rowOff = (uint8_t)(cy + dy) >= BOARD_SIZE; // hoisted y check
             for(int8_t dx = -1; dx <= 1; dx++) {
                 if(dx == 0 && dy == 0) continue;
-                int8_t x = cx + dx, y = cy + dy;
-                if(x < 0 || x >= BOARD_SIZE || y < 0 || y >= BOARD_SIZE)
+                int8_t x = cx + dx;
+                if(rowOff || x < 0 || x >= BOARD_SIZE)
                     continue; // off-board cells are implied by the class
                 uint8_t s = b[dx + r9];
                 uint8_t v = (s == EMPTY) ? 0 : (s == color) ? 1 : 2;
@@ -1378,8 +1379,12 @@ static int8_t patternBonus(int8_t cx, int8_t cy, uint8_t color) {
     uint16_t idx = pattern3Index(cx, cy, color, &cls, &stones);
     if(stones < 2) return 0;
     uint16_t n = pgm_read_word(PAT3W_BASE + cls) + idx;
-    uint8_t code = (pgm_read_byte(PAT3W_BITS + (n >> 2)) >> ((n & 3) * 2)) & 3;
-    return (int8_t)pgm_read_byte(PAT3W_LEVEL + code);
+    uint8_t bits = pgm_read_byte(PAT3W_BITS + (n >> 2));
+    // >> ((n&3)*2) is a variable shift = a cycle-per-step loop on AVR;
+    // two conditional constant shifts (swap+andi / 2x lsr) are fixed cost
+    if(n & 2) bits >>= 4;
+    if(n & 1) bits >>= 2;
+    return (int8_t)pgm_read_byte(PAT3W_LEVEL + (bits & 3));
 }
 
 // Dynamic komi for graceful losing (see think): when behind, the
