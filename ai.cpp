@@ -1976,26 +1976,14 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
 #endif
             if(fourth != 0xFF && rootStones + m >= EARLY_STONES &&
                (rnd16() & PLAYOUT_GROW_MASK)) {
-                uint8_t bxy = posXY(pos);
-                uint8_t bx = bxy & 0x0F, by = bxy >> 4;
-                uint8_t touch = 0;
-                // row-pointer walk like the 5x5 lone scan above: rows
-                // load via trp[tdx] displacement instead of a 16-bit
-                // ty*9+tx index per probe (off-board rows are skipped
-                // before any dereference)
-                const uint8_t *trp = simBoard + pos - BOARD_SIZE;
-                for(int8_t tdy = -1; tdy <= 1 && !touch;
-                    tdy++, trp += BOARD_SIZE) {
-                    if((uint8_t)(by + tdy) >= BOARD_SIZE) continue;
-                    for(int8_t tdx = -1; tdx <= 1; tdx++) {
-                        if(!tdx && !tdy) continue;
-                        if((uint8_t)(bx + tdx) >= BOARD_SIZE) continue;
-                        if(trp[tdx] != EMPTY) {
-                            touch = 1;
-                            break;
-                        }
-                    }
-                }
+                // fourth != 0xFF already proved pos interior, so the
+                // whole 3x3 is on-board: no posXY, no bounds checks.
+                // EMPTY == 0, so "any stone in the 8-neighbourhood" is
+                // an OR over eight ldd loads off one pointer.
+                const uint8_t *tp = simBoard + pos - BOARD_SIZE - 1;
+                uint8_t touch = tp[0] | tp[1] | tp[2] |
+                                tp[9] | tp[11] |
+                                tp[18] | tp[19] | tp[20];
                 if(!touch) continue;
             }
 
