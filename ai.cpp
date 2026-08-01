@@ -1362,11 +1362,18 @@ static uint16_t pattern3Index(int8_t cx, int8_t cy, uint8_t color,
         // empty(0), then index the interior by (middle spine, unordered pair
         // of {left,right} columns) with a dense triangular index. Halves the
         // interior table; mirror-equivalent shapes share a slot.
-        const uint8_t *b = simBoard + cy * BOARD_SIZE + cx;
-#define VC(off) (b[off] ? ((b[off] == color) ? 1 : 2) : 0)
-        uint8_t vNW = VC(-10), vN = VC(-9), vNE = VC(-8);
-        uint8_t vW  = VC(-1),                vE  = VC(1);
-        uint8_t vSW = VC(8),   vS = VC(9),   vSE = VC(10);
+        // Sequential pointer walk: row-adjacent cells load with 2-cycle
+        // ld Z+ instead of per-read 16-bit address arithmetic.
+        const uint8_t *p = simBoard + cy * BOARD_SIZE + cx - 10;
+#define VC(s) ((s) ? (((s) == color) ? 1 : 2) : 0)
+        uint8_t vNW = VC(*p); p++;
+        uint8_t vN  = VC(*p); p++;
+        uint8_t vNE = VC(*p); p += 7;
+        uint8_t vW  = VC(*p); p += 2;
+        uint8_t vE  = VC(*p); p += 7;
+        uint8_t vSW = VC(*p); p++;
+        uint8_t vS  = VC(*p); p++;
+        uint8_t vSE = VC(*p);
 #undef VC
         stones = (vNW>0)+(vN>0)+(vNE>0)+(vW>0)+(vE>0)+(vSW>0)+(vS>0)+(vSE>0);
         uint8_t L = vNW + 3*vW + 9*vSW;   // left column  0..26
