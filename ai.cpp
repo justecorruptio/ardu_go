@@ -1224,6 +1224,10 @@ static uint8_t simPlay(uint8_t pos, uint8_t color, uint8_t ko,
                       (rnd16() & (PLAYOUT_THROWIN_RATE - 1)) == 0)))
 #endif
                 {
+                    // barrier: recompute &simBoard[pos] here (4 cycles,
+                    // reject path) instead of holding it in a saved
+                    // register pair across every call (8 cycles, always)
+                    asm volatile("" : "+r"(pos));
                     simBoard[pos] = EMPTY;
                     return ILLEGAL;
                 }
@@ -1234,6 +1238,7 @@ static uint8_t simPlay(uint8_t pos, uint8_t color, uint8_t ko,
             cacheL2 = b;
         } else {
             if(!hasLiberty(pos)) { // suicide
+                asm volatile("" : "+r"(pos));  // barrier: see above
                 simBoard[pos] = EMPTY;
                 return ILLEGAL;
             }
