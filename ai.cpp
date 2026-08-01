@@ -2032,6 +2032,7 @@ static uint8_t ldParent[64];
 #ifndef PRIOR_CRIT_BOOST
 #define PRIOR_CRIT_BOOST 6   // capture-grade (dose 1)
 #endif
+static uint8_t ldHostageGate[11]; // dose 2: hostage gates only
 // Stage 2: settling moves of CRITICAL complexes on the ROOT board,
 // consumed by candidatePrior during root widening only (the board
 // matches; deeper nodes have descended away from it).
@@ -2049,8 +2050,30 @@ static void ldUnion(uint8_t a, uint8_t b) {
 // status of the chain occupying `cell` (0xFF cell / empty = LD_NONE)
 static uint8_t ldCellStatus(uint8_t cell) {
     if(cell >= BOARD_CELLS || simBoard[cell] == EMPTY) return LD_NONE;
-    return ldStatus[ldFind(CHAIN_OF(chainId[cell]))];
+    uint8_t id = CHAIN_OF(chainId[cell]);
+    if(ldStatus[id] != LD_NONE) return ldStatus[id];  // hostage override
+    return ldStatus[ldFind(id)];
 }
+// Exact liberty count of the chain at `start` (cap 12). Uses newMark,
+// so ONLY callable outside the region sweep (which owns the epoch).
+static uint8_t ldChainLibs(uint8_t start) {
+    uint8_t color = simBoard[start];
+    uint8_t libs = 0, sp = 0;
+    newMark();
+    simMark[start] = markEpoch;
+    floodScratch[sp++] = start;
+    while(sp) {
+        uint8_t p = floodScratch[--sp], q;
+        FOR_EACH_NEIGHBOR(q, p) {
+            if(simMark[q] == markEpoch) continue;
+            simMark[q] = markEpoch;
+            if(simBoard[q] == EMPTY) { if(++libs >= 12) return 12; }
+            else if(simBoard[q] == color) floodScratch[sp++] = q;
+        }
+    }
+    return libs;
+}
+
 static void ldClassify() {
     uint8_t eyes2s[64], eyes2m[64], openL[64], critMv[64];
     for(uint8_t i = 0; i < 64; i++) {
@@ -2060,6 +2083,19 @@ static void ldClassify() {
         ldStatus[i] = LD_NONE;
     }
     buildChainMap();
+    uint8_t cellOf[64];
+    for(uint8_t i = 0; i < 64; i++) cellOf[i] = 0xFF;
+    for(uint8_t i = 0; i < BOARD_CELLS; i++)
+        if(simBoard[i] != EMPTY) cellOf[CHAIN_OF(chainId[i])] = i;
+    // Hostage candidates found during the sweep, verified after it
+    // (exact liberty counting needs the mark epoch the sweep owns):
+    // a majority-colour wall chain whose in-region liberty count may
+    // equal its total. If the poked region falls, the hostage falls
+    // -- per-chain CRITICAL at the gate, overriding complex eyes
+    // (hunt 5328: A8's liberties are all inside the invaded space;
+    // the ALIVE complex verdict is true for the wall, not for A8).
+    struct { uint8_t id, libsIn, gate; } pend[16];
+    uint8_t nPend = 0;
     newMark();
     for(uint8_t seed = 0; seed < BOARD_CELLS; seed++) {
         if(simBoard[seed] != EMPTY || simMark[seed] == markEpoch) continue;
@@ -2145,6 +2181,24 @@ static void ldClassify() {
             s2 = 0;
             m2 = (cnt >= 3) ? 4 : 2;
             if(!multi) cm = gate;
+            // hostage candidates: majority-colour wall chains with
+            // in-region liberties (region cells adjacent to them)
+            if(!multi && gate != 0xFF) {
+                for(uint8_t k = 0; k < nWall && nPend < 16; k++) {
+                    uint8_t c0 = cellOf[wall[k]];
+                    if(c0 == 0xFF || simBoard[c0] != majColor) continue;
+                    uint8_t li = 0;
+                    for(uint8_t j = 0; j < cnt; j++) {
+                        uint8_t q4, hit = 0;
+                        FOR_EACH_NEIGHBOR(q4, region[j])
+                            if(simBoard[q4] != EMPTY &&
+                               CHAIN_OF(chainId[q4]) == wall[k]) { hit = 1; break; }
+                        li += hit;
+                    }
+                    if(li)
+                        pend[nPend++] = { wall[k], li, gate };
+                }
+            }
         }
         eyes2s[root] = (eyes2s[root] + s2 > 8) ? 8 : eyes2s[root] + s2;
         eyes2m[root] = (eyes2m[root] + m2 > 8) ? 8 : eyes2m[root] + m2;
@@ -2162,10 +2216,31 @@ static void ldClassify() {
     }
     for(uint8_t i = 1; i < 64; i++) {
         if(ldFind(i) != i) continue;
+        if(cellOf[i] == 0xFF && eyes2s[i] == 0 && eyes2m[i] == 0)
+            continue;                                 // no such chain
         if(eyes2s[i] >= 4) ldStatus[i] = LD_ALIVE;
         else if(openL[i]) ldStatus[i] = LD_NONE;      // can run: no tag
         else if(eyes2m[i] < 4) ldStatus[i] = LD_DEAD;
         else { ldStatus[i] = LD_CRIT; ldMove[i] = critMv[i]; }
+    }
+    // Hostage verification (exact liberties == in-region liberties):
+    // per-CHAIN critical tag at the region's gate, overriding the
+    // complex verdict for that chain only. ldCellStatus reads the
+    // chain's own slot before the complex root's, so hostages shine
+    // through an ALIVE complex.
+    for(uint8_t k = 0; k < nPend; k++) {
+        uint8_t id = pend[k].id;
+        if(ldChainLibs(cellOf[id]) == pend[k].libsIn) {
+            ldStatus[id] = LD_CRIT;
+            ldMove[id] = pend[k].gate;
+#ifdef LD_CRIT
+            // dose 2: only capture-grounded hostage gates feed the
+            // prior boost + RAVE exemption (the complex-level CRIT
+            // tags at 32.5% position rate leaned the full package
+            // -1.7pp; hostages are the tags that flip 5328)
+            ldHostageGate[pend[k].gate >> 3] |= bitMask(pend[k].gate);
+#endif
+        }
     }
 }
 #endif
@@ -2184,13 +2259,10 @@ static void loadRootBoard(Game &game) {
     }
 #ifdef LD_CRIT
     memset(ldCritBoost, 0, sizeof(ldCritBoost));
+    memset(ldHostageGate, 0, sizeof(ldHostageGate));
     ldClassify();
-    for(uint8_t i = 1; i < 64; i++)
-        if(ldFind(i) == i && ldStatus[i] == LD_CRIT &&
-           ldMove[i] < BOARD_CELLS) {
-            uint8_t mb = ldMove[i] >> 3;
-            ldCritBoost[mb] |= bitMask(ldMove[i]);
-        }
+    // dose 2: the consumed set is the hostage gates alone
+    memcpy(ldCritBoost, ldHostageGate, sizeof(ldCritBoost));
 #endif
 #ifdef ALMOST_VITAL
     // Second pass: contested-but-almost-enclosed eyespaces (see
@@ -2256,14 +2328,30 @@ static uint8_t countStones(Game &game) {
     return st;
 }
 static int16_t settleVote(Game &game) {
-    if(countStones(game) < 45) return SETTLE_NONE;
+    // Pre-endgame (<45 stones) the vote USED to be switched off
+    // entirely ("open space = coin flips"). Jay's game 2026-08-01: he
+    // passed at 31 stones with the territory effectively decided, and
+    // the disabled gate let the engine fill its own territory and
+    // throw dead stones into his for eleven moves - the playout eval
+    // applauding (+2 -> +13) while converting a won game into a loss
+    // at the real count. The honest reliability test is the vote's own
+    // DECISIVENESS: when nearly every cell reads owned (<=16 or >=48
+    // of 64), the count is trustworthy at any stone count - and it is
+    // the SAME vote game-over scoring applies, so passing on it is
+    // self-consistent. Coin-flip cells only appear over genuinely
+    // open space, which is what the old guard was protecting against.
+    uint8_t stones = countStones(game);
     // The node pool is rebuilt from scratch every think, so the screen
     // buffer is free scratch here just as it is in scoreDead.
     uint8_t *own = Arduboy2Base::sBuffer;
     ownVote(game, own);
-    uint8_t b = 0;
-    for(uint8_t i = 0; i < BOARD_CELLS; i++)
+    uint8_t b = 0, und = 0;
+    for(uint8_t i = 0; i < BOARD_CELLS; i++) {
         if(own[i] >= SCORE_PLAYOUTS / 2) b++;
+        if(own[i] > SCORE_PLAYOUTS / 4 && own[i] < 3 * SCORE_PLAYOUTS / 4)
+            und++;
+    }
+    if(stones < 45 && und > 8) return SETTLE_NONE;
     int16_t m2 = (int16_t)b * 4 - BOARD_CELLS * 2; // 2*(black - white) area
     return (game.turn == BLACK) ? m2 - (int16_t)simKomi
                                 : (int16_t)simKomi - m2;
@@ -3200,7 +3288,16 @@ static uint8_t selectChild(uint8_t nodeIdx) {
         // kept even a 130-visit leader half-AMAF and flattened the
         // root.) Never lift a poisoned (illegal) child back via RAVE.
         if(atRoot && nv < POISONED &&
-           n.move < BOARD_CELLS && raveV[n.move]) {
+           n.move < BOARD_CELLS && raveV[n.move]
+#ifdef LD_CRIT
+           // Settling moves of CRITICAL groups skip the blend: an
+           // order-critical move's AMAF is poisoned by construction
+           // (it only works played NOW; playouts play it late), so
+           // RAVE buries exactly the moves the classifier certifies.
+           // Wrong tags self-correct -- unblended q is honest.
+           && !(ldCritBoost[n.move >> 3] & bitMask(n.move))
+#endif
+           ) {
             uint16_t ratio = raveRatio(nv);
             uint16_t beta = isqrt32((uint32_t)ratio << 12);
             uint16_t qr = winRate6(raveW[n.move], raveV[n.move]) << 6;
@@ -3338,12 +3435,16 @@ void AI::think(Game &game) {
     // (it can never pass into a loss by the game's own scoring).
     passToWin = 0;
     resigned = 0;
-    // Endgame only (>= 45 stones, same bar as the settled-territory
-    // pass): passing back ends the game and hands it to scoreDead's
-    // vote, which on an OPEN board is coin flips, not a count — the
-    // naive check below used to fire on a 6-stone board ("winning" by
-    // bare komi) and pass a move-6 game into a random scoring.
-    if(game.consecutivePasses == 1 && countStones(game) >= 45) {
+    // The naive-count path stays endgame-only (>= 45 stones: it once
+    // fired on a 6-stone board, "winning" by bare komi). The vote
+    // path below runs at ANY stone count -- settleVote's own
+    // decisiveness guard is its reliability bar (Jay's game
+    // 2026-08-01: opponent passed at 31 stones with the territory
+    // decided; the old outer 45-stone bar kept the honest vote off
+    // while the engine filled its own territory and threw dead
+    // stones into his until the count flipped to a loss).
+    if(game.consecutivePasses == 1) {
+        if(countStones(game) >= 45) {
         // Don't trust the count if the previous search already read
         // this game as bad (under ~30%): dead stones make
         // computeScore miscount in both directions, and a massacre
@@ -3363,6 +3464,7 @@ void AI::think(Game &game) {
                 return;
             }
         }
+        }
         // Ownership-corrected settle gate (endgame only). The naive
         // count above scores dead stones as alive and trusts a stale
         // eval; the scoreDead-style vote reads the board honestly —
@@ -3373,8 +3475,14 @@ void AI::think(Game &game) {
         // the count instead of flailing stones into groups the vote
         // already reads as dead. Contested → play on.
         int16_t m2c = settleVote(game);
+        // Pre-endgame the gate only BANKS WINS: accepting a loss
+        // early forfeits swindle equity vs fallible opponents (the
+        // 100-game sanity flipped one game to a loss exactly this
+        // way); losing positions keep playing until the >=45-stone
+        // endgame bar as before.
         if(m2c != SETTLE_NONE &&
-           (m2c > 0 || m2c <= -SETTLE_ACCEPT2)) {
+           (m2c > 0 ||
+            (m2c <= -SETTLE_ACCEPT2 && countStones(game) >= 45))) {
             passToWin = 1;
             resignCount = 0;
             return;
