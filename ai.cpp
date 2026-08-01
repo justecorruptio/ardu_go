@@ -653,13 +653,7 @@ static inline void nSetStats(uint8_t i, uint16_t v, uint16_t w) {
 }
 
 static inline void nBump(uint8_t i, uint8_t win) {
-    // one pool resolution instead of three (nVisits + nWins + nSetStats)
-    Node &n = node(i);
-    uint16_t v = nRefVisits(n) + 1;
-    uint16_t w = nRefWins(n) + win;
-    n.s[0] = v;
-    n.s[1] = ((v >> 8) & 0x0F) | ((w & 0x0F) << 4);
-    n.s[2] = w >> 4;
+    nSetStats(i, nVisits(i) + 1, nWins(i) + win);
 }
 static uint8_t poolUsed;
 static uint8_t freeHead;   // recycled nodes, threaded via nextSibling
