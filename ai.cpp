@@ -779,8 +779,7 @@ static uint8_t posXY(uint8_t pos) {
     return (uint8_t)(y << 4) | (uint8_t)(pos - y * 9);
 }
 
-static uint8_t groupLibsCore(uint8_t start, uint8_t *l1, uint8_t *l2,
-                             uint8_t markAll, uint8_t cap);
+static uint32_t groupLibsCore(uint8_t start, uint8_t markAll, uint8_t cap);
 
 // Does the group at start have any liberty? Dedicated flood: unlike the
 // shared core it keeps no liberty list, count, or dedup — it just bails
@@ -833,15 +832,15 @@ static uint8_t removeGroup(uint8_t start) {
     return n;
 }
 
-static uint8_t groupLibsFind(uint8_t start, uint8_t *l1, uint8_t *l2);
+static uint32_t groupLibsFind(uint8_t start);
 
 // If the group at start has exactly one liberty, return it; else 0xFF.
 // (Thin wrapper: groupLibsFind's early-exit-at-3 does the same flood
 // with marginally more work than a dedicated exit-at-2 — the ~150
 // bytes of flash matter more than those cycles.)
 static uint8_t soleLiberty(uint8_t start) {
-    uint8_t a, b;
-    return groupLibsCore(start, &a, &b, 0, 2) == 1 ? a : 0xFF;
+    uint32_t r = groupLibsCore(start, 0, 2);
+    return (uint8_t)r == 1 ? (uint8_t)(r >> 8) : 0xFF;
 }
 
 // Shared flood core for ALL the liberty finders: counts distinct
@@ -850,8 +849,11 @@ static uint8_t soleLiberty(uint8_t start) {
 // routed through a fixed cap-3 version was HALF of all search time).
 // With markAll it floods the WHOLE group into the CURRENT mark epoch
 // (membership tests need complete marking; cap is ignored).
-static uint8_t groupLibsCore(uint8_t start, uint8_t *l1, uint8_t *l2,
-                             uint8_t markAll, uint8_t cap) {
+// Returns count | (l1<<8) | (l2<<16), the packed-return idiom from
+// playoutTry scaled to the flood core: two pointer out-params became
+// register byte-extracts at every caller (the out-param tax scales
+// with call count, and this is a six-figure-calls path).
+static uint32_t groupLibsCore(uint8_t start, uint8_t markAll, uint8_t cap) {
     uint8_t color = simBoard[start];
     uint8_t lib1 = 0xFF, lib2 = 0xFF;
     uint8_t count = 0;
@@ -873,7 +875,9 @@ static uint8_t groupLibsCore(uint8_t start, uint8_t *l1, uint8_t *l2,
             if(s == EMPTY) {
                 if(lib1 == 0xFF) lib1 = q;
                 else if(lib2 == 0xFF) lib2 = q;
-                if(++count >= cap) { *l1 = lib1; *l2 = lib2; return count; }
+                if(++count >= cap)
+                    return (uint32_t)count | ((uint16_t)lib1 << 8) |
+                           ((uint32_t)lib2 << 16);
             } else if(s == color) {
                 floodSlot(sp++) = q;
             }
@@ -905,27 +909,24 @@ static uint8_t groupLibsCore(uint8_t start, uint8_t *l1, uint8_t *l2,
             }
         }
     }
-    *l1 = lib1;
-    *l2 = lib2;
-    return count;
+    return (uint32_t)count | ((uint16_t)lib1 << 8) |
+           ((uint32_t)lib2 << 16);
 }
 
 // Find a group's distinct liberties, early-exiting at 3. Fills l1/l2
 // with the first two (0xFF if fewer). Returns the count, 0-3.
-static uint8_t groupLibsFind(uint8_t start, uint8_t *l1, uint8_t *l2) {
-    return groupLibsCore(start, l1, l2, 0, 3);
+static uint32_t groupLibsFind(uint8_t start) {
+    return groupLibsCore(start, 0, 3);
 }
 
 static uint8_t groupLibsMax3(uint8_t start) {
-    uint8_t a, b;
-    uint8_t n = groupLibsFind(start, &a, &b);
+    uint8_t n = (uint8_t)groupLibsFind(start);
     return n ? n : 1; // preserve old behavior: 0 liberties reads as 1
 }
 
 // Full-flood variant of groupLibsFind (see groupLibsCore's markAll)
 static uint8_t groupLibsMark(uint8_t start) {
-    uint8_t a, b;
-    return groupLibsCore(start, &a, &b, 1, 3);
+    return (uint8_t)groupLibsCore(start, 1, 3);
 }
 
 #define SETTLED_REGION_MAX 8
@@ -1192,7 +1193,14 @@ static uint8_t simPlay(uint8_t pos, uint8_t color, uint8_t ko,
                     e++;
                 } else if(s == color) { connected = 1; break; }
             }
-            uint8_t libs = connected ? groupLibsFind(pos, &a, &b) : e;
+            uint8_t libs;
+            if(connected) {
+                uint32_t gr = groupLibsFind(pos);
+                libs = (uint8_t)gr;
+                a = (uint8_t)(gr >> 8);
+                b = (uint8_t)(gr >> 16);
+            } else
+                libs = e;
 #ifdef PLAYOUT_STATS
             if(libs >= 2) { if(connected) spFloodOK++; else spLoneOK++; }
             else          { if(connected) spFloodRej++; else spLoneRej++; }
@@ -1262,8 +1270,9 @@ static uint8_t ladderEscapes(uint8_t defStart, uint8_t esc,
             escaped = 0;
             break;
         }
-        uint8_t l1, l2;
-        uint8_t libs = groupLibsFind(esc, &l1, &l2);
+        uint32_t gr = groupLibsFind(esc);
+        uint8_t libs = (uint8_t)gr, l1 = (uint8_t)(gr >> 8),
+                l2 = (uint8_t)(gr >> 16);
         if(libs >= 3) break;               // clear escape
         if(libs <= 1) { escaped = 0; break; } // attacker just takes
 
@@ -1512,7 +1521,10 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                 l1 = cacheL1;
                 l2 = cacheL2;
             } else {
-                libs = groupLibsFind(last, &l1, &l2);
+                uint32_t gr = groupLibsFind(last);
+                libs = (uint8_t)gr;
+                l1 = (uint8_t)(gr >> 8);
+                l2 = (uint8_t)(gr >> 16);
             }
             if(libs == 1 && l1 != ko) {
                 // Capture the atari'd group
@@ -2277,8 +2289,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
         else if(emptyN >= 3) libs = 3;        // >=3 empties => >=3 libs
         else {
             simBoard[pos] = toMove;
-            uint8_t a, b;
-            libs = groupLibsFind(pos, &a, &b);
+            libs = (uint8_t)groupLibsFind(pos);
             simBoard[pos] = EMPTY;
         }
         if(libs <= 2)
@@ -3054,9 +3065,8 @@ void AI::think(Game &game) {
 __attribute__((noinline))
 static uint8_t rootSelfAtari(uint8_t pos, uint8_t toMove) {
     simBoard[pos] = toMove;
-    uint8_t a, b;
     uint8_t r = 0;
-    if(groupLibsCore(pos, &a, &b, 0, 2) <= 1) {
+    if((uint8_t)groupLibsCore(pos, 0, 2) <= 1) {
         r = 1;
         // ...unless the stone captures: with it placed, a doomed
         // enemy neighbor chain reads zero liberties
