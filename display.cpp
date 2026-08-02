@@ -61,64 +61,11 @@ void Display::renderCursor() {
         jay.drawBand(x - 3, y - 3, GLYPH_CURSOR, 7);
 }
 
-void Display::renderInfo() {
-    uint8_t ix = 66; // clear of the board: stones/cursor reach x=63
-    // Turn indicator
-    jay.smallPrintPgm(ix, 4, game.turn == BLACK ? F("BLACK TO PLAY")
-                                                : F("WHITE TO PLAY"), 1);
-
-    // Captures, 3 px under the turn line (which spans y=4..8)
-    jay.smallPrintPgm(ix, 12, F("CAPTURES\nB:\nW:"), 1);
-    jay.prNum(ix + 8, 18, game.captures[0]);
-    uint8_t wx = jay.prNum(ix + 8, 24, game.captures[1]);
-    jay.smallPrintPgm(wx + 4, 24, F("+6.5"), 1);
-    jay.drawFastHLine(ix, 31, 59);
-
-    // Controls hint: one line, 3 px margin below (font is 5 tall,
-    // screen 64: 64 - 3 - 5 = 56)
-    jay.drawFastHLine(ix, 52, 59);
-    jay.smallPrintPgm(ix, 56, F("A:PLACE  B:PASS"), 1);
-}
-
-void Display::renderTitle(uint8_t menuCursor) {
-    jay.largePrintPgm(46, 10, F("ARDUGO"), 1);
-    jay.drawFastHLine(46, 18, 35);
-    jay.drawFastHLine(50, 20, 27);
-
-    jay.smallPrintPgm(39, 28,
-        F("PLAY VS AI\nPLAY VS HUMAN\nSHOW RULES\nINVERT SCREEN"), 1);
-
-    jay.smallPrintPgm(
-        30 + (jay.counter / 4) % 4,
-        28 + menuCursor * 6, F(">"), 1
-    );
-}
-
-void Display::renderHelp() {
-    jay.largePrintPgm(49, 1, F("RULES"), 1);
-    jay.drawFastHLine(49, 9, 29);
-    jay.smallPrintPgm(1, 15,
-        F("SURROUND TERRITORY WITH STONES.\n"
-          "CAPTURE BY REMOVING LIBERTIES.\n"
-          "NO SUICIDE. KO RULE APPLIES.\n"
-          "PASS WHEN NO GOOD MOVES.\n"
-          "TWO PASSES ENDS THE GAME.\n"
-          "SCORE = TERRITORY + CAPTURES.\n"
-          "WHITE GETS 6.5 KOMI."), 1);
-}
-
-// Right-aligned number in the score table: the small font advances
-// 4 px/char (last glyph 3 px wide), so a d-digit value starts at
-// edge - 4d + 1 to end flush at `edge`.
-static void scoreNum(Jaylib &jay, uint8_t edge, uint8_t y, uint16_t v) {
-    uint8_t d = v >= 100 ? 3 : v >= 10 ? 2 : 1;
-    jay.prNum(edge - 4 * d + 1, y, v);
-}
-
-// Score-table layout, table-driven: each smallPrintPgm call site cost
-// ~16B of argument setup; one loop over a PROGMEM layout table renders
-// the same pixels. Strings and coordinates unchanged from the hand
-// -written version (screenshot-diff verified).
+// Static UI labels, table-driven: each print call site cost ~16B of
+// argument setup + F() plumbing; one PROGMEM table + walker renders
+// the same pixels. Bit 7 of x selects largePrintPgm. Screens address
+// their slice by [from,to) constants. Strings and coordinates are
+// unchanged from the hand-written versions (scrprobe-verified).
 struct ScLabel { uint8_t x, y; const char *s; };
 static const char SC_S0[] PROGMEM = "SCORING";
 static const char SC_S1[] PROGMEM = "WHT";
@@ -129,12 +76,87 @@ static const char SC_S5[] PROGMEM = "KOMI";
 static const char SC_S6[] PROGMEM = "TOTAL";
 static const char SC_S7[] PROGMEM = "6.5";
 static const char SC_S8[] PROGMEM = ".5";
-static const ScLabel SC_LBLS[] PROGMEM = {
+static const char IN_S0[] PROGMEM = "CAPTURES\nB:\nW:";
+static const char IN_S1[] PROGMEM = "A:PLACE  B:PASS";
+static const char TT_S0[] PROGMEM = "ARDUGO";
+static const char TT_S1[] PROGMEM = "PLAY VS AI\nPLAY VS HUMAN\nSHOW RULES\nINVERT SCREEN";
+static const char HL_S0[] PROGMEM = "RULES";
+static const char HL_S1[] PROGMEM =
+    "SURROUND TERRITORY WITH STONES.\n"
+    "CAPTURE BY REMOVING LIBERTIES.\n"
+    "NO SUICIDE. KO RULE APPLIES.\n"
+    "PASS WHEN NO GOOD MOVES.\n"
+    "TWO PASSES ENDS THE GAME.\n"
+    "SCORE = TERRITORY + CAPTURES.\n"
+    "WHITE GETS 6.5 KOMI.";
+static const ScLabel UI_LBLS[] PROGMEM = {
+    // renderScoring [0,9)
     {66, 1, SC_S0}, {96, 11, SC_S1}, {116, 11, SC_S2},
     {66, 19, SC_S3}, {66, 25, SC_S4}, {66, 31, SC_S5},
     {66, 39, SC_S6}, {96, 31, SC_S7},  // "6.5" at EW-10 = 96
     {100, 39, SC_S8},                  // ".5" at EW-6 = 100
+    // renderInfo statics [9,11)
+    {66, 12, IN_S0}, {66, 56, IN_S1},
+    // renderTitle [11,13): ARDUGO is large print (bit 7)
+    {46 | 0x80, 10, TT_S0}, {39, 28, TT_S1},
+    // renderHelp [13,15)
+    {49 | 0x80, 1, HL_S0}, {1, 15, HL_S1},
 };
+#define LBL_SCORING 0, 9
+#define LBL_INFO    9, 11
+#define LBL_TITLE  11, 13
+#define LBL_HELP   13, 15
+static void drawLabels(Jaylib &jay, uint8_t from, uint8_t to) {
+    for(uint8_t i = from; i < to; i++) {
+        uint8_t x = pgm_read_byte(&UI_LBLS[i].x);
+        uint8_t y = pgm_read_byte(&UI_LBLS[i].y);
+        const __FlashStringHelper *s =
+            (const __FlashStringHelper *)pgm_read_ptr(&UI_LBLS[i].s);
+        if(x & 0x80) jay.largePrintPgm(x & 0x7F, y, s, 1);
+        else jay.smallPrintPgm(x, y, s, 1);
+    }
+}
+
+void Display::renderInfo() {
+    uint8_t ix = 66; // clear of the board: stones/cursor reach x=63
+    // Turn indicator
+    jay.smallPrintPgm(ix, 4, game.turn == BLACK ? F("BLACK TO PLAY")
+                                                : F("WHITE TO PLAY"), 1);
+
+    // Captures block + controls hint (static labels; see UI_LBLS for
+    // the coordinates and the layout comments that used to sit here)
+    drawLabels(jay, LBL_INFO);
+    jay.prNum(ix + 8, 18, game.captures[0]);
+    uint8_t wx = jay.prNum(ix + 8, 24, game.captures[1]);
+    jay.smallPrintPgm(wx + 4, 24, F("+6.5"), 1);
+    jay.drawFastHLine(ix, 31, 59);
+    jay.drawFastHLine(ix, 52, 59);
+}
+
+void Display::renderTitle(uint8_t menuCursor) {
+    drawLabels(jay, LBL_TITLE);
+    jay.drawFastHLine(46, 18, 35);
+    jay.drawFastHLine(50, 20, 27);
+
+    jay.smallPrintPgm(
+        30 + (jay.counter / 4) % 4,
+        28 + menuCursor * 6, F(">"), 1
+    );
+}
+
+void Display::renderHelp() {
+    drawLabels(jay, LBL_HELP);
+    jay.drawFastHLine(49, 9, 29);
+}
+
+// Right-aligned number in the score table: the small font advances
+// 4 px/char (last glyph 3 px wide), so a d-digit value starts at
+// edge - 4d + 1 to end flush at `edge`.
+static void scoreNum(Jaylib &jay, uint8_t edge, uint8_t y, uint16_t v) {
+    uint8_t d = v >= 100 ? 3 : v >= 10 ? 2 : 1;
+    jay.prNum(edge - 4 * d + 1, y, v);
+}
+
 // Right-aligned cells: {edge, y}; values filled from the game at
 // matching indices below.
 static const uint8_t SC_CELLS[][2] PROGMEM = {
@@ -142,12 +164,7 @@ static const uint8_t SC_CELLS[][2] PROGMEM = {
 };
 void Display::renderScoring() {
     // Komi (and the .5 in white's total) lives only in the white column.
-    for(uint8_t i = 0; i < sizeof(SC_LBLS) / sizeof(SC_LBLS[0]); i++) {
-        jay.smallPrintPgm(pgm_read_byte(&SC_LBLS[i].x),
-                          pgm_read_byte(&SC_LBLS[i].y),
-                          (const __FlashStringHelper *)
-                              pgm_read_ptr(&SC_LBLS[i].s), 1);
-    }
+    drawLabels(jay, LBL_SCORING);
     jay.drawFastHLine(66, 37, 61);      // rule above the totals
     // white total is always x.5 (integer points + 6.5 komi)
     uint16_t vals[6] = {
