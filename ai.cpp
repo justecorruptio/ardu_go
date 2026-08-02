@@ -32,6 +32,8 @@ static uint8_t rnd(uint8_t n);
 //                       decided games; settled nakade is post-hoc. OFF)
 //     NET               net/geta capping prior           (-19/1000 @+4,
 //                       p=.25, disc 115/134: negative, dose test stopped. OFF)
+//     LL1X              midgame line-1 nearEnemy exempt  (-14/1000: junk in,
+//                       blocks still don't outrank the field. OFF)
 //     LOOSE             bounded loose-ladder reader      (premise refuted:
 //                       class-A saves reach 4+ libs; loss is strategic. OFF)
 //     SQZ34             midgame 3/4 playout squeeze      (-20/1000: distorts
@@ -3771,7 +3773,16 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     uint8_t lowLineBad = 0;
     if(ed <= 1 && !sawCapture && !sawSave && !sawAtari && !vitalHere) {
         uint8_t nearEnemy = 0;
+#ifdef LL1X
+        // First-line exemption. MEASURED -14/1000 (18.5 vs 19.9,
+        // p=0.37): midgame line-1 admission lets in more junk than
+        // dragon-saving blocks (motivating exemplar 1141: gnugo's E9
+        // still failed to outrank the field even exempted). The
+        // unconditional line-1 penalty stays. OFF.
+        if(!isFar && rootStones >= EARLY_STONES) {
+#else
         if(!isFar && ed == 1 && rootStones >= EARLY_STONES) {
+#endif
             // (isFar: the 5x5 is provably empty; nearEnemy stays 0
             // either way -- byte-identical skip)
             const uint8_t *rp = simBoard + pos - 2 * BOARD_SIZE;
