@@ -879,6 +879,19 @@ PROGMEM const uint8_t POSXY_TAB[81] = {
     0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78,
     0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88
 };
+// High nibble of a packed posXY byte. At -Os GCC lowers `xy >> 4`
+// through int promotion into a 4-iteration asr/ror loop (~12 cycles,
+// found by the 2026-08 asm audit in isOwnEye); AVR's swap+andi does it
+// in 2. Exact for every uint8 input.
+static inline uint8_t xyHi(uint8_t v) {
+#ifdef ARDUINO
+    asm("swap %0" : "+r"(v));
+    return v & 0x0F;
+#else
+    return v >> 4;
+#endif
+}
+
 static uint8_t posXY(uint8_t pos) {
     // one lpm instead of mul/shift/sub (~7 cycles saved per call on
     // the per-candidate prior path)
@@ -1305,7 +1318,7 @@ static uint8_t isOwnEye(uint8_t pos, uint8_t color) {
     // off-board side counts as one false, so 1 enemy diagonal kills it.
     {
         uint8_t xy = posXY(pos);
-        uint8_t x = xy & 0x0F, y = xy >> 4;
+        uint8_t x = xy & 0x0F, y = xyHi(xy);
         uint8_t opp = 3 - color;
         uint8_t falses =
             (x == 0 || x == BOARD_SIZE - 1 ||
@@ -2995,7 +3008,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
 
     // Center preference: the edge is worth less than the third line
     uint8_t xy = posXY(pos);
-    uint8_t x = xy & 0x0F, y = xy >> 4;
+    uint8_t x = xy & 0x0F, y = xyHi(xy);
     uint8_t ex = x < BOARD_SIZE - 1 - x ? x : BOARD_SIZE - 1 - x;
     uint8_t ey = y < BOARD_SIZE - 1 - y ? y : BOARD_SIZE - 1 - y;
     uint8_t ed = ex < ey ? ex : ey;
@@ -3295,7 +3308,7 @@ static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t la
         uint8_t isFar = 0;
         if(anyStone && !(near[pb] & pm)) {
             uint8_t bxy = posXY(pos);
-            uint8_t bx = bxy & 0x0F, by = bxy >> 4;
+            uint8_t bx = bxy & 0x0F, by = xyHi(bxy);
             uint8_t bex = bx < BOARD_SIZE - 1 - bx ? bx : BOARD_SIZE - 1 - bx;
             uint8_t bey = by < BOARD_SIZE - 1 - by ? by : BOARD_SIZE - 1 - by;
             if((bex < bey ? bex : bey) < 2) continue;
