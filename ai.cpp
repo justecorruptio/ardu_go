@@ -25,6 +25,8 @@ static uint8_t rnd(uint8_t n);
 // verdict at the definition site. None are set in shipped builds.
 //   Strength (paired-gauntlet verdicts):
 //     NO_KEIMA          remove the cuttable-keima prior  (-26/1000: KEEP prior)
+//     TIGER             tiger's-mouth completion prior   (-24/1000 @+4,
+//                       -18 @+2, -12 @+4 TIGER_MID: all negative, OFF)
 //     NO_RESIGN         never resign                     (171=171: zero equity)
 //     LOWLINE_EARLY_X2  2x early low-line penalty        (-18/1000)
 //     LCB_LEADER_MEAN   leader competes with mean q      (-3/2000 combined)
@@ -419,6 +421,23 @@ uint8_t AI::chooseMove(Game &game) {
 // so the tree gets steered to at least read the block.
 #ifndef PRIOR_BLOCK
 #define PRIOR_BLOCK 3
+#endif
+
+// Tiger's-mouth completion (Jay's shape backlog #5): the candidate
+// turns an adjacent empty point into a 3-sided mouth — exactly 3 own
+// orthogonal neighbours counting the candidate, and the mouth's 4th
+// neighbour ALSO empty (so interior mouth points only; a stone on the
+// open side changes the tactics and disqualifies). The far mouth
+// stone lies outside the candidate's 3x3, so the pattern table is
+// blind to this shape by construction — same class as the keima.
+// MEASURED 2026-08 (paired 1000-game gauntlets, base 199): +4 -> 175,
+// +2 -> 181, +4 mid-only (TIGER_MID) -> 187. Consistently negative:
+// a blanket thickness bonus promotes slow shape moves over urgent
+// ones at 9x9. Kept behind the opt-in TIGER flag; probe:
+// test/tigerprobe.cpp. Cost when enabled: +180B flash, +1.3% mid /
+// +6.2% open think (mostly behavioral).
+#ifndef PRIOR_TIGER
+#define PRIOR_TIGER 4
 #endif
 
 // Urgency: reinforcing an own 2-liberty group near the opponent's
@@ -3296,6 +3315,36 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     // (isFar: the 3x3 is provably empty -> stones<2 -> patternBonus
     // returns 0, but only after computing the full pattern index;
     // skipping is byte-identical)
+
+#ifdef TIGER
+    // Tiger's-mouth prior (see PRIOR_TIGER). Every cell read here is
+    // within Chebyshev 2 of the candidate, so isFar guarantees no own
+    // stones exist and the mouth is impossible — exact skip.
+    if(!lowLineBad && !isFar
+#ifdef TIGER_MID
+       && rootStones >= EARLY_STONES
+#endif
+      ) {
+        const uint8_t *pn = NEIGHBOR_TABLE + pos * 5;
+        for(uint8_t s = 0; s < 4; s++) {
+            uint8_t p = pgm_read_byte(pn + s);
+            if(p == 0xFF) break;               // < 4 neighbours left
+            if(simBoard[p] != EMPTY) continue; // mouth point must be empty
+            const uint8_t *qn = NEIGHBOR_TABLE + p * 5;
+            if(pgm_read_byte(qn + 3) == 0xFF) continue; // edge mouth: no 4th side
+            uint8_t own = 0, emp = 0;
+            for(uint8_t t = 0; t < 4; t++) {
+                uint8_t q = pgm_read_byte(qn + t);
+                if(q == pos || simBoard[q] == toMove) own++;
+                else if(simBoard[q] == EMPTY) emp++;
+            }
+            if(own == 3 && emp == 1) {
+                bonus += PRIOR_TIGER;
+                break;
+            }
+        }
+    }
+#endif
 
     // Big open point: the territory-staking move
     if(isFar) bonus += PRIOR_BIG;
