@@ -2470,9 +2470,17 @@ static int16_t settleVote(Game &game) {
     // the SAME vote game-over scoring applies, so passing on it is
     // self-consistent. Coin-flip cells only appear over genuinely
     // open space, which is what the old guard was protecting against.
-    // The node pool is rebuilt from scratch every think, so the screen
-    // buffer is free scratch here just as it is in scoreDead.
-    uint8_t *own = Arduboy2Base::sBuffer;
+    // NOT sBuffer[0]: the first 81 bytes of the screen buffer are pool
+    // nodes 0..13, and on the passToWin early-return think() never
+    // rebuilds the pool -- borrowing them left the stale tree with
+    // vote tallies for sibling links, and play_gui froze walking the
+    // resulting cycle (reproduced bit-exact from Jay's 2026-08-01 SGF
+    // via forceThinkSeed=C772; test/freezeprobe.cpp). The RAVE half of
+    // the buffer (past the node pool) IS free here: stale raveV/raveW
+    // are read by nothing after an early return and cleared by the
+    // next real think. scoreDead may still use sBuffer[0] -- it only
+    // runs at game end, after which the tree is never walked again.
+    uint8_t *own = Arduboy2Base::sBuffer + NODE_POOL_SB * sizeof(Node);
     ownVote(game, own);
     uint8_t b = 0, und = 0;
     for(uint8_t i = 0; i < BOARD_CELLS; i++) {
