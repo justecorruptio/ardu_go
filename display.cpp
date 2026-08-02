@@ -115,29 +115,50 @@ static void scoreNum(Jaylib &jay, uint8_t edge, uint8_t y, uint16_t v) {
     jay.prNum(edge - 4 * d + 1, y, v);
 }
 
+// Score-table layout, table-driven: each smallPrintPgm call site cost
+// ~16B of argument setup; one loop over a PROGMEM layout table renders
+// the same pixels. Strings and coordinates unchanged from the hand
+// -written version (screenshot-diff verified).
+struct ScLabel { uint8_t x, y; const char *s; };
+static const char SC_S0[] PROGMEM = "SCORING";
+static const char SC_S1[] PROGMEM = "WHT";
+static const char SC_S2[] PROGMEM = "BLK";
+static const char SC_S3[] PROGMEM = "TERR";
+static const char SC_S4[] PROGMEM = "CAPT";
+static const char SC_S5[] PROGMEM = "KOMI";
+static const char SC_S6[] PROGMEM = "TOTAL";
+static const char SC_S7[] PROGMEM = "6.5";
+static const char SC_S8[] PROGMEM = ".5";
+static const ScLabel SC_LBLS[] PROGMEM = {
+    {66, 1, SC_S0}, {96, 11, SC_S1}, {116, 11, SC_S2},
+    {66, 19, SC_S3}, {66, 25, SC_S4}, {66, 31, SC_S5},
+    {66, 39, SC_S6}, {96, 31, SC_S7},  // "6.5" at EW-10 = 96
+    {100, 39, SC_S8},                  // ".5" at EW-6 = 100
+};
+// Right-aligned cells: {edge, y}; values filled from the game at
+// matching indices below.
+static const uint8_t SC_CELLS[][2] PROGMEM = {
+    {106, 19}, {126, 19}, {106, 25}, {126, 25}, {99, 39}, {126, 39},
+};
 void Display::renderScoring() {
-    // Score table: WHITE | BLACK header, labels left, every number
-    // right-aligned to its column edge. Komi (and the .5 in white's
-    // total) lives only in the white column.
-    const uint8_t EW = 106, EB = 126;   // column right edges (1 px screen margin)
-    jay.smallPrintPgm(66, 1, F("SCORING"), 1);
-    jay.smallPrintPgm(96, 11, F("WHT"), 1);
-    jay.smallPrintPgm(116, 11, F("BLK"), 1);
-    jay.smallPrintPgm(66, 19, F("TERR"), 1);
-    jay.smallPrintPgm(66, 25, F("CAPT"), 1);
-    jay.smallPrintPgm(66, 31, F("KOMI"), 1);
+    // Komi (and the .5 in white's total) lives only in the white column.
+    for(uint8_t i = 0; i < sizeof(SC_LBLS) / sizeof(SC_LBLS[0]); i++) {
+        jay.smallPrintPgm(pgm_read_byte(&SC_LBLS[i].x),
+                          pgm_read_byte(&SC_LBLS[i].y),
+                          (const __FlashStringHelper *)
+                              pgm_read_word(&SC_LBLS[i].s), 1);
+    }
     jay.drawFastHLine(66, 37, 61);      // rule above the totals
-    jay.smallPrintPgm(66, 39, F("TOTAL"), 1);
-    scoreNum(jay, EW, 19, game.territory[1]);
-    scoreNum(jay, EB, 19, game.territory[0]);
-    scoreNum(jay, EW, 25, game.captures[1]);
-    scoreNum(jay, EB, 25, game.captures[0]);
-    jay.smallPrintPgm(EW - 10, 31, F("6.5"), 1);
     // white total is always x.5 (integer points + 6.5 komi)
-    uint16_t wTot = game.territory[1] + game.captures[1] + 6;
-    scoreNum(jay, EW - 7, 39, wTot);
-    jay.smallPrintPgm(EW - 6, 39, F(".5"), 1);
-    scoreNum(jay, EB, 39, (uint16_t)(game.territory[0] + game.captures[0]));
+    uint16_t vals[6] = {
+        game.territory[1], game.territory[0],
+        game.captures[1], game.captures[0],
+        (uint16_t)(game.territory[1] + game.captures[1] + 6),
+        (uint16_t)(game.territory[0] + game.captures[0]),
+    };
+    for(uint8_t i = 0; i < 6; i++)
+        scoreNum(jay, pgm_read_byte(&SC_CELLS[i][0]),
+                 pgm_read_byte(&SC_CELLS[i][1]), vals[i]);
 }
 
 void Display::renderGameOver() {
