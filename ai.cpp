@@ -3757,6 +3757,9 @@ void AI::think(Game &game) {
     if(rootStones < OPENING_BOOST_STONES) iters += iters / 2;
     uint16_t total = iters;
     uint8_t extended = 0;
+#ifdef CLUTCH2
+    uint8_t extended2 = 0;
+#endif
 #ifdef DECIDE_PROBE
     dpLastChange = 0; dpPrevBest = 0xFF;
 #endif
@@ -3776,6 +3779,18 @@ void AI::think(Game &game) {
         }
 #endif
         // Flat-root check at budget end (see UNCERTAIN_MIN)
+#ifdef CLUTCH2
+        // dose-2 probe: one more +50% when STILL 45-55% after the first
+        // clutch extension. MEASURED DEAD 2026-08: paired 1000 vs the
+        // shipped single extension = 189=189 exactly (67/67 discordant,
+        // +2.2% compute) -- the clutch curve saturates at one step.
+        if(i + 1 == total && extended && !extended2) {
+            extended2 = 1;
+            if((uint32_t)thinkSimWins * 20 > (uint32_t)thinkSims * 9 &&
+               (uint32_t)thinkSimWins * 20 < (uint32_t)thinkSims * 11)
+                total += iters / 2;
+        }
+#endif
         if(i + 1 == total && !extended) {
             extended = 1;
             uint16_t lead = 0;
