@@ -1259,11 +1259,16 @@ static void buildChainMap() {
         uint8_t color = simBoard[s];
         uint8_t id = nextId < 63 ? ++nextId : 63;
         uint8_t lib1 = 0xFF, lib2 = 0xFF, count = 0;
-        uint8_t sp = 0;
-        floodSlot(sp++) = s;
+        // Append-only flood (the hasLiberty pattern): members accumulate
+        // in floodScratch as the BFS consumes them front-to-back (rp reads,
+        // wp appends), so the whole chain is still listed when rp meets wp
+        // -- no second flood to stamp the capped lib class, just a flat
+        // walk of that list. Chain size <= board < 81 = floodScratch cap.
+        uint8_t *base = &floodSlot(0), *rp = base, *wp = base;
+        *wp++ = s;
         chainId[s] = id;
-        while(sp) {
-            uint8_t p = floodSlot(--sp);
+        while(rp != wp) {
+            uint8_t p = *rp++;
             uint8_t q;
             FOR_EACH_NEIGHBOR(q, p) {
                 if(simBoard[q] == EMPTY) {
@@ -1274,31 +1279,18 @@ static void buildChainMap() {
                     }
                 } else if(simBoard[q] == color && !chainId[q]) {
                     chainId[q] = id;
-                    floodSlot(sp++) = q;
+                    *wp++ = q;
                 }
             }
         }
-        // Stamp libs into the top bits of every member. The dedup below
-        // relies on `chainId[q] |= bits` flipping q off the `== id` match;
-        // with count==0 (a 0-liberty group, only reachable from an illegal
-        // board) bits==0, so the OR is a no-op and the flood never
-        // terminates. Nothing to stamp then anyway, so guard it.
+        // Stamp the capped lib class (count << 6) into every member from
+        // the accumulated list. count==0 (a 0-liberty chain, only on an
+        // illegal board) leaves bits==0 -> the OR is a no-op, so the guard
+        // just skips a dead pass.
         uint8_t bits = count << 6;
-        if(bits) {
-            sp = 0;
-            floodSlot(sp++) = s;
-            chainId[s] |= bits;
-            while(sp) {
-                uint8_t p = floodSlot(--sp);
-                uint8_t q;
-                FOR_EACH_NEIGHBOR(q, p) {
-                    if(chainId[q] == id) { // id match, libs not yet stamped
-                        chainId[q] |= bits;
-                        floodSlot(sp++) = q;
-                    }
-                }
-            }
-        }
+        if(bits)
+            for(uint8_t *dp = base; dp != wp; dp++)
+                chainId[*dp] |= bits;
     }
     // Fresh eyespace cache for this node's board (see regionVital).
     memset(regionDone, 0, sizeof(regionDone));
