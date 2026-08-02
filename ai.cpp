@@ -1736,7 +1736,13 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
         // Heuristics fire probabilistically (michi-style): applied
         // every time, all playouts make the SAME systematic errors and
         // those don't average out. Tactical ~7/8, patterns ~15/16.
-        if(last < BOARD_CELLS && boardAt(last) != EMPTY && (rnd16() & 7)) {
+        // ONE 16-bit draw feeds every gate this move (Jay's idea,
+        // 2026-08): disjoint bit slices are distribution-exact for
+        // mask tests, and the 3-5 separate xorshift draws they replace
+        // were ~2% of think. Modulo sites keep full draws (narrow
+        // slices bias the remainder).
+        uint16_t rb = rnd16();
+        if(last < BOARD_CELLS && boardAt(last) != EMPTY && (rb & 7)) {
             uint8_t tac = 0xFF, isSave = 0;
 
             // Classify the opponent's just-moved group — free when
@@ -1755,14 +1761,14 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
             if(libs == 1 && l1 != ko) {
                 // Capture the atari'd group
                 tac = l1;
-            } else if(libs == 2 && (rnd16() & 1)) {
+            } else if(libs == 2 && (rb & 8)) {
                 // Squeeze a 2-liberty group: fill one of its
                 // liberties. (A 3/4 rate was tried with the race
                 // reader and made opening rollouts contact-crazy.)
                 // This is what actually kills disconnected stones in
                 // playouts — without it, cut-off groups survive by
                 // randomness and thin extensions look safe.
-                uint8_t cand = (rnd16() & 1) ? l1 : l2;
+                uint8_t cand = (rb & 16) ? l1 : l2;
                 if(cand == ko) cand = (cand == l1) ? l2 : l1;
                 tac = cand;
                 isSave = 1; // route through the self-atari gate
@@ -1814,7 +1820,7 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
         // firing it less is a near-free speed win. 1/4 measured
         // strength-neutral vs 3/4 (136 vs 125 / 1000 @ L0, z=+0.73);
         // 25% firing still catches dead shapes across a playout.
-        if(last < BOARD_CELLS && !(rnd16() & 3)) {
+        if(last < BOARD_CELLS && !((rb >> 5) & 3)) {
             uint8_t vcand = 0xFF;
             uint8_t q;
             FOR_EACH_NEIGHBOR(q, last) {
@@ -1838,7 +1844,7 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
         // local hook above only reacts when the last move touches
         // the eyespace — this is what makes tenuki from a
         // life-and-death spot actually lose rollouts.
-        if(nRootVitals && !(rnd16() & 7)) {
+        if(nRootVitals && !((rb >> 7) & 7)) {
             uint8_t vp = 0xFF;
             for(uint8_t i = 0; i < nRootVitals; i++)
                 if(simBoard[rootVitals[i]] == EMPTY) {
@@ -1860,7 +1866,7 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
         // vs firing 15/16 (125 vs 127 / 1000 games @ L0, z=-0.13) while
         // skipping the ~8-point pattern scan more often. 1/2 overshot
         // (-2.1pp), so 3/4 is the elbow.
-        if(last < BOARD_CELLS && (rnd16() & 3)) {
+        if(last < BOARD_CELLS && ((rb >> 10) & 3)) {
             uint8_t lpxy = posXY(last);
             int8_t lpx = lpxy & 0x0F, lpy = lpxy >> 4;
             uint8_t matches[8];
