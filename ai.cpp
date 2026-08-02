@@ -926,6 +926,29 @@ static uint8_t hasLiberty(uint8_t start, uint8_t color) {
     uint8_t *rp = &floodSlot(0);
     uint8_t *wp = rp + 1;
     {
+#ifdef PACKED_PRESCAN
+        // Packed-direction unrolled pre-scan (Jay): missing directions
+        // self-probe (q == start, own colour); the q != start guard on
+        // the push keeps capturedGroupN honest for the ko test.
+        // MEASURED 2026-08: correct (movecmp byte-identical) but
+        // +1.8% mid / +1.6% open -- two table loads plus four field
+        // extracts cost more than the sentinel lpm walk they replace
+        // (lpm Z+ = 3 cycles per ready neighbour is the bar every
+        // alternative has failed to clear).
+        uint8_t A = pgm_read_byte(NBR_A + start);
+        uint8_t B = pgm_read_byte(NBR_B + start);
+        uint8_t q, s;
+#define HLP_STEP(QEXPR) \
+        q = (uint8_t)(QEXPR); \
+        s = boardAt(q); \
+        if(s == EMPTY) return 1; \
+        if(s == color && q != start) *wp++ = q;
+        HLP_STEP(start + (A & 7))
+        HLP_STEP(start - ((A >> 3) & 7))
+        HLP_STEP((A & 0x80) ? start - 9 : start)
+        HLP_STEP(start + ((B & 7) ? 9 : 0))
+#undef HLP_STEP
+#else
         const uint8_t *e = NEIGHBOR_TABLE + start * 5;
         uint8_t q;
         while((q = lpmNext(e)) != 0xFF) {
@@ -933,6 +956,7 @@ static uint8_t hasLiberty(uint8_t start, uint8_t color) {
             if(s == EMPTY) return 1;
             if(s == color) *wp++ = q;
         }
+#endif // PACKED_PRESCAN
     }
     newMark();
     // BFS with chasing read/write POINTERS into floodScratch (indexed

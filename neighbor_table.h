@@ -35,7 +35,7 @@ PROGMEM const uint8_t NEIGHBOR_TABLE[81 * 5] = {
     77, 79, 69, 255, 255, 78, 80, 70, 255, 255, 79, 71, 255, 255, 255,
 };
 
-#ifdef PACKED_NBR
+#if defined(PACKED_NBR) || defined(PACKED_PRESCAN)
 // Packed per-cell direction fields (Jay's encoding, 2026-08): byte A
 // holds the EAST delta (0/1) in bits 0-2, WEST delta (0/1) in bits
 // 3-5, NORTH presence in bit 7; byte B holds the SOUTH delta (0/1) in
@@ -70,4 +70,4 @@ PROGMEM const uint8_t NBR_B[81] = {
     0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 };
-#endif // PACKED_NBR
+#endif // PACKED_NBR/PACKED_PRESCAN
