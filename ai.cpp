@@ -32,6 +32,8 @@ static uint8_t rnd(uint8_t n);
 //                       decided games; settled nakade is post-hoc. OFF)
 //     NET               net/geta capping prior           (-19/1000 @+4,
 //                       p=.25, disc 115/134: negative, dose test stopped. OFF)
+//     SQZ34             midgame 3/4 playout squeeze      (-20/1000: distorts
+//                       healthy fights; squeeze family fully dead. OFF)
 //     LADDER_PRUNE      defender-lookahead chase pick    (199=199, disc 0/0
 //                       AND movecmp-identical: the room heuristic already
 //                       picks the must-block side in real play. OFF)
@@ -2144,7 +2146,17 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
             if(libs == 1 && l1 != ko) {
                 // Capture the atari'd group
                 tac = l1;
-            } else if(libs == 2 && (rb & 8)) {
+            } else if(libs == 2 && ((rb & 8)
+#ifdef SQZ34
+                      // Phase-gated 3/4 squeeze: MEASURED -20/1000
+                      // (17.9 vs 19.9, p=0.28) -- pressing harder past
+                      // EARLY_STONES distorts healthy fights too; the
+                      // doomed-save belief error survives it. Both
+                      // squeeze variants (flat 3/4: opening craze;
+                      // phase-gated: this) are now dead. OFF.
+                      || (rootStones + m >= EARLY_STONES && (rnd16() & 1))
+#endif
+                     )) {
                 // Squeeze a 2-liberty group: fill one of its
                 // liberties. (A 3/4 rate was tried with the race
                 // reader and made opening rollouts contact-crazy.)
