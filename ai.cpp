@@ -1029,13 +1029,21 @@ static uint8_t hasLiberty(uint8_t start, uint8_t color) {
 #ifdef PACKED_PRESCAN
         HL_PRESCAN(start);
 #else
+        // Unrolled sentinel walk (Jay): same lpm Z+ mechanism, no
+        // loop-back branch, and a cell has at most 4 neighbours so
+        // interior cells never read their 5th (sentinel) byte.
         const uint8_t *e = NEIGHBOR_TABLE + start * 5;
-        uint8_t q;
-        while((q = lpmNext(e)) != 0xFF) {
-            uint8_t s = boardAt(q);
-            if(s == EMPTY) return 1;
-            if(s == color) *wp++ = q;
-        }
+        uint8_t q, s;
+#define PS_STEP \
+        q = lpmNext(e); \
+        if(q != 0xFF) { \
+            s = boardAt(q); \
+            if(s == EMPTY) return 1; \
+            if(s == color) *wp++ = q; \
+        } else goto prescanDone;
+        PS_STEP PS_STEP PS_STEP PS_STEP
+#undef PS_STEP
+prescanDone:;
 #endif // PACKED_PRESCAN
     }
     newMark();
@@ -1057,6 +1065,10 @@ static uint8_t hasLiberty(uint8_t start, uint8_t color) {
 #if defined(PACKED_NBR) || defined(PACKED_TRIT)
         HL_FLOOD_WALK(p);
 #else
+        // NOT unrolled: measured +0.88% -- the markPtr body x4 sours
+        // -Os allocation exactly as PACKED_NBR did. The pre-scan's
+        // small body unrolls profitably (see above); this one's the
+        // wrong side of the body-size boundary.
         const uint8_t *e = NEIGHBOR_TABLE + p * 5;
         uint8_t q;
         while((q = lpmNext(e)) != 0xFF) {
