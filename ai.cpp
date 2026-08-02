@@ -27,6 +27,9 @@ static uint8_t rnd(uint8_t n);
 //     NO_KEIMA          remove the cuttable-keima prior  (-26/1000: KEEP prior)
 //     TIGER             tiger's-mouth completion prior   (-24/1000 @+4,
 //                       -18 @+2, -12 @+4 TIGER_MID: all negative, OFF)
+//     NAKADE            prey-inside eyespace vitals      (-1/1000, disc 0/1:
+//                       INERT -- fires 0.61% of positions, last 2-4 moves of
+//                       decided games; settled nakade is post-hoc. OFF)
 //     NO_RESIGN         never resign                     (171=171: zero equity)
 //     LOWLINE_EARLY_X2  2x early low-line penalty        (-18/1000)
 //     LCB_LEADER_MEAN   leader competes with mean q      (-3/2000 combined)
@@ -748,6 +751,13 @@ uint32_t thinkItersRun, thinkItersBudget;
 // rollouts and scores as well as resolving it.
 static uint8_t rootVitals[3];
 static uint8_t nRootVitals;
+#ifdef NAKADE
+// Nakade vitals: eyespaces that CONTAIN enclosed prey stones (see
+// nakadeVital). Separate list — these regions read as contested to
+// regionVital, so its cache never stamps them.
+static uint8_t nakVitals[2];
+static uint8_t nNakVitals;
+#endif
 // Liberty carryover: a gated simPlay floods the placed group anyway;
 // the next playout move classifies that same group on an unchanged
 // board, so the result is cached instead of re-flooded.
@@ -1398,6 +1408,135 @@ static uint16_t regionVital(uint8_t seed) {
     return ((uint16_t)vit << 8) | (unsettled ? 0 : owner);
 }
 
+#ifdef NAKADE
+// Nakade vitals (GNU Go optics borrow, 2026-08): an eyespace's
+// vertices are its EMPTY cells plus the cells of small enemy chains
+// fully ENCLOSED by it -- dead stones count as eyespace shape.
+// regionVital calls such regions contested and goes blind, yet they
+// are exactly the playout-blind close-L&D shapes: prey fills the
+// space and the kill/live point is the unique max-degree vertex of
+// the COMBINED shape, the same rule the empty case already uses.
+//
+// Flood from an empty seed: empties expand normally; a touched stone
+// chain is flooded whole (marked once), then classified -- <=5
+// stones with <=4 distinct unmarked liberties = prey CANDIDATE: its
+// cells become vertices and its liberties re-seed the empty flood
+// (joining the pockets a prey chain splits its space into); anything
+// bigger = wall, colour recorded, never expanded through. Exactly
+// one wall colour and one prey colour (opposite) must emerge; any
+// conflict, vertex-cap blow (>6), or flood escape bails to 0xFF.
+// Misses are fail-safe (a small wall chain misread as prey drags the
+// flood outside and blows the cap); false vitals are not possible
+// short of a genuine 3-6 vertex one-owner eyespace.
+//
+// Root board only, once per think (loadRootBoard) -- playouts and
+// widen never call this. `seen` accumulates every flooded empty so
+// the caller visits each region once. Returns the vital cell (must
+// itself be empty) or 0xFF.
+static uint8_t nakadeVital(uint8_t seed, uint8_t *seen) {
+    uint8_t region[7];     // empty vertices
+    uint8_t prey[6];       // enclosed prey stone vertices
+    uint8_t cnt = 0, head = 0, preyCnt = 0;
+    uint8_t wallColor = 0, preyColor = 0, fail = 0;
+    newMark();
+    region[cnt++] = seed;
+    simMark[seed] = markEpoch;
+    while(head < cnt && !fail) {
+        uint8_t q;
+        FOR_EACH_NEIGHBOR(q, region[head]) {
+            uint8_t st = simBoard[q];
+            if(st == EMPTY) {
+                if(simMark[q] == markEpoch) continue;
+                if(cnt + preyCnt >= 6) { fail = 1; break; }
+                simMark[q] = markEpoch;
+                region[cnt++] = q;
+                continue;
+            }
+            if(simMark[q] == markEpoch) continue;  // chain already seen
+            // Flood the whole chain (bounded by the board): count its
+            // stones, remember up to 6 cells, and collect its distinct
+            // unmarked empty liberties. Marking every cell makes any
+            // later touch of this chain a no-op.
+            uint8_t csize = 0, nlibs = 0, oppNbr = 0;
+            uint8_t cells[6], libs[4];
+            uint8_t sp = 0;
+            floodSlot(sp++) = q;
+            simMark[q] = markEpoch;
+            while(sp) {
+                uint8_t p = floodSlot(--sp);
+                if(csize < 6) cells[csize] = p;
+                csize++;
+                uint8_t r;
+                FOR_EACH_NEIGHBOR(r, p) {
+                    uint8_t rs = simBoard[r];
+                    if(rs == st) {
+                        if(simMark[r] != markEpoch) {
+                            simMark[r] = markEpoch;
+                            floodSlot(sp++) = r;
+                        }
+                    } else if(rs == EMPTY) {
+                        if(simMark[r] != markEpoch) {
+                            uint8_t j = 0;
+                            while(j < nlibs && j < 4 && libs[j] != r) j++;
+                            if(j == nlibs) {
+                                if(nlibs >= 4) nlibs = 5;  // too many: wall
+                                else libs[nlibs++] = r;
+                            }
+                        }
+                    } else oppNbr = rs;  // wall evidence (not flooded)
+                }
+            }
+            if(csize <= 5 && nlibs <= 4) {
+                // prey candidate: vertices + re-seeded liberties. A
+                // fully-surrounded prey chain (vital its only empty)
+                // never lets the empty flood touch the wall, so the
+                // opposite-colour stones seen DURING the chain flood
+                // supply the wall colour.
+                if((preyColor && preyColor != st) ||
+                   cnt + preyCnt + csize > 6) { fail = 1; break; }
+                if(oppNbr) {
+                    if(wallColor && wallColor != oppNbr) { fail = 1; break; }
+                    wallColor = oppNbr;
+                }
+                preyColor = st;
+                for(uint8_t j = 0; j < csize; j++)
+                    prey[preyCnt++] = cells[j];
+                for(uint8_t j = 0; j < nlibs; j++) {
+                    if(simMark[libs[j]] == markEpoch) continue;
+                    if(cnt + preyCnt >= 6) { fail = 1; break; }
+                    simMark[libs[j]] = markEpoch;
+                    region[cnt++] = libs[j];
+                }
+            } else {
+                if(wallColor && wallColor != st) { fail = 1; break; }
+                wallColor = st;
+            }
+        }
+        head++;
+    }
+    // every flooded empty goes into `seen` regardless of outcome
+    for(uint8_t j = 0; j < cnt; j++)
+        seen[region[j] >> 3] |= bitMask(region[j]);
+    if(fail || !preyCnt || !wallColor ||
+       preyColor != (uint8_t)(3 - wallColor) || cnt + preyCnt < 3)
+        return 0xFF;
+    // unique max-degree vertex of the combined shape; must be a
+    // playable empty cell (a stone-cell "vital" means the shape is
+    // already decided). Ties -> none, same as the empty rule.
+    uint8_t bd = 1, bc = 0xFF, ties = 0;
+    for(uint8_t j = 0; j < cnt + preyCnt; j++) {
+        uint8_t c = j < cnt ? region[j] : prey[j - cnt];
+        uint8_t deg = 0, q;
+        FOR_EACH_NEIGHBOR(q, c)
+            if(simMark[q] == markEpoch && simBoard[q] != wallColor) deg++;
+        if(deg > bd) { bd = deg; bc = c; ties = 1; }
+        else if(deg == bd) ties++;
+    }
+    if(ties == 1 && bc != 0xFF && simBoard[bc] == EMPTY) return bc;
+    return 0xFF;
+}
+#endif // NAKADE
+
 // Pass-decision helper: the single stone colour bordering the empty region
 // containing `seed`, or 0 if it touches both colours (contested) or no stone
 // (open board). Unlike regionVital this has NO size cap -- a large territory
@@ -2012,13 +2151,25 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
         // local hook above only reacts when the last move touches
         // the eyespace — this is what makes tenuki from a
         // life-and-death spot actually lose rollouts.
-        if(nRootVitals && !((rb >> 7) & 7)) {
+        if((nRootVitals
+#ifdef NAKADE
+            || nNakVitals
+#endif
+           ) && !((rb >> 7) & 7)) {
             uint8_t vp = 0xFF;
             for(uint8_t i = 0; i < nRootVitals; i++)
                 if(simBoard[rootVitals[i]] == EMPTY) {
                     vp = rootVitals[i];
                     break;
                 }
+#ifdef NAKADE
+            if(vp == 0xFF)
+                for(uint8_t i = 0; i < nNakVitals; i++)
+                    if(simBoard[nakVitals[i]] == EMPTY) {
+                        vp = nakVitals[i];
+                        break;
+                    }
+#endif
             uint16_t r = playoutTry(vp, toMove, ko, m);
             if(r) {
                 ko = (uint8_t)r;
@@ -2571,6 +2722,22 @@ static void loadRootBoard(Game &game) {
         if((uint8_t)rv && (rv >> 8) == i)
             rootVitals[nRootVitals++] = i;
     }
+#ifdef NAKADE
+    // Second pass: eyespaces containing enclosed prey (nakadeVital).
+    // Disjoint from the pass above by construction -- these regions
+    // read as contested to regionVital. `seen` visits each region once.
+    nNakVitals = 0;
+    {
+        uint8_t nakSeen[11];
+        memset(nakSeen, 0, sizeof(nakSeen));
+        for(uint8_t i = 0; i < BOARD_CELLS && nNakVitals < 2; i++) {
+            if(simBoard[i] != EMPTY) continue;
+            if(nakSeen[i >> 3] & bitMask(i)) continue;
+            uint8_t v = nakadeVital(i, nakSeen);
+            if(v != 0xFF) nakVitals[nNakVitals++] = v;
+        }
+    }
+#endif
 #ifdef LD_CRIT
     memset(ldCritBoost, 0, sizeof(ldCritBoost));
     memset(ldHostageGate, 0, sizeof(ldHostageGate));
@@ -3098,7 +3265,17 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
         if(rc == 3) {
             bonus += PRIOR_VITAL;
             vitalHere = 1;
-        } else if(rc && !sawCapture && !sawSave && !sawAtari &&
+        }
+#ifdef NAKADE
+        // Nakade vitals live in regions the cache stamps as open (0),
+        // so this parallel check cannot double-count with rc == 3.
+        else if(nNakVitals && (pos == nakVitals[0] ||
+                (nNakVitals > 1 && pos == nakVitals[1]))) {
+            bonus += PRIOR_VITAL;
+            vitalHere = 1;
+        }
+#endif
+        else if(rc && !sawCapture && !sawSave && !sawAtari &&
                   !connHere) {
             bonus -= (rc == toMove) ? PRIOR_OWNFILL_PENALTY
                                     : PRIOR_INVADE_PENALTY;
