@@ -2849,8 +2849,15 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     // Only credit a save if the ladder actually works — extending a
     // ladder-dead group just feeds stones
     for(uint8_t j = 0; j < nDoom; j++) {
-        if(ladderEscapes(doomCand[j], pos)) sawSave = 1;
-        else sawDoomed = 1;
+        if(ladderEscapes(doomCand[j], pos)) {
+            // one escape decides everything downstream: the bonus takes
+            // sawSave first, and sawDoomed's only consumer is gated on
+            // !sawSave -- the remaining ladder reads (162 B snapshot +
+            // forced chase each) cannot change any output. Break.
+            sawSave = 1;
+            break;
+        }
+        sawDoomed = 1;
     }
 
     // Capture race (see raceWin): fill their liberties while ahead
