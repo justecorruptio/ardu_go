@@ -30,6 +30,8 @@ static uint8_t rnd(uint8_t n);
 //     NAKADE            prey-inside eyespace vitals      (-1/1000, disc 0/1:
 //                       INERT -- fires 0.61% of positions, last 2-4 moves of
 //                       decided games; settled nakade is post-hoc. OFF)
+//     NET               net/geta capping prior           (-19/1000 @+4,
+//                       p=.25, disc 115/134: negative, dose test stopped. OFF)
 //     NO_RESIGN         never resign                     (171=171: zero equity)
 //     LOWLINE_EARLY_X2  2x early low-line penalty        (-18/1000)
 //     LCB_LEADER_MEAN   leader competes with mean q      (-3/2000 combined)
@@ -441,6 +443,14 @@ uint8_t AI::chooseMove(Game &game) {
 // +6.2% open think (mostly behavioral).
 #ifndef PRIOR_TIGER
 #define PRIOR_TIGER 4
+#endif
+
+// Net (geta) point: capping the free corner of the 2x2 whose opposite
+// corner is an enemy stone at exactly 2 liberties (both = the flanks).
+// GNU Go generates this as a reading candidate (find_cap_moves); here
+// it is a prior and the tree does the verifying.
+#ifndef PRIOR_NET
+#define PRIOR_NET 4
 #endif
 
 // Urgency: reinforcing an own 2-liberty group near the opponent's
@@ -3424,6 +3434,37 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     }
 
 #endif // NO_KEIMA
+
+#ifdef NET
+    // Net (geta) point, GNU Go find_cap_moves' sharp case: the
+    // candidate is the free corner of a 2x2 square whose opposite
+    // corner holds an enemy stone at EXACTLY 2 liberties -- and both
+    // flanking cells of the diagonal are empty, which makes them
+    // provably that chain's entire liberty set. Capping here nets the
+    // stone: extending toward either liberty runs into the cap. The
+    // chain-lib count is the 2-bit saturated stamp buildChainMap left
+    // in chainId's top bits (2 == exactly two). isFar skip is exact:
+    // the diagonal stone lies within Chebyshev 1.
+    if(!isFar) {
+        uint8_t netted = 0;
+        for(int8_t dy = -1; dy <= 1 && !netted; dy += 2)
+            for(int8_t dx = -1; dx <= 1; dx += 2) {
+                int8_t fx = x + dx, fy = y + dy;
+                if(fx < 0 || fx >= BOARD_SIZE ||
+                   fy < 0 || fy >= BOARD_SIZE) continue;
+                uint8_t dpos = pos + dx + dy * BOARD_SIZE;
+                if(simBoard[dpos] != opp) continue;
+                if(simBoard[pos + dx] != EMPTY) continue;
+                if(simBoard[(uint8_t)(pos + dy * BOARD_SIZE)] != EMPTY)
+                    continue;
+                if((*chainPtr(dpos) >> 6) == 2) {
+                    bonus += PRIOR_NET;
+                    netted = 1;
+                    break;
+                }
+            }
+    }
+#endif
 
     // Low-line discipline (see the defines): opening low-line moves
     // are penalized unconditionally; later, second-line moves near an
