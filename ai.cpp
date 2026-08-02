@@ -34,6 +34,9 @@ static uint8_t rnd(uint8_t n);
 //                       p=.25, disc 115/134: negative, dose test stopped. OFF)
 //     LL1X              midgame line-1 nearEnemy exempt  (-14/1000: junk in,
 //                       blocks still don't outrank the field. OFF)
+//     BLOCKW            +3 PRIOR_BLOCK on contact answers (-20/1000: fires
+//                       board-wide, bonus-prior failure mode. OFF; the
+//                       low-line BLOCK EXEMPTION shipped default-on)
 //     LOOSE             bounded loose-ladder reader      (premise refuted:
 //                       class-A saves reach 4+ libs; loss is strategic. OFF)
 //     SQZ34             midgame 3/4 playout squeeze      (-20/1000: distorts
@@ -3771,7 +3774,33 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     // answer down there is still usually wrong, and pattern+local
     // (+5) was overpowering the line penalty.
     uint8_t lowLineBad = 0;
-    if(ed <= 1 && !sawCapture && !sawSave && !sawAtari && !vitalHere) {
+    // Contact-push block detection (midgame hunt, 2026-08): the
+    // opponent's last stone touches an own chain, and this candidate
+    // touches that pusher ORTHOGONALLY. A genuine block answer is
+    // exempt from the low-line penalty below -- game 1141's E9 (the
+    // first-line block saving the top dragon) drew edge-penalty -5,
+    // lost all shape credit, and ranked 52/59 while a 2-stone capture
+    // ran away with a won game (+10 -> -40). With the exemption it
+    // ranks 4/59. No phase gate: a block answer is legitimate whenever
+    // the push happens. Paired 1000: 198 vs 199 (dead neutral, 33% of
+    // games engaged) -- shipped as the structural fix; the companion
+    // PRIOR_BLOCK +3 bonus stays fenced behind BLOCKW (-20/1000: it
+    // fires on every contact answer board-wide, the bonus-prior
+    // failure mode).
+    uint8_t blockHere = 0;
+    if(last < BOARD_CELLS) {
+        int8_t bdx = (int8_t)x - (int8_t)(last % BOARD_SIZE);
+        int8_t bdy = (int8_t)y - (int8_t)(last / BOARD_SIZE);
+        if(bdx < 0) bdx = -bdx;
+        if(bdy < 0) bdy = -bdy;
+        if(bdx + bdy == 1) {
+            uint8_t q;
+            FOR_EACH_NEIGHBOR(q, last)
+                if(simBoard[q] == toMove) { blockHere = 1; break; }
+        }
+    }
+    if(ed <= 1 && !sawCapture && !sawSave && !sawAtari && !vitalHere &&
+       !blockHere) {
         uint8_t nearEnemy = 0;
 #ifdef LL1X
         // First-line exemption. MEASURED -14/1000 (18.5 vs 19.9,
@@ -3829,6 +3858,12 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
             // touches us, this candidate touches the pusher
             // ORTHOGONALLY (the junction does; diagonal near-misses
             // scored alike in a real cut-through game until this)
+#ifdef BLOCKW
+            // fenced: +3 on every contact answer board-wide measured
+            // -20/1000 (bonus-prior failure mode); only the low-line
+            // exemption (above, default-on) survived measurement
+            if(blockHere) bonus += PRIOR_BLOCK;
+#endif
         }
 #endif
     }
