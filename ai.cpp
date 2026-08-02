@@ -2987,7 +2987,8 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     // candidate's 3x3, so neither patterns nor the thin-stretch check
     // can see this shape. Applies only when the keima is the sole link
     // (no orthogonal contact — checked above — and no diagonal one).
-    if(!isFar && !sawCapture && !sawSave && !sawAtari && !hasOrthFriend) {
+    if(!hasOrthFriend && !isFar && !sawCapture && !sawSave && !sawAtari) {
+        // (guard order: hasOrthFriend disqualifies most candidates)
         // (isFar: no stone within Chebyshev 2, and every cell this
         // block reads -- diagonals, keima partners, jump midpoints --
         // lies within that radius, so all 16 probes are guaranteed
@@ -3013,10 +3014,12 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
             // continue-spins (interior = all 12 bits, identical work)
             for(uint8_t ki = 0; kmask && !penalized; ki++, kmask >>= 1) {
                 if(!(kmask & 1)) continue;  // partner off-board
-                int8_t a = (int8_t)pgm_read_byte(KEIMA_A + ki);
                 {
                     int8_t L = (int8_t)pgm_read_byte(KEIMA_L + ki);
                     if(simBoard[pos + L] != toMove) continue;
+                    // a is only needed on a partner HIT: loading it
+                    // after the test drops one lpm from every miss
+                    int8_t a = (int8_t)pgm_read_byte(KEIMA_A + ki);
                     if(ki >= 8) {
                         // one-point jump: single midpoint, must be empty,
                         // enemy on a SIDE of it (the push-in cut). Sides
