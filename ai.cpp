@@ -1934,6 +1934,11 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
         // of settled territory live far too often, the single
         // biggest playout evaluation bias.
         if(last < BOARD_CELLS && boardAt(last) != EMPTY) {
+            // NOT rb's spare bits: xorshift16 outputs carry strong
+            // intra-word bit correlations (the <<7/>>9/<<8 taps copy
+            // bit patterns around), and feeding the local answer from
+            // the same word as the gates shifted playout dynamics
+            // wholesale (open bench -18%!). Fresh draw = independent.
             uint16_t p = rnd16();
             uint8_t pos = 0xFF;
             uint8_t lxy = posXY(last);
