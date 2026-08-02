@@ -950,6 +950,33 @@ static uint8_t hasLiberty(uint8_t start, uint8_t color) {
     for(uint8_t *dp = rp; dp != wp; dp++) simMark[*dp] = markEpoch;
     while(rp != wp) {
         uint8_t p = *rp++;
+#ifdef PACKED_NBR
+        // Jay's packed-direction unrolled walk (see NBR_A/NBR_B):
+        // each field is its direction's delta or 0, so a missing
+        // direction computes q == p -- our own already-marked stone,
+        // absorbed by the mark test with no special case. Correct
+        // (movecmp byte-identical) but MEASURED +4.6% mid / +414 B:
+        // the 4x body defeats -Os allocation. Kept for reference.
+        uint8_t A = pgm_read_byte(NBR_A + p);
+        uint8_t B = pgm_read_byte(NBR_B + p);
+        uint8_t q, s;
+#define HLF_STEP(QEXPR) \
+        q = (uint8_t)(QEXPR); \
+        s = boardAt(q); \
+        if(s == EMPTY) return 1; \
+        if(s == color) { \
+            uint8_t *mp = markPtr(q); \
+            if(*mp != markEpoch) { \
+                *mp = markEpoch; \
+                *wp++ = q; \
+            } \
+        }
+        HLF_STEP(p + (A & 7))                        // east:  p + 0/1
+        HLF_STEP(p - ((A >> 3) & 7))                 // west:  p - 0/1
+        HLF_STEP((A & 0x80) ? p - 9 : p)             // north: bit 7
+        HLF_STEP(p + ((B & 7) ? 9 : 0))              // south
+#undef HLF_STEP
+#else
         const uint8_t *e = NEIGHBOR_TABLE + p * 5;
         uint8_t q;
         while((q = lpmNext(e)) != 0xFF) {
@@ -963,6 +990,7 @@ static uint8_t hasLiberty(uint8_t start, uint8_t color) {
                 }
             }
         }
+#endif // PACKED_NBR
     }
     capturedGroupN = (uint8_t)(wp - &floodSlot(0));
     return 0;
