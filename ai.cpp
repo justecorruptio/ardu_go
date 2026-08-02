@@ -1024,10 +1024,12 @@ prescanDone:;
 #ifdef PACKED_TRIT
         HL_FLOOD_WALK(p);
 #else
-        // NOT unrolled: measured +0.88% -- the markPtr body x4 sours
-        // -Os allocation exactly as PACKED_NBR did. The pre-scan's
-        // small body unrolls profitably (see above); this one's the
-        // wrong side of the body-size boundary.
+        // NOT unrolled: +0.88% pre-always_inline, retested +3.3%
+        // WITH inlining enforced -- so unlike the seed scan this is
+        // genuine allocation cost (markPtr body x4 with rp/wp live
+        // across every copy), not the outlining trap. The rolled loop
+        // shares its join points; this body is the wrong side of the
+        // unroll boundary on its own merits.
         const uint8_t *e = NEIGHBOR_TABLE + p * 5;
         uint8_t q;
         while((q = lpmNext(e)) != 0xFF) {
