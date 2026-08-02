@@ -32,6 +32,9 @@ static uint8_t rnd(uint8_t n);
 //                       decided games; settled nakade is post-hoc. OFF)
 //     NET               net/geta capping prior           (-19/1000 @+4,
 //                       p=.25, disc 115/134: negative, dose test stopped. OFF)
+//     LADDER_PRUNE      defender-lookahead chase pick    (199=199, disc 0/0
+//                       AND movecmp-identical: the room heuristic already
+//                       picks the must-block side in real play. OFF)
 //     NO_RESIGN         never resign                     (171=171: zero equity)
 //     LOWLINE_EARLY_X2  2x early low-line penalty        (-18/1000)
 //     LCB_LEADER_MEAN   leader competes with mean q      (-3/2000 combined)
@@ -1754,9 +1757,37 @@ static uint8_t ladderEscapes(uint8_t defStart, uint8_t esc,
         // remaining liberty)
         uint8_t chase = 0xFF, next = 0xFF;
         uint8_t bestRoom = 0xFF;
+#ifdef LADDER_PRUNE
+        // GNU Go simple_ladder branch prune (reading.c:5629): if the
+        // DEFENDER extending at a liberty would reach 4+ libs, the
+        // attacker must block exactly there -- the room heuristic
+        // below can pick the wrong side and read a working ladder as
+        // an escape. The threshold is 4, not the reader's post-move
+        // 3: in a WORKING ladder the tentative extension transiently
+        // shows 3 libs before the chase re-ataris. Both sides
+        // reaching 4+ = ladder broken, stop. (Tentative stone
+        // without captures, like the attacker probe: an underestimate
+        // only demotes a must-block to the old heuristic, never the
+        // reverse.)
+        uint8_t must = 0xFF;
+        {
+            uint8_t nMust = 0;
+            for(uint8_t t = 0; t < 2; t++) {
+                uint8_t cand = t ? l2 : l1;
+                simBoard[cand] = defColor;
+                uint8_t dlibs = groupLibsFind(cand);
+                simBoard[cand] = EMPTY;
+                if(dlibs >= 4) { must = cand; nMust++; }
+            }
+            if(nMust == 2) break;  // escapes both ways
+        }
+#endif
         for(uint8_t t = 0; t < 2; t++) {
             uint8_t cand = t ? l2 : l1;
             uint8_t other = t ? l1 : l2;
+#ifdef LADDER_PRUNE
+            if(must != 0xFF && cand != must) continue;
+#endif
             simBoard[cand] = atkColor; // tentative, no captures
             uint8_t alibs = groupLibsMax3(cand);
             simBoard[cand] = EMPTY;
