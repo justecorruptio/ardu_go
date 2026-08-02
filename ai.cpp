@@ -1354,7 +1354,14 @@ static uint8_t soleConnector(uint8_t seedA, uint8_t idB) {
 // old uint8_t return), high byte = the vital cell or 0xFF. Packed so no
 // caller needs an out-param (the pointer plumbing showed in the
 // profile; one hot caller only wants the cache side-effect).
-static uint16_t regionVital(uint8_t seed) {
+// `stamp` selects the lazy-cache write-back: the widen scan and the
+// root passes need it, but the PLAYOUT eyespace hook never reads the
+// cache (chainId/regionDone are rebuilt by the next buildChainMap --
+// the stamps were pure wasted stores there, ~2% of think). A runtime
+// flag, not a template clone: the clone duplicated the whole flood
+// (+304B, floor bust); the branch costs ~2 cycles and keeps every
+// store saving. Values identical either way.
+static uint16_t regionVital(uint8_t seed, uint8_t stamp = 1) {
     uint8_t region[SETTLED_REGION_MAX];
     uint8_t cnt = 0, head = 0;
     uint8_t owner = 0, unsettled = 0;
@@ -1396,19 +1403,20 @@ static uint16_t regionVital(uint8_t seed) {
     // Lazy eyespace cache: stamp the flooded cells (<=8) with the region
     // code (bits 6-7: 1=black, 2=white, 0=open; the vital cell = 3) and
     // flag them done, so other candidates in this region skip the flood.
-    // Harmless outside the widen scan (chainId/regionDone are rebuilt by
-    // the next buildChainMap and never read during playouts).
-    uint8_t code6 = (uint8_t)(((unsettled || !owner) ? 0 : owner) << 6);
-    for(uint8_t j = 0; j < cnt; j++) {
-        uint8_t c = region[j];
-        uint8_t *cp = chainPtr(c);  // carry-free RMW, no 16-bit extend
-        *cp = (*cp & 0x3F) | code6;
-        uint8_t cb = c >> 3;   // 8-bit shift (promoted index = 16-bit loop)
-        regionDone[cb] |= bitMask(c);
-    }
-    if(vit != 0xFF) {
-        uint8_t *vp2 = chainPtr(vit);
-        *vp2 = (*vp2 & 0x3F) | (3 << 6);
+    // Skipped for stamp=0 callers (see the header comment).
+    if(stamp) {
+        uint8_t code6 = (uint8_t)(((unsettled || !owner) ? 0 : owner) << 6);
+        for(uint8_t j = 0; j < cnt; j++) {
+            uint8_t c = region[j];
+            uint8_t *cp = chainPtr(c);  // carry-free RMW, no 16-bit extend
+            *cp = (*cp & 0x3F) | code6;
+            uint8_t cb = c >> 3;   // 8-bit shift (promoted index = 16-bit loop)
+            regionDone[cb] |= bitMask(c);
+        }
+        if(vit != 0xFF) {
+            uint8_t *vp2 = chainPtr(vit);
+            *vp2 = (*vp2 & 0x3F) | (3 << 6);
+        }
     }
     return ((uint16_t)vit << 8) | (unsettled ? 0 : owner);
 }
@@ -2196,7 +2204,8 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
             uint8_t q;
             FOR_EACH_NEIGHBOR(q, last) {
                 if(boardAt(q) != EMPTY) continue;
-                uint16_t rv = regionVital(q);
+                // stamp=0: playouts never read the lazy cache
+                uint16_t rv = regionVital(q, 0);
                 if((uint8_t)rv) vcand = rv >> 8;
                 break; // only the first adjacent region
             }
