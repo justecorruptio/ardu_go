@@ -638,7 +638,7 @@ static uint8_t * const raveW = Arduboy2Base::sBuffer + NODE_POOL_SB * sizeof(Nod
 // -Os (ror/dec/brpl, ~2-9 cycles) at every bitmap site; an lpm from this
 // table is a constant 3 cycles. Same values -- bit-identical results.
 PROGMEM const uint8_t BIT_MASK[8] = {1, 2, 4, 8, 16, 32, 64, 128};
-static inline uint8_t bitMask(uint8_t i) {
+static inline __attribute__((always_inline)) uint8_t bitMask(uint8_t i) {
     return pgm_read_byte(BIT_MASK + (i & 7));
 }
 
@@ -740,7 +740,7 @@ static uint8_t simBoard[BOARD_CELLS];
 // extend: a board index (<=80) added to lo8(simBoard) cannot carry --
 // checkmagic.sh asserts this stays true across RAM-layout changes --
 // so the pointer's high byte is the link-time constant hi8(simBoard).
-static inline uint8_t boardAt(uint8_t q) {
+static inline __attribute__((always_inline)) uint8_t boardAt(uint8_t q) {
     const uint8_t *p;
     asm("mov %A0,%1\n\t"
         "subi %A0,lo8(-(%2))\n\t"
@@ -749,14 +749,14 @@ static inline uint8_t boardAt(uint8_t q) {
     return *p;
 }
 #else
-static inline uint8_t boardAt(uint8_t q) { return simBoard[q]; }
+static inline __attribute__((always_inline)) uint8_t boardAt(uint8_t q) { return simBoard[q]; }
 #endif
 static uint8_t simMark[BOARD_CELLS];   // epoch marks for flood fill
 #ifdef ARDUINO
 // &simMark[q] by the same carry-free trick (checkmagic.sh asserts
 // lo8(simMark) <= 0xAF). Returns a pointer: the flood loops both
 // read and write the mark.
-static inline uint8_t *markPtr(uint8_t q) {
+static inline __attribute__((always_inline)) uint8_t *markPtr(uint8_t q) {
     uint8_t *p;
     asm("mov %A0,%1\n\t"
         "subi %A0,lo8(-(%2))\n\t"
@@ -765,7 +765,7 @@ static inline uint8_t *markPtr(uint8_t q) {
     return p;
 }
 #else
-static inline uint8_t *markPtr(uint8_t q) { return &simMark[q]; }
+static inline __attribute__((always_inline)) uint8_t *markPtr(uint8_t q) { return &simMark[q]; }
 #endif
 // Chain map, computed once per EXPANSION while the board is frozen.
 // One byte per cell: (libs << 6) | id — the capped 1/2/3+ liberty
@@ -782,7 +782,7 @@ static uint8_t chainId[BOARD_CELLS];
 // neighbour scan, the regionVital stamp) paid a 16-bit index extend
 // per access. NOT used in buildChainMap (spill cascade, see the
 // boardAt fences).
-static inline uint8_t *chainPtr(uint8_t q) {
+static inline __attribute__((always_inline)) uint8_t *chainPtr(uint8_t q) {
     uint8_t *p;
     asm("mov %A0,%1\n\t"
         "subi %A0,lo8(-(%2))\n\t"
@@ -791,7 +791,7 @@ static inline uint8_t *chainPtr(uint8_t q) {
     return p;
 }
 #else
-static inline uint8_t *chainPtr(uint8_t q) { return &chainId[q]; }
+static inline __attribute__((always_inline)) uint8_t *chainPtr(uint8_t q) { return &chainId[q]; }
 #endif
 // Which empty cells' eyespace code (chainId bits 6-7) is cached this
 // widen (see buildChainMap / regionVital's lazy stamp). 81 bits.
@@ -857,7 +857,7 @@ static uint8_t rndMod() { return rnd16() % N; }
 // `lpm; adiw` (read then a separate 2-cyc increment); `lpm Z+` does both in
 // one 3-cyc instruction. Provably identical (read *p, p++); host uses the
 // portable form so movecmp still verifies the algorithm.
-static inline uint8_t lpmNext(const uint8_t *&p) {
+static inline __attribute__((always_inline)) uint8_t lpmNext(const uint8_t *&p) {
     uint8_t v;
 #if defined(__AVR__)
     asm("lpm %0, Z+" : "=r"(v), "=z"(p) : "1"(p));
@@ -902,7 +902,7 @@ PROGMEM const uint8_t POSXY_TAB[81] = {
 // through int promotion into a 4-iteration asr/ror loop (~12 cycles,
 // found by the 2026-08 asm audit in isOwnEye); AVR's swap+andi does it
 // in 2. Exact for every uint8 input.
-static inline uint8_t xyHi(uint8_t v) {
+static inline __attribute__((always_inline)) uint8_t xyHi(uint8_t v) {
 #ifdef ARDUINO
     asm("swap %0" : "+r"(v));
     return v & 0x0F;
@@ -1095,20 +1095,33 @@ static uint8_t groupLibsCore(uint8_t start, uint8_t markAll, uint8_t cap) {
         // stamped from the stack once newMark has run, and the flood
         // continues from those neighbours -- the seed is never
         // re-scanned.
-        uint8_t q;
-        FOR_EACH_NEIGHBOR(q, start) {
-            uint8_t s = boardAt(q);
-            if(s == EMPTY) {
-                if(lib1 == 0xFF) lib1 = q;
-                else if(lib2 == 0xFF) lib2 = q;
-                if(++count >= cap) {
-                    glcL1 = lib1;
-                    glcL2 = lib2;
-                    return count;
-                }
-            } else if(s == color) {
-                floodSlot(sp++) = q;
-            }
+        // Unrolled with a SINGLE exit (the allocator workaround): the
+        // in-loop cap-return gave the unrolled DAG four early exits
+        // and -Os answered with three extra saved register pairs per
+        // call (+8.75%!). Deferring the cap test to one join point
+        // keeps each copy tiny. Value-identical: lib1/lib2 only fill
+        // empty slots so later empties can't disturb them, the extra
+        // scratch pushes are dead on the return path, and the return
+        // clamps to cap exactly as the early exit did.
+        const uint8_t *e = NEIGHBOR_TABLE + start * 5;
+        uint8_t q, s;
+#define GL_SEED_BODY \
+        s = boardAt(q); \
+        if(s == EMPTY) { \
+            if(lib1 == 0xFF) lib1 = q; \
+            else if(lib2 == 0xFF) lib2 = q; \
+            count++; \
+        } else if(s == color) floodSlot(sp++) = q;
+        q = lpmNext(e); GL_SEED_BODY
+        q = lpmNext(e); GL_SEED_BODY
+        q = lpmNext(e); if(q == 0xFF) goto glcSeedTally; GL_SEED_BODY
+        q = pgm_read_byte(e); if(q == 0xFF) goto glcSeedTally; GL_SEED_BODY
+#undef GL_SEED_BODY
+glcSeedTally:
+        if(count >= cap) {
+            glcL1 = lib1;
+            glcL2 = lib2;
+            return cap;
         }
         newMark();
         simMark[start] = markEpoch;
