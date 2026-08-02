@@ -3785,6 +3785,17 @@ void AI::think(Game &game) {
                 if(v < POISONED && v > lead) lead = v;
             }
             if(lead < UNCERTAIN_MIN) total += iters / 2;
+            // Clutch extension (2026-08): the flat-root check above
+            // fires on visit flatness; this complements it on
+            // EVALUATION closeness -- a root the playouts score 45-55%
+            // is exactly where one more increment of search moves the
+            // pick. Same once-only +50% budget as the opening boost.
+            // Paired 2000 vs GnuGo L0: +26 (20.0% vs 18.7%), both
+            // 1000-game samples positive, for +6.9% total compute
+            // (~1 in 7 thinks extends; ~20s vs 13.5s on device).
+            else if((uint32_t)thinkSimWins * 20 > (uint32_t)thinkSims * 9 &&
+                    (uint32_t)thinkSimWins * 20 < (uint32_t)thinkSims * 11)
+                total += iters / 2;
         }
 
         // Early stop when the visit leader's margin exceeds the
