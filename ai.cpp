@@ -3832,6 +3832,44 @@ void AI::think(Game &game) {
             else if((uint32_t)thinkSimWins * 20 > (uint32_t)thinkSims * 9 &&
                     (uint32_t)thinkSimWins * 20 < (uint32_t)thinkSims * 11)
                 total += iters / 2;
+#ifdef STEAL_VERIFY
+            // Steal-verify probe: if the LCB race would currently pick
+            // a NON-leader (a "steal" -- half the observed >=6pt
+            // blunders), buy one +50% extension so the challenger is
+            // either confirmed (visits catch up) or refuted (its q
+            // collapses) before the pick commits. Gates mirror
+            // bestMove's race, minus the board vetoes.
+            // MEASURED DEAD 2026-08: sample1 +20 (20.7 vs 18.7),
+            // sample2 -23 (18.7 vs 21.0) -> combined -3/2000 p=0.93 at
+            // +8% compute; blunder counts unchanged. Same verdict as
+            // the whole selection family: steals are right as often as
+            // wrong, verification re-rolls the dice.
+            if(total == iters) {   // no other extension fired
+                uint16_t maxV = 0; uint8_t leadC = 0xFF;
+                for(uint8_t c = node(0).firstChild; c != 0xFF;
+                    c = node(c).nextSibling) {
+                    uint16_t v = nVisits(c);
+                    if(v < POISONED && !(node(c).move & 0x80) && v > maxV) {
+                        maxV = v; leadC = c;
+                    }
+                }
+                int16_t bestL = -32768; uint8_t bestC2 = 0xFF;
+                for(uint8_t c = node(0).firstChild; c != 0xFF;
+                    c = node(c).nextSibling) {
+                    uint16_t v = nVisits(c);
+                    if(v >= POISONED || (node(c).move & 0x80)) continue;
+                    if(v < LCB_GATE || v * LCB_REL_DIV < maxV) continue;
+                    uint16_t q6 = (nWins(c) << 6) / v;
+                    uint16_t q = q6 << 6;
+                    uint32_t var = (uint16_t)(q6 * (64 - q6));
+                    uint16_t term = isqrt32(((uint32_t)var << 12) / v);
+                    int16_t lcb = (int16_t)q -
+                        (int16_t)(((uint32_t)term * LCB_Z) >> 8);
+                    if(lcb > bestL) { bestL = lcb; bestC2 = c; }
+                }
+                if(bestC2 != 0xFF && bestC2 != leadC) total += iters / 2;
+            }
+#endif
         }
 
         // Early stop when the visit leader's margin exceeds the
