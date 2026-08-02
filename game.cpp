@@ -130,14 +130,26 @@ uint8_t Game::isValidMove(uint8_t x, uint8_t y) {
     uint8_t opponent = (turn == BLACK) ? WHITE : BLACK;
     set(x, y, turn);
 
-    // Check if move captures opponent stones
+    // One pass detects captures AND applies them to the temp board the
+    // ko test needs (this loop used to run twice: detect, then re-run
+    // identically against temp). countLiberties reads `board`, which
+    // the temp-side sweep never touches, so the merged pass sees
+    // exactly what both original loops saw.
+    uint8_t tempBoard[PACKED_BOARD_BYTES];
+    memcpy(tempBoard, board, sizeof(board));
     uint8_t captures = 0;
     for(uint8_t d = 0; d < 4; d++) {
         uint8_t ni = nbIndexXY(x, y, d);
         if(ni == 0xFF) continue;
-        if(packedGet(board, ni) == opponent &&
-           countLiberties(ni % BOARD_SIZE, ni / BOARD_SIZE) == 0)
-            captures = 1;
+        if(packedGet(board, ni) == opponent) {
+            uint8_t nx = ni % BOARD_SIZE, ny = ni / BOARD_SIZE;
+            if(countLiberties(nx, ny) == 0) {
+                captures = 1;
+                memset(visited, 0, sizeof(visited));
+                floodFill(nx, ny, opponent);
+                sweepVisited(this, tempBoard, EMPTY);
+            }
+        }
     }
 
     // Check suicide: if no captures and own group has no liberties
@@ -147,26 +159,6 @@ uint8_t Game::isValidMove(uint8_t x, uint8_t y) {
     }
 
     // Check ko: would this recreate previous board state?
-    // Need to simulate the full move to check
-    uint8_t tempBoard[PACKED_BOARD_BYTES];
-    memcpy(tempBoard, board, sizeof(board));
-
-    // Do captures on temp
-    for(uint8_t d = 0; d < 4; d++) {
-        uint8_t ni = nbIndexXY(x, y, d);
-        if(ni == 0xFF) continue;
-        if(packedGet(tempBoard, ni) == opponent) {
-            // Check liberties in temp context — use board directly
-            uint8_t nx = ni % BOARD_SIZE, ny = ni / BOARD_SIZE;
-            if(countLiberties(nx, ny) == 0) {
-                memset(visited, 0, sizeof(visited));
-                floodFill(nx, ny, opponent);
-                sweepVisited(this, tempBoard, EMPTY);
-            }
-        }
-    }
-
-    // Compare with previous board
     uint8_t isKo = (memcmp(tempBoard, prevBoard, sizeof(prevBoard)) == 0);
 
     set(x, y, EMPTY);
