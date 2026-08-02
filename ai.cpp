@@ -1815,35 +1815,47 @@ static uint8_t ladderEscapes(uint8_t defStart, uint8_t esc,
 // frame (the x/y counters + 16-bit mult/idx pairs drove a 9-register
 // prologue on every call). Packed return: idx | stones<<16 | cls<<24.
 __attribute__((optimize("O2"), noinline))
+// Per-class on-board neighbour deltas (dy*9+dx as two's-complement
+// bytes) in the EXACT dy,dx scan order the old bounds-checked 3x3 loop
+// visited them; 0 terminates (the centre delta can never appear). The
+// on-board subset is a static function of the position class, so the
+// per-cell row/column bounds tests collapse into one lpm-driven walk.
+// Row 4 (interior) is unused -- pattern3Index handles interior cells.
+static const uint8_t PROGMEM EDGE_OFFS[9 * 6] = {
+    0x01, 0x09, 0x0A, 0x00, 0x00, 0x00,  // cls 0: NW corner
+    0xFF, 0x01, 0x08, 0x09, 0x0A, 0x00,  // cls 1: N edge
+    0xFF, 0x08, 0x09, 0x00, 0x00, 0x00,  // cls 2: NE corner
+    0xF7, 0xF8, 0x01, 0x09, 0x0A, 0x00,  // cls 3: W edge
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // cls 4: interior (unused)
+    0xF6, 0xF7, 0xFF, 0x08, 0x09, 0x00,  // cls 5: E edge
+    0xF7, 0xF8, 0x01, 0x00, 0x00, 0x00,  // cls 6: SW corner
+    0xF6, 0xF7, 0xF8, 0xFF, 0x01, 0x00,  // cls 7: S edge
+    0xF6, 0xF7, 0xFF, 0x00, 0x00, 0x00,  // cls 8: SE corner
+};
 static uint32_t pattern3Edge(int8_t cx, int8_t cy, uint8_t color) {
     uint8_t clsx = (cx == 0) ? 0 : (cx == BOARD_SIZE - 1) ? 2 : 1;
     uint8_t clsy = (cy == 0) ? 0 : (cy == BOARD_SIZE - 1) ? 2 : 1;
+    uint8_t cls = (uint8_t)(clsy * 3 + clsx);
     // An edge/corner cell has at most 5 on-board neighbours, so idx
     // <= 3^5-1 = 242 and mult tops out at 243: the whole base-3
-    // accumulation fits in 8 bits. v*mult becomes one 2-cycle mul and
-    // mult*=3 two adds, where the 16-bit originals cost a mul pair and
-    // a 16-bit triple. Same digits, same order -- identical values.
+    // accumulation fits in 8 bits (see the mult comment history).
+    // Same digits in the same order as the bounds-checked loop --
+    // identical values, minus ~8 per-cell row/column tests.
     uint8_t idx = 0;
     uint8_t stones = 0;
     uint8_t mult = 1;
     const uint8_t *b = simBoard + cy * BOARD_SIZE + cx;   // 3x3 centre
-    for(int8_t dy = -1; dy <= 1; dy++) {
-        int8_t r9 = dy * BOARD_SIZE;   // row offset, hoisted
-        uint8_t rowOff = (uint8_t)(cy + dy) >= BOARD_SIZE; // hoisted y check
-        for(int8_t dx = -1; dx <= 1; dx++) {
-            if(dx == 0 && dy == 0) continue;
-            int8_t x = cx + dx;
-            if(rowOff || x < 0 || x >= BOARD_SIZE)
-                continue; // off-board cells are implied by the class
-            uint8_t s = b[dx + r9];
-            uint8_t v = (s == EMPTY) ? 0 : (s == color) ? 1 : 2;
-            if(v) stones++;
-            idx += v * mult;
-            mult = (uint8_t)(mult + (mult << 1));   // mult *= 3, 8-bit
-        }
+    const uint8_t *op = EDGE_OFFS + cls * 6;
+    int8_t d;
+    while((d = (int8_t)lpmNext(op)) != 0) {
+        uint8_t s = b[d];
+        uint8_t v = (s == EMPTY) ? 0 : (s == color) ? 1 : 2;
+        if(v) stones++;
+        idx += v * mult;
+        mult = (uint8_t)(mult + (mult << 1));   // mult *= 3, 8-bit
     }
     return (uint32_t)idx | ((uint32_t)stones << 16) |
-           ((uint32_t)(clsy * 3 + clsx) << 24);
+           ((uint32_t)cls << 24);
 }
 
 static uint16_t pattern3Index(int8_t cx, int8_t cy, uint8_t color,
