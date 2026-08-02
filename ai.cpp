@@ -1030,19 +1030,22 @@ static uint8_t hasLiberty(uint8_t start, uint8_t color) {
         HL_PRESCAN(start);
 #else
         // Unrolled sentinel walk (Jay): same lpm Z+ mechanism, no
-        // loop-back branch, and a cell has at most 4 neighbours so
-        // interior cells never read their 5th (sentinel) byte.
+        // loop-back branch. Every cell has AT LEAST two neighbours
+        // (corners have exactly two), so the first two steps skip the
+        // sentinel test entirely; at most 4 neighbours means the 5th
+        // byte is never read, and the last read drops the pointer
+        // post-increment (dead afterwards).
         const uint8_t *e = NEIGHBOR_TABLE + start * 5;
         uint8_t q, s;
-#define PS_STEP \
-        q = lpmNext(e); \
-        if(q != 0xFF) { \
-            s = boardAt(q); \
-            if(s == EMPTY) return 1; \
-            if(s == color) *wp++ = q; \
-        } else goto prescanDone;
-        PS_STEP PS_STEP PS_STEP PS_STEP
-#undef PS_STEP
+#define PS_BODY \
+        s = boardAt(q); \
+        if(s == EMPTY) return 1; \
+        if(s == color) *wp++ = q;
+        q = lpmNext(e); PS_BODY
+        q = lpmNext(e); PS_BODY
+        q = lpmNext(e); if(q == 0xFF) goto prescanDone; PS_BODY
+        q = pgm_read_byte(e); if(q == 0xFF) goto prescanDone; PS_BODY
+#undef PS_BODY
 prescanDone:;
 #endif // PACKED_PRESCAN
     }
