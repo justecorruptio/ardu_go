@@ -107,16 +107,37 @@ void Display::renderHelp() {
           "WHITE GETS 6.5 KOMI."), 1);
 }
 
+// Right-aligned number in the score table: the small font advances
+// 4 px/char (last glyph 3 px wide), so a d-digit value starts at
+// edge - 4d + 1 to end flush at `edge`.
+static void scoreNum(Jaylib &jay, uint8_t edge, uint8_t y, uint16_t v) {
+    uint8_t d = v >= 100 ? 3 : v >= 10 ? 2 : 1;
+    jay.prNum(edge - 4 * d + 1, y, v);
+}
+
 void Display::renderScoring() {
-    // Label column in one string: blank lines make the y=1->13 and
-    // 19->31 section gaps (12 px = 2 lines)
-    jay.smallPrintPgm(66, 1,
-        F("SCORING\n\nB TERR:\nB CAPT:\n\nW TERR:\nW CAPT:\nW KOMI:"), 1);
-    jay.prNum(94, 13, game.territory[0]);
-    jay.prNum(94, 19, game.captures[0]);
-    jay.prNum(94, 31, game.territory[1]);
-    jay.prNum(94, 37, game.captures[1]);
-    jay.smallPrintPgm(94, 43, F("6.5"), 1);
+    // Score table: WHITE | BLACK header, labels left, every number
+    // right-aligned to its column edge. Komi (and the .5 in white's
+    // total) lives only in the white column.
+    const uint8_t EW = 106, EB = 126;   // column right edges (1 px screen margin)
+    jay.smallPrintPgm(66, 1, F("SCORING"), 1);
+    jay.smallPrintPgm(96, 11, F("WHT"), 1);
+    jay.smallPrintPgm(116, 11, F("BLK"), 1);
+    jay.smallPrintPgm(66, 19, F("TERR"), 1);
+    jay.smallPrintPgm(66, 25, F("CAPT"), 1);
+    jay.smallPrintPgm(66, 31, F("KOMI"), 1);
+    jay.drawFastHLine(66, 37, 61);      // rule above the totals
+    jay.smallPrintPgm(66, 39, F("TOTAL"), 1);
+    scoreNum(jay, EW, 19, game.territory[1]);
+    scoreNum(jay, EB, 19, game.territory[0]);
+    scoreNum(jay, EW, 25, game.captures[1]);
+    scoreNum(jay, EB, 25, game.captures[0]);
+    jay.smallPrintPgm(EW - 10, 31, F("6.5"), 1);
+    // white total is always x.5 (integer points + 6.5 komi)
+    uint16_t wTot = game.territory[1] + game.captures[1] + 6;
+    scoreNum(jay, EW - 7, 39, wTot);
+    jay.smallPrintPgm(EW - 6, 39, F(".5"), 1);
+    scoreNum(jay, EB, 39, (uint16_t)(game.territory[0] + game.captures[0]));
 }
 
 void Display::renderGameOver() {

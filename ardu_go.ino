@@ -23,6 +23,18 @@ AI ai;
 Display display(jay, game);
 
 uint8_t stage = STAGE_TITLE;
+
+// Boot straight into the score screen with a real finished game
+// (Jay's 2026-08-01 save, B+0.5 after komi) — for score-screen layout
+// iteration. Comment out for the normal title boot.
+//#define BOOT_SCORE_DEMO
+#ifdef BOOT_SCORE_DEMO
+static const uint8_t PROGMEM DEMO_GAME[] = {
+    0x21, 0x30, 0x3B, 0x1E, 0x17, 0x16, 0x0D, 0x15, 0x0C, 0x0B, 0x28,
+    0x31, 0x32, 0x43, 0x3A, 0x39, 0x44, 0x4C, 0x4D, 0x42, 0x27, 0x26,
+    0x29, 0x0E, 0x0F, 0x1F, 0x20, 0x14, 0x02, 0x01, 0x05, 0x03, 0x04,
+    0x02};
+#endif
 uint8_t menuCursor = 0;
 uint8_t inverted = 1;
 uint8_t aiTimer = 0;
@@ -105,6 +117,19 @@ void setup() {
     //jay.smallPrint(99, 56, itoa((uint16_t)&ai, 16), 1);
     //jay.display();
     //while(1) {};
+
+#ifdef BOOT_SCORE_DEMO
+    game.reset();
+    for(uint8_t i = 0; i < sizeof(DEMO_GAME); i++) {
+        uint8_t m = pgm_read_byte(DEMO_GAME + i);
+        game.playMove(m % 9, m / 9);
+    }
+    game.pass();
+    game.pass();               // double pass = game over
+    ai.reset();
+    ai.scoreDead(game);        // dead stones off + real territory
+    stage = STAGE_SCORING;     // A advances to GAME_OVER, then title
+#endif
 }
 
 void loop() {
