@@ -1408,9 +1408,22 @@ static uint8_t settledRegionColor(uint8_t seed) {
 
 // All orthogonal neighbors own color (or edge)
 static uint8_t isOwnEye(uint8_t pos, uint8_t color) {
+    // Unrolled sentinel walk (the pre-scan recipe): min degree 2 makes
+    // the first two sentinel checks dead, the 5th byte is never read,
+    // and the last read drops its dead post-increment. Smallest body
+    // in the engine -- one probe, one compare.
+    const uint8_t *e = NEIGHBOR_TABLE + pos * 5;
     uint8_t q;
-    FOR_EACH_NEIGHBOR(q, pos)
+    q = lpmNext(e);
+    if(boardAt(q) != color) return 0;
+    q = lpmNext(e);
+    if(boardAt(q) != color) return 0;
+    q = lpmNext(e);
+    if(q != 0xFF) {
         if(boardAt(q) != color) return 0;
+        q = pgm_read_byte(e);
+        if(q != 0xFF && boardAt(q) != color) return 0;
+    }
     // False-eye test (michi's is_eye): enemy-held diagonals make this
     // a connection point, not an eye -- an "eye" whose diagonals the
     // enemy controls must eventually be filled to connect, and the
