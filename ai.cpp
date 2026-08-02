@@ -1105,24 +1105,33 @@ static uint8_t groupLibsCore(uint8_t start, uint8_t markAll, uint8_t cap) {
         // clamps to cap exactly as the early exit did.
         const uint8_t *e = NEIGHBOR_TABLE + start * 5;
         uint8_t q, s;
-#define GL_SEED_BODY \
+        // Cap exits restored per step (Jay): with always_inline
+        // enforced the outlining trap is gone, so the early return
+        // pays only its own branch. Step 1 needs no check (count <= 1
+        // is below every cap); in the hot cap=3 clone GCC's value
+        // propagation deletes step 2's check the same way it deleted
+        // the dead lib1/lib2 tests.
+#define GL_SEED_BODY(CAPCHK) \
         s = boardAt(q); \
         if(s == EMPTY) { \
             if(lib1 == 0xFF) lib1 = q; \
             else if(lib2 == 0xFF) lib2 = q; \
             count++; \
+            CAPCHK \
         } else if(s == color) floodSlot(sp++) = q;
-        q = lpmNext(e); GL_SEED_BODY
-        q = lpmNext(e); GL_SEED_BODY
-        q = lpmNext(e); if(q == 0xFF) goto glcSeedTally; GL_SEED_BODY
-        q = pgm_read_byte(e); if(q == 0xFF) goto glcSeedTally; GL_SEED_BODY
-#undef GL_SEED_BODY
-glcSeedTally:
-        if(count >= cap) {
-            glcL1 = lib1;
-            glcL2 = lib2;
-            return cap;
+#define GL_CAP \
+        if(count >= cap) { \
+            glcL1 = lib1; \
+            glcL2 = lib2; \
+            return count; \
         }
+        q = lpmNext(e); GL_SEED_BODY()
+        q = lpmNext(e); GL_SEED_BODY(GL_CAP)
+        q = lpmNext(e); if(q == 0xFF) goto glcSeedTally; GL_SEED_BODY(GL_CAP)
+        q = pgm_read_byte(e); if(q == 0xFF) goto glcSeedTally; GL_SEED_BODY(GL_CAP)
+#undef GL_SEED_BODY
+#undef GL_CAP
+glcSeedTally:;
         newMark();
         simMark[start] = markEpoch;
         for(uint8_t k = 0; k < sp; k++)
