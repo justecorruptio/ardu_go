@@ -27,7 +27,15 @@ static uint8_t rnd(uint8_t n);
 #define VKOMI_STEP2 4   // adaptation step, half-points (= 2 points)
 #endif
 #ifndef VKOMI_MAX2
-#define VKOMI_MAX2 24   // spot at most 12 points before giving up
+#define VKOMI_MAX2 48   // spot at most 24 points before giving up
+                        // (2026-08 blunder-gap hunt: 24 left evals
+                        // coin-flip once behind >12 pts and the tree
+                        // threw 6-20pt stones; 48 keeps the margin
+                        // objective ordered. Two 200-game seed sets:
+                        // blunders 35->29, drop mass -15%; paired 1000
+                        // 188 vs 189 with only 5 diverged games; game
+                        // length +0.7 moves; 96 = byte-identical to 48,
+                        // saturation. Resign timing unchanged.)
 #endif
 static uint8_t vKomi2;
 
@@ -3972,6 +3980,7 @@ uint8_t AI::bestMove(Game &game, uint8_t &x, uint8_t &y) {
 #ifdef ROBUST_PICK
         continue;  // A/B probe: no LCB race, robust child via backup
 #endif
+
         if(v < LCB_GATE || v * LCB_REL_DIV < maxV) continue;
 
         uint16_t q6 = (nWins(c) << 6) / v;    // Q6 win rate, 16-bit divide
