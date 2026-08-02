@@ -1732,12 +1732,25 @@ static uint8_t ladderEscapes(uint8_t defStart, uint8_t esc,
     uint8_t defColor = simBoard[defStart];
     uint8_t atkColor = 3 - defColor;
     uint8_t escaped = 1;
+    // Restore bound: the chase only ever mutates the cells it plays on
+    // (ILLEGAL simPlay undoes itself; the tentative probes revert in
+    // place), so tracking the min/max played index lets the restore
+    // copy back just that slice. A capture inside the read (rare --
+    // snapback/counter-capture) widens to the whole board rather than
+    // chasing the captured group's extent. An instant-dead read (first
+    // extension ILLEGAL) restores nothing at all.
+    uint8_t lo = 0xFF, hi = 0;
 
     for(uint8_t step = 0; step < maxSteps; step++) {
         // Defender extends at the sole liberty
         if(simPlay(esc, defColor, NO_KO) == ILLEGAL) {
             escaped = 0;
             break;
+        }
+        if(simCaptured) { lo = 0; hi = BOARD_CELLS - 1; }
+        else {
+            if(esc < lo) lo = esc;
+            if(esc > hi) hi = esc;
         }
         uint8_t libs = groupLibsFind(esc);
         uint8_t l1 = glcL1, l2 = glcL2;
@@ -1797,10 +1810,16 @@ static uint8_t ladderEscapes(uint8_t defStart, uint8_t esc,
         }
         if(chase == 0xFF) break; // no working chase: escape
         if(simPlay(chase, atkColor, NO_KO) == ILLEGAL) break;
+        if(simCaptured) { lo = 0; hi = BOARD_CELLS - 1; }
+        else {
+            if(chase < lo) lo = chase;
+            if(chase > hi) hi = chase;
+        }
         esc = next;
     }
 
-    memcpy(simBoard, ladderBoard, BOARD_CELLS);
+    if(lo <= hi)
+        memcpy(simBoard + lo, ladderBoard + lo, (uint8_t)(hi - lo + 1));
     return escaped;
 }
 
