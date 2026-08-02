@@ -1669,6 +1669,24 @@ static uint16_t playoutTryOpen(uint8_t pos, uint8_t toMove, uint8_t ko,
     return 0x100 | nk;
 }
 
+// Same, for callers whose candidate is ALREADY proven empty, non-ko
+// and non-eye (the pattern scan verifies all three per candidate;
+// board state cannot change between its scan and the try within one
+// cascade pass, so the isOwnEye recheck is dead work). Own body --
+// chaining through playoutTryOpen taxed the global probe's entry.
+static uint16_t playoutTryPat(uint8_t pos, uint8_t toMove, uint8_t ko,
+                              uint8_t m) {
+    uint8_t nk = simPlay(pos, toMove, ko, !scoreMode);
+    if(nk == ILLEGAL) return 0;
+    asm volatile("" : "+r"(pos));   // same barrier as playoutTryOpen
+    if(toMove == rootTurn && m < RAVE_HORIZON) raveMark(pos);
+    if(simCaptured) {
+        if(toMove == BLACK) capB += simCaptured;
+        else capW += simCaptured;
+    }
+    return 0x100 | nk;
+}
+
 #ifdef PLAYOUT_STATS
 uint32_t plN, plMoves, plEndCap, plEndPass, plEndMercy;
 #endif
@@ -1914,7 +1932,7 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
             }
             if(nMatches) {
                 uint8_t mp = matches[rnd(nMatches)];
-                uint16_t r = playoutTry(mp, toMove, ko, m);
+                uint16_t r = playoutTryPat(mp, toMove, ko, m);
                 if(r) {
                     ko = (uint8_t)r;
                     last = mp;
