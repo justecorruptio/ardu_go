@@ -885,7 +885,8 @@ static uint8_t posXY(uint8_t pos) {
     return pgm_read_byte(POSXY_TAB + pos);
 }
 
-static uint32_t groupLibsCore(uint8_t start, uint8_t markAll, uint8_t cap);
+static uint8_t groupLibsCore(uint8_t start, uint8_t markAll, uint8_t cap);
+static uint8_t glcL1, glcL2;   // first two liberties of the last flood
 
 // Does the group at start have any liberty? Dedicated flood: unlike the
 // shared core it keeps no liberty list, count, or dedup — it just bails
@@ -965,15 +966,14 @@ static uint8_t removeGroup(uint8_t start) {
     return n;
 }
 
-static uint32_t groupLibsFind(uint8_t start);
+static uint8_t groupLibsFind(uint8_t start);
 
 // If the group at start has exactly one liberty, return it; else 0xFF.
 // (Thin wrapper: groupLibsFind's early-exit-at-3 does the same flood
 // with marginally more work than a dedicated exit-at-2 — the ~150
 // bytes of flash matter more than those cycles.)
 static uint8_t soleLiberty(uint8_t start) {
-    uint32_t r = groupLibsCore(start, 0, 2);
-    return (uint8_t)r == 1 ? (uint8_t)(r >> 8) : 0xFF;
+    return groupLibsCore(start, 0, 2) == 1 ? glcL1 : 0xFF;
 }
 
 // Shared flood core for ALL the liberty finders: counts distinct
@@ -982,11 +982,12 @@ static uint8_t soleLiberty(uint8_t start) {
 // routed through a fixed cap-3 version was HALF of all search time).
 // With markAll it floods the WHOLE group into the CURRENT mark epoch
 // (membership tests need complete marking; cap is ignored).
-// Returns count | (l1<<8) | (l2<<16), the packed-return idiom from
-// playoutTry scaled to the flood core: two pointer out-params became
-// register byte-extracts at every caller (the out-param tax scales
-// with call count, and this is a six-figure-calls path).
-static uint32_t groupLibsCore(uint8_t start, uint8_t markAll, uint8_t cap) {
+// Returns the count; the first two liberties land in glcL1/glcL2
+// statics. (History: pointer out-params lost to a packed uint32
+// return; the 2026-08 asm audit then showed -Os builds that pack
+// with zeroed-register ORs and every caller pays shift chains to
+// unpack -- two sts here + two lds at the caller beat both.)
+static uint8_t groupLibsCore(uint8_t start, uint8_t markAll, uint8_t cap) {
     uint8_t color = simBoard[start];
     uint8_t lib1 = 0xFF, lib2 = 0xFF;
     uint8_t count = 0;
@@ -1008,9 +1009,11 @@ static uint32_t groupLibsCore(uint8_t start, uint8_t markAll, uint8_t cap) {
             if(s == EMPTY) {
                 if(lib1 == 0xFF) lib1 = q;
                 else if(lib2 == 0xFF) lib2 = q;
-                if(++count >= cap)
-                    return (uint32_t)count | ((uint16_t)lib1 << 8) |
-                           ((uint32_t)lib2 << 16);
+                if(++count >= cap) {
+                    glcL1 = lib1;
+                    glcL2 = lib2;
+                    return count;
+                }
             } else if(s == color) {
                 floodSlot(sp++) = q;
             }
@@ -1046,24 +1049,25 @@ static uint32_t groupLibsCore(uint8_t start, uint8_t markAll, uint8_t cap) {
             }
         }
     }
-    return (uint32_t)count | ((uint16_t)lib1 << 8) |
-           ((uint32_t)lib2 << 16);
+    glcL1 = lib1;
+    glcL2 = lib2;
+    return count;
 }
 
 // Find a group's distinct liberties, early-exiting at 3. Fills l1/l2
 // with the first two (0xFF if fewer). Returns the count, 0-3.
-static uint32_t groupLibsFind(uint8_t start) {
+static uint8_t groupLibsFind(uint8_t start) {
     return groupLibsCore(start, 0, 3);
 }
 
 static uint8_t groupLibsMax3(uint8_t start) {
-    uint8_t n = (uint8_t)groupLibsFind(start);
+    uint8_t n = groupLibsFind(start);
     return n ? n : 1; // preserve old behavior: 0 liberties reads as 1
 }
 
 // Full-flood variant of groupLibsFind (see groupLibsCore's markAll)
 static uint8_t groupLibsMark(uint8_t start) {
-    return (uint8_t)groupLibsCore(start, 1, 3);
+    return groupLibsCore(start, 1, 3);
 }
 
 #define SETTLED_REGION_MAX 8
@@ -1371,10 +1375,9 @@ static uint8_t simPlay(uint8_t pos, uint8_t color, uint8_t ko,
             // classifies this same group on an unchanged board.
             uint8_t libs;
             if(connected) {
-                uint32_t gr = groupLibsFind(pos);
-                libs = (uint8_t)gr;
-                a = (uint8_t)(gr >> 8);
-                b = (uint8_t)(gr >> 16);
+                libs = groupLibsFind(pos);
+                a = glcL1;
+                b = glcL2;
             } else
                 libs = e;
 #ifdef PLAYOUT_STATS
@@ -1443,9 +1446,8 @@ static uint8_t ladderEscapes(uint8_t defStart, uint8_t esc,
             escaped = 0;
             break;
         }
-        uint32_t gr = groupLibsFind(esc);
-        uint8_t libs = (uint8_t)gr, l1 = (uint8_t)(gr >> 8),
-                l2 = (uint8_t)(gr >> 16);
+        uint8_t libs = groupLibsFind(esc);
+        uint8_t l1 = glcL1, l2 = glcL2;
         if(libs >= 3) break;               // clear escape
         if(libs <= 1) { escaped = 0; break; } // attacker just takes
 
@@ -1771,10 +1773,9 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                 l1 = cacheL1;
                 l2 = cacheL2;
             } else {
-                uint32_t gr = groupLibsFind(last);
-                libs = (uint8_t)gr;
-                l1 = (uint8_t)(gr >> 8);
-                l2 = (uint8_t)(gr >> 16);
+                libs = groupLibsFind(last);
+                l1 = glcL1;
+                l2 = glcL2;
             }
             if(libs == 1 && l1 != ko) {
                 // Capture the atari'd group
