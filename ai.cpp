@@ -3014,6 +3014,11 @@ static uint8_t allocReady() {
 // Corner quadrants (4x4 regions) with no stones, as bits TL,TR,BL,BR.
 // Filled by buildNearMask, consumed by candidatePrior.
 static uint8_t emptyCorners;
+// Root near-mask cache: the root board is frozen during a think, so its
+// buildNearMask result is computed once and replayed for every later
+// root widen (~20% of all widen calls) instead of re-stamped per stone.
+static uint8_t rootNear[12];
+static uint8_t rootNearAny, rootEmptyCorners, rootNearValid;
 
 // 81-bit bitmap of points within distance 2 of any stone.
 // Returns 0 if the board has no stones (then allow everything).
@@ -3693,7 +3698,23 @@ static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t la
     }
 
     uint8_t near[12];  // 12 not 11: buildNearMask's run write touches byte 11
-    uint8_t anyStone = buildNearMask(near);
+    // The root board is frozen for the whole think, so its near mask
+    // (and corner set) is computed once and replayed for every later
+    // root widen -- a 12-byte copy instead of the full per-stone stamp.
+    // Deeper nodes see a different simBoard and keep the live scan.
+    // rootNearValid is cleared at think() entry.
+    uint8_t anyStone;
+    if(nodeIdx == 0) {
+        if(!rootNearValid) {
+            rootNearAny = buildNearMask(rootNear);
+            rootEmptyCorners = emptyCorners;
+            rootNearValid = 1;
+        }
+        memcpy(near, rootNear, sizeof(rootNear));
+        emptyCorners = rootEmptyCorners;
+        anyStone = rootNearAny;
+    } else
+        anyStone = buildNearMask(near);
 #ifdef LD_CRIT
     ldAtRoot = (nodeIdx == 0);
 #endif
@@ -4159,6 +4180,7 @@ void AI::think(Game &game) {
     // Dead enemy stones make computeScore undercount our territory,
     // which only delays this trigger until they are actually captured
     // (it can never pass into a loss by the game's own scoring).
+    rootNearValid = 0;   // new root board: recompute its near mask
     passToWin = 0;
     resigned = 0;
     // The naive-count path stays endgame-only (>= 45 stones: it once
