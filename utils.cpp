@@ -22,7 +22,7 @@ char * itoa(uint8_t x, char *buf) {
 }
 
 uint8_t strlen(const uint8_t* s) {
-    uint8_t* t = s;
+    const uint8_t* t = s;
     while(*t) t++;
     return t - s;
 }

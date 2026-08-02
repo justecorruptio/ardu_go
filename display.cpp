@@ -146,13 +146,13 @@ void Display::renderScoring() {
         jay.smallPrintPgm(pgm_read_byte(&SC_LBLS[i].x),
                           pgm_read_byte(&SC_LBLS[i].y),
                           (const __FlashStringHelper *)
-                              pgm_read_word(&SC_LBLS[i].s), 1);
+                              pgm_read_ptr(&SC_LBLS[i].s), 1);
     }
     jay.drawFastHLine(66, 37, 61);      // rule above the totals
     // white total is always x.5 (integer points + 6.5 komi)
     uint16_t vals[6] = {
-        game.territory[1], game.territory[0],
-        game.captures[1], game.captures[0],
+        (uint16_t)game.territory[1], (uint16_t)game.territory[0],
+        (uint16_t)game.captures[1], (uint16_t)game.captures[0],
         (uint16_t)(game.territory[1] + game.captures[1] + 6),
         (uint16_t)(game.territory[0] + game.captures[0]),
     };

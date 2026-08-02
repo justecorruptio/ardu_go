@@ -71,7 +71,7 @@ void Jaylib::smallPrintWrapped(uint8_t x, uint8_t y, uint8_t w, const uint8_t * 
     char c;
     for(;c = *str; str++) {
         if(c == ' ') {
-            uint8_t* ptr = str + 1;
+            const uint8_t* ptr = str + 1;
             while(*ptr && *ptr != ' ' && *ptr != '\n') {
                 ptr ++;
             }
@@ -187,7 +187,7 @@ void Jaylib::display() {
     Arduboy2Base::display();
 }
 
-void Jaylib::drawPrompt(uint8_t y, const uint8_t * str, uint8_t color=1) {
+void Jaylib::drawPrompt(uint8_t y, const uint8_t * str, uint8_t color) {
     uint8_t w = strlen(str) * 6 - 1;
     uint8_t x = (128 - w) / 2;
     for(int i = x - 4; i < x + w + 4; i++) {
