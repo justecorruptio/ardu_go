@@ -1354,14 +1354,15 @@ static uint8_t soleConnector(uint8_t seedA, uint8_t idB) {
 // old uint8_t return), high byte = the vital cell or 0xFF. Packed so no
 // caller needs an out-param (the pointer plumbing showed in the
 // profile; one hot caller only wants the cache side-effect).
-// `stamp` selects the lazy-cache write-back: the widen scan and the
-// root passes need it, but the PLAYOUT eyespace hook never reads the
-// cache (chainId/regionDone are rebuilt by the next buildChainMap --
-// the stamps were pure wasted stores there, ~2% of think). A runtime
-// flag, not a template clone: the clone duplicated the whole flood
-// (+304B, floor bust); the branch costs ~2 cycles and keeps every
-// store saving. Values identical either way.
-static uint16_t regionVital(uint8_t seed, uint8_t stamp = 1) {
+// STAMP selects the lazy-cache write-back at compile time: the widen
+// scan and the root passes need it, but the PLAYOUT eyespace hook
+// never reads the cache (chainId/regionDone are rebuilt by the next
+// buildChainMap -- the stamps were pure wasted stores there, ~2% of
+// think). Template clone: the stampless copy also gets leaner register
+// allocation, worth ~0.5% over a runtime flag; the +304B clone cost is
+// paid for by the renderScoring table shrink (F1, -294B).
+template<uint8_t STAMP>
+static uint16_t regionVitalT(uint8_t seed) {
     uint8_t region[SETTLED_REGION_MAX];
     uint8_t cnt = 0, head = 0;
     uint8_t owner = 0, unsettled = 0;
@@ -1403,8 +1404,8 @@ static uint16_t regionVital(uint8_t seed, uint8_t stamp = 1) {
     // Lazy eyespace cache: stamp the flooded cells (<=8) with the region
     // code (bits 6-7: 1=black, 2=white, 0=open; the vital cell = 3) and
     // flag them done, so other candidates in this region skip the flood.
-    // Skipped for stamp=0 callers (see the header comment).
-    if(stamp) {
+    // Compiled out for STAMP=0 callers (see the template comment).
+    if(STAMP) {
         uint8_t code6 = (uint8_t)(((unsettled || !owner) ? 0 : owner) << 6);
         for(uint8_t j = 0; j < cnt; j++) {
             uint8_t c = region[j];
@@ -1420,6 +1421,9 @@ static uint16_t regionVital(uint8_t seed, uint8_t stamp = 1) {
     }
     return ((uint16_t)vit << 8) | (unsettled ? 0 : owner);
 }
+// Stamped variant = the historical regionVital; the playout call site
+// uses regionVitalT<0> directly.
+static inline uint16_t regionVital(uint8_t seed) { return regionVitalT<1>(seed); }
 
 #ifdef NAKADE
 // Nakade vitals (GNU Go optics borrow, 2026-08): an eyespace's
@@ -2204,8 +2208,8 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
             uint8_t q;
             FOR_EACH_NEIGHBOR(q, last) {
                 if(boardAt(q) != EMPTY) continue;
-                // stamp=0: playouts never read the lazy cache
-                uint16_t rv = regionVital(q, 0);
+                // stampless clone: playouts never read the lazy cache
+                uint16_t rv = regionVitalT<0>(q);
                 if((uint8_t)rv) vcand = rv >> 8;
                 break; // only the first adjacent region
             }
