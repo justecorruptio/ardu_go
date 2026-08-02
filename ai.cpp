@@ -3011,6 +3011,11 @@ static uint8_t emptyCorners;
 // root widen (~20% of all widen calls) instead of re-stamped per stone.
 static uint8_t rootNear[12];
 static uint8_t rootNearAny, rootEmptyCorners, rootNearValid;
+// Bit pos set iff cell pos is >=2 from every board edge (the interior
+// 5x5): the "big open point" edge test, precomputed (see widenNode).
+static const uint8_t PROGMEM FAR_BITMAP[11] = {
+    0x00, 0x00, 0xF0, 0xE1, 0xC3, 0x87, 0x0F, 0x1F, 0x00, 0x00, 0x00
+};
 
 // 81-bit bitmap of points within distance 2 of any stone.
 // Returns 0 if the board has no stones (then allow everything).
@@ -3757,11 +3762,12 @@ static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t la
         if(have[pb] & pm) continue;
         uint8_t isFar = 0;
         if(anyStone && !(near[pb] & pm)) {
-            uint8_t bxy = posXY(pos);
-            uint8_t bx = bxy & 0x0F, by = xyHi(bxy);
-            uint8_t bex = bx < BOARD_SIZE - 1 - bx ? bx : BOARD_SIZE - 1 - bx;
-            uint8_t bey = by < BOARD_SIZE - 1 - by ? by : BOARD_SIZE - 1 - by;
-            if((bex < bey ? bex : bey) < 2) continue;
+            // "Big open point" = >=2 from every edge AND not near a
+            // stone. The edge-distance test is a static property of the
+            // cell (interior 5x5), so read it from FAR_BITMAP instead of
+            // recomputing posXY + four min ops per far candidate -- pb/pm
+            // are already in hand. Byte-identical to the min-distance form.
+            if(!(pgm_read_byte(FAR_BITMAP + pb) & pm)) continue;
             isFar = 1;
         }
         if(isOwnEye(pos, toMove)) continue;
