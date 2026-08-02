@@ -87,28 +87,26 @@ static uint8_t nbIndex(uint8_t j, uint8_t d) {
     return nbIndexXY(j % BOARD_SIZE, j / BOARD_SIZE, d);
 }
 
-uint8_t Game::countLiberties(uint8_t x, uint8_t y) {
+uint8_t Game::hasLiberties(uint8_t x, uint8_t y) {
+    // Every caller of the old countLiberties only ever tested == 0, so
+    // the exact count (and its mark-2 dedupe machinery) was dead
+    // weight: flood the group, return 1 at the FIRST empty neighbour.
+    // EMPTY input keeps the old contract (count 0 -> "no liberties").
     uint8_t color = at(x, y);
     if(color == EMPTY) return 0;
 
     memset(visited, 0, sizeof(visited));
     floodFill(x, y, color); // group cells -> 1
 
-    // Count each empty neighbor once by marking it 2 in visited[]
-    // (group cells are stones, so the values never clash)
-    uint8_t liberties = 0;
     for(uint8_t i = 0; i < BOARD_CELLS; i++) {
         if(packedGet(visited, i) != 1) continue;
         for(uint8_t d = 0; d < 4; d++) {
             uint8_t ni = nbIndex(i, d);
             if(ni == 0xFF) continue;
-            if(packedGet(board, ni) == EMPTY && !packedGet(visited, ni)) {
-                packedSet(visited, ni, 2);
-                liberties++;
-            }
+            if(packedGet(board, ni) == EMPTY) return 1;
         }
     }
-    return liberties;
+    return 0;
 }
 
 uint8_t Game::captureGroup(uint8_t x, uint8_t y) {
@@ -132,7 +130,7 @@ uint8_t Game::isValidMove(uint8_t x, uint8_t y) {
 
     // One pass detects captures AND applies them to the temp board the
     // ko test needs (this loop used to run twice: detect, then re-run
-    // identically against temp). countLiberties reads `board`, which
+    // identically against temp). hasLiberties reads `board`, which
     // the temp-side sweep never touches, so the merged pass sees
     // exactly what both original loops saw.
     uint8_t tempBoard[PACKED_BOARD_BYTES];
@@ -143,7 +141,7 @@ uint8_t Game::isValidMove(uint8_t x, uint8_t y) {
         if(ni == 0xFF) continue;
         if(packedGet(board, ni) == opponent) {
             uint8_t nx = ni % BOARD_SIZE, ny = ni / BOARD_SIZE;
-            if(countLiberties(nx, ny) == 0) {
+            if(!hasLiberties(nx, ny)) {
                 captures = 1;
                 memset(visited, 0, sizeof(visited));
                 floodFill(nx, ny, opponent);
@@ -153,7 +151,7 @@ uint8_t Game::isValidMove(uint8_t x, uint8_t y) {
     }
 
     // Check suicide: if no captures and own group has no liberties
-    if(!captures && countLiberties(x, y) == 0) {
+    if(!captures && !hasLiberties(x, y)) {
         set(x, y, EMPTY);
         return 0;
     }
@@ -178,7 +176,7 @@ uint8_t Game::playMove(uint8_t x, uint8_t y) {
         uint8_t ni = nbIndexXY(x, y, d);
         if(ni == 0xFF) continue;
         uint8_t nx = ni % BOARD_SIZE, ny = ni / BOARD_SIZE;
-        if(at(nx, ny) == opponent && countLiberties(nx, ny) == 0) {
+        if(at(nx, ny) == opponent && !hasLiberties(nx, ny)) {
             captures[captureIdx] += captureGroup(nx, ny);
         }
     }
