@@ -1000,6 +1000,40 @@ static uint8_t hasLiberty(uint8_t start, uint8_t color) {
         HLF_STEP((A & 0x80) ? p - 9 : p)             // north: bit 7
         HLF_STEP(p + ((B & 7) ? 9 : 0))              // south
 #undef HLF_STEP
+#elif defined(PACKED_TRIT)
+        // Jay's trit-coded stream (see NBR_TRIT): decode base-9
+        // digits; codes 5-8 are direction-and-STOP, so corners never
+        // read B and edges stop after B's first digit. The lpm Z+
+        // fetching A leaves the pointer on B for free.
+        // MEASURED 2026-08: correct (movecmp byte-identical) but
+        // +7.5% mid / +8.1% open -- the /9 %9 digit split plus delta
+        // lookup plus stop-test costs ~10 cy per direction against
+        // the sentinel walk's 3-cycle ready-index lpm.
+        const uint8_t *e = NBR_TRIT + p * 2;
+        uint8_t bytev = lpmNext(e);   // A; e now points at B
+        uint8_t q, s, code;
+#define HLT_STEP() \
+        q = (uint8_t)(p + (int8_t)pgm_read_byte(TRIT_DELTA + code)); \
+        s = boardAt(q); \
+        if(s == EMPTY) return 1; \
+        if(s == color) { \
+            uint8_t *mp = markPtr(q); \
+            if(*mp != markEpoch) { \
+                *mp = markEpoch; \
+                *wp++ = q; \
+            } \
+        } \
+        if(code >= 5) continue;
+        code = bytev % 9;
+        HLT_STEP()
+        code = bytev / 9;
+        HLT_STEP()
+        bytev = lpmNext(e);           // B, deferred until needed
+        code = bytev % 9;
+        HLT_STEP()
+        code = bytev / 9;
+        HLT_STEP()
+#undef HLT_STEP
 #else
         const uint8_t *e = NEIGHBOR_TABLE + p * 5;
         uint8_t q;
