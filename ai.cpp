@@ -3026,6 +3026,12 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     // candidate's 3x3, so neither patterns nor the thin-stretch check
     // can see this shape. Applies only when the keima is the sole link
     // (no orthogonal contact — checked above — and no diagonal one).
+    // NO_KEIMA removes this block entirely: measured 2026-08 at
+    // -26/1000 paired (17.3 vs 19.9, p=0.15, adverse discordants),
+    // consistent with the 2026-07 prior-rework finding (-11/300).
+    // The prior earns its keep twice over; the flag documents its
+    // price: 542 B flash + the hottest prior line (~2.5% of think).
+#ifndef NO_KEIMA
     if(!hasOrthFriend && !isFar && !sawCapture && !sawSave && !sawAtari) {
         // (guard order: hasOrthFriend disqualifies most candidates)
         // (isFar: no stone within Chebyshev 2, and every cell this
@@ -3103,6 +3109,8 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
             }
         }
     }
+
+#endif // NO_KEIMA
 
     // Low-line discipline (see the defines): opening low-line moves
     // are penalized unconditionally; later, second-line moves near an
