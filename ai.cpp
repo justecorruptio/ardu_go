@@ -32,6 +32,8 @@ static uint8_t rnd(uint8_t n);
 //                       decided games; settled nakade is post-hoc. OFF)
 //     NET               net/geta capping prior           (-19/1000 @+4,
 //                       p=.25, disc 115/134: negative, dose test stopped. OFF)
+//     LOOSE             bounded loose-ladder reader      (premise refuted:
+//                       class-A saves reach 4+ libs; loss is strategic. OFF)
 //     SQZ34             midgame 3/4 playout squeeze      (-20/1000: distorts
 //                       healthy fights; squeeze family fully dead. OFF)
 //     LADDER_PRUNE      defender-lookahead chase pick    (199=199, disc 0/0
@@ -1836,6 +1838,211 @@ static uint8_t ladderEscapes(uint8_t defStart, uint8_t esc,
         memcpy(simBoard + lo, ladderBoard + lo, (uint8_t)(hi - lo + 1));
     return escaped;
 }
+
+#ifdef LOOSE
+// ===== Bounded loose-ladder reader (midgame fighting hunt, 2026-08) =====
+// PREMISE REFUTED AT THE VALIDATION GATE: every class-A exemplar's
+// save reaches 4+ liberties immediately (the earlier "3" was
+// groupLibsFind's cap), so no bounded chase read can see the loss --
+// and the game continuations show the mechanism is STRATEGIC, not
+// tactical: the engine tenukis from live boundary exchanges while its
+// playouts score the position 75-80% against gnugo's near-even margin
+// (unpriced crawls/pushes = the eval-calibration domain). The reader
+// is kept flag-gated as correct bounded-semeai machinery for possible
+// future use; it never reached a gauntlet. AND-OR search, attacker
+// tries to capture the defender group, defender tries to reach
+// LL_ALIVE_LIBS or survive to the caps:
+//   - ITERATIVE (explicit line/index arrays): 12-level recursion would
+//     blow the AVR stack (high-water ~200B against ~230 slack).
+//   - Replay-based undo: one snapshot in ladderBoard (never used
+//     concurrently with ladderEscapes) + full-line replay on backtrack.
+//   - Cap-out or depth-out returns ALIVE: false doom is the only
+//     unsafe direction (same convention as ladderEscapes).
+//   - Move ordering = the room heuristic (attack the open side first,
+//     run toward the open side first) so real kills land inside the
+//     node budget.
+// Verdict is for the chain containing defStart on the CURRENT board.
+#ifndef LL_DEPTH
+#define LL_DEPTH 12
+#endif
+#ifndef LL_NODES
+#define LL_NODES 60
+#endif
+#ifndef LL_ALIVE_LIBS
+#define LL_ALIVE_LIBS 4
+#endif
+
+// Distinct liberties of the chain at start, up to cap(<=4), into out[].
+// Fresh mark epoch; returns the count.
+static uint8_t groupLibsList(uint8_t start, uint8_t *out, uint8_t cap) {
+    uint8_t color = simBoard[start];
+    uint8_t n = 0;
+    newMark();
+    uint8_t sp = 0;
+    floodSlot(sp++) = start;
+    simMark[start] = markEpoch;
+    while(sp) {
+        uint8_t p = floodSlot(--sp);
+        uint8_t q;
+        FOR_EACH_NEIGHBOR(q, p) {
+            uint8_t s = boardAt(q);
+            uint8_t *mp = markPtr(q);
+            if(*mp == markEpoch) continue;
+            if(s == color) { *mp = markEpoch; floodSlot(sp++) = q; }
+            else if(s == EMPTY) {
+                *mp = markEpoch;
+                out[n++] = q;
+                if(n >= cap) return n;
+            }
+        }
+    }
+    return n;
+}
+
+// Empty-neighbour count (the room heuristic's currency)
+static uint8_t emptyDeg(uint8_t pos) {
+    uint8_t d = 0, q;
+    FOR_EACH_NEIGHBOR(q, pos) if(simBoard[q] == EMPTY) d++;
+    return d;
+}
+
+// k-th candidate move at the current position for the side at `depth`
+// (even depth = attacker). Deterministic enumeration; 0xFF = none.
+// Defender moves: extends (open side first), then counter-captures of
+// adjacent 1-lib enemy chains. Attacker moves: liberty fills, open
+// side first (block the escape direction).
+static uint8_t llDefColor, llDefStart;
+static uint8_t llMoveAt(uint8_t depth, uint8_t k) {
+    uint8_t libs[4];
+    uint8_t nl = groupLibsList(llDefStart, libs, 4);
+    // order libs by descending emptyDeg (insertion, n<=4)
+    for(uint8_t i = 1; i < nl; i++)
+        for(uint8_t j = i; j; j--)
+            if(emptyDeg(libs[j]) > emptyDeg(libs[j - 1])) {
+                uint8_t t = libs[j]; libs[j] = libs[j - 1]; libs[j - 1] = t;
+            } else break;
+    if(!(depth & 1)) {      // ATTACKER: fill a liberty
+        return k < nl ? libs[k] : 0xFF;
+    }
+    // DEFENDER: extend, then counter-capture
+    if(k < nl) return libs[k];
+    // counter-captures: adjacent enemy chains at 1 lib -- walk the
+    // group, note distinct enemy chains in atari, capture at their lib
+    uint8_t want = k - nl, seen = 0;
+    uint8_t atk = 3 - llDefColor;
+    newMark();
+    uint8_t sp = 0;
+    floodSlot(sp++) = llDefStart;
+    simMark[llDefStart] = markEpoch;
+    while(sp) {
+        uint8_t p = floodSlot(--sp);
+        uint8_t q;
+        FOR_EACH_NEIGHBOR(q, p) {
+            uint8_t s = boardAt(q);
+            uint8_t *mp = markPtr(q);
+            if(*mp == markEpoch) continue;
+            if(s == llDefColor) { *mp = markEpoch; floodSlot(sp++) = q; }
+            else if(s == atk) {
+                *mp = markEpoch;               // dedupe by first stone touch
+                uint8_t sl = soleLiberty(q);   // clobbers glc statics: fine
+                if(sl != 0xFF) {
+                    if(seen == want) return sl;
+                    seen++;
+                }
+            }
+        }
+    }
+    return 0xFF;
+}
+
+// 1 = the defender chain survives the bounded chase, 0 = it dies.
+static uint8_t looseLadderAlive(uint8_t defStart) {
+    llDefColor = simBoard[defStart];
+    llDefStart = defStart;
+    memcpy(ladderBoard, simBoard, BOARD_CELLS);
+    uint8_t line[LL_DEPTH];
+    uint8_t idx[LL_DEPTH];
+    uint8_t depth = 0;
+    idx[0] = 0;
+    uint8_t nodes = 0;
+    uint8_t verdict;
+    // AND-OR DFS: attacker (even depths) needs ONE line to DEAD;
+    // defender needs ONE reply to ALIVE. `verdict` bubbles up as we
+    // backtrack; sentinel 2 = still descending.
+    for(;;) {
+        // ---- evaluate current position (before this level branches)
+        uint8_t v = 2;
+        if(simBoard[llDefStart] != llDefColor) v = 0;        // captured
+        else {
+            uint8_t libs[4];
+            uint8_t nl = groupLibsList(llDefStart, libs, LL_ALIVE_LIBS);
+            if(nl >= LL_ALIVE_LIBS) v = 1;                   // ran free
+            else if(depth >= LL_DEPTH || nodes >= LL_NODES) v = 1; // cap: optimistic
+        }
+        if(v == 2) {
+            // ---- try the next candidate at this level
+            uint8_t mv = llMoveAt(depth, idx[depth]);
+            uint8_t side = (depth & 1) ? llDefColor : (uint8_t)(3 - llDefColor);
+            uint8_t played = 0;
+            while(mv != 0xFF && !played) {
+                idx[depth]++;
+                if(simPlay(mv, side, NO_KO) != ILLEGAL) {
+                    // attacker fill must not be a trivial sacrifice;
+                    // defender extend must not be pointless self-atari
+                    uint8_t ok = 1;
+                    if(!simCaptured) {
+                        uint8_t pl = groupLibsCore(mv, 0, 2);
+                        if(pl <= 1) ok = 0;
+                    }
+                    if(ok) played = 1;
+                    else {
+                        // undo the probe: restore + replay the line
+                        memcpy(simBoard, ladderBoard, BOARD_CELLS);
+                        for(uint8_t i = 0; i < depth; i++) {
+                            uint8_t s2 = (i & 1) ? llDefColor
+                                                 : (uint8_t)(3 - llDefColor);
+                            simPlay(line[i], s2, NO_KO);
+                        }
+                    }
+                }
+                if(!played) mv = llMoveAt(depth, idx[depth]);
+            }
+            if(played) {
+                line[depth] = mv;
+                nodes++;
+                depth++;
+                idx[depth] = 0;
+                continue;
+            }
+            // no candidate worked: attacker out of tries = ALIVE,
+            // defender out of tries = DEAD
+            v = (depth & 1) ? 0 : 1;
+        }
+        // ---- backtrack with verdict v
+        for(;;) {
+            if(depth == 0) { verdict = v; goto done; }
+            depth--;
+            // undo to this depth: restore + replay prefix
+            memcpy(simBoard, ladderBoard, BOARD_CELLS);
+            for(uint8_t i = 0; i < depth; i++) {
+                uint8_t s2 = (i & 1) ? llDefColor
+                                     : (uint8_t)(3 - llDefColor);
+                simPlay(line[i], s2, NO_KO);
+            }
+            uint8_t attacker = !(depth & 1);
+            if(attacker ? (v == 0) : (v == 1)) {
+                // cut: this side got what it wanted
+                continue;   // bubble v one level further up... loop
+            }
+            break;          // other branches of this level remain
+        }
+        if(depth == 0 && idx[0] == 0) { /* unreachable */ }
+    }
+done:
+    memcpy(simBoard, ladderBoard, BOARD_CELLS);
+    return verdict;
+}
+#endif // LOOSE
 
 // Does the 3x3 neighborhood of (cx,cy) match the MoGo pattern library
 // for `color` to move? The library is precompiled into truth-table
