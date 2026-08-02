@@ -30,6 +30,7 @@ static uint8_t rnd(uint8_t n);
 //     LCB_LEADER_MEAN   leader competes with mean q      (-3/2000 combined)
 //     STEAL_VERIFY      +50% budget before a steal pick  (-3/2000 combined)
 //     CLUTCH2           second clutch extension          (189=189: saturated)
+//     WIDEN_TAPER       tapered widen scan, -2.55% think  (-26/2000: costs strength)
 //     FASTPLAY_STOP / CFG_PRIOR / CAPSIZE_PRIOR / ALMOST_VITAL /
 //     LD_CLASS / LD_CRIT   earlier arcs, all measured dead
 //   Speed (emulator-bench verdicts, all movecmp byte-identical):
@@ -3413,6 +3414,17 @@ static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t la
     uint8_t bPos[WIDEN_BATCH];
     for(uint8_t k = 0; k < WIDEN_BATCH; k++) { bP[k] = -128; bPos[k] = 0xFF; }
     uint8_t startPos = rndMod<BOARD_CELLS>();
+    // Tapered scan budget (Jay, 2026-08): cover at least 60 cells,
+    // then stop at a uniform point in [60, 81] -- one draw, rising
+    // stop odds toward the end of the circle. The random start makes
+    // the skipped tail a uniform sample; stragglers wait one trigger.
+    // MEASURED: -2.55% think, but paired 2000 vs L0 = -26 (17.9 vs
+    // 19.1), BOTH samples negative with adverse discordants -- the
+    // skipped prior evaluations lean into real strength cost, and at
+    // fixed iterations the speed is latency-only. Off by default.
+#ifdef WIDEN_TAPER
+    uint8_t scanLeft = (uint8_t)(60 + rnd(22));
+#endif
     // Same two-phase circular scan as playout's global probe (see there).
     // The bitmap byte/mask pair (pb, pm) walks incrementally with pos --
     // shift the mask, step the byte on wrap -- instead of a >>3 and a
@@ -3427,6 +3439,9 @@ static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t la
             pos = 0; scanEnd = startPos;    // phase 2: 0..startPos-1
             pb = 0; pm = 1;
         }
+#ifdef WIDEN_TAPER
+        if(!--scanLeft && bPos[0] != 0xFF) break;
+#endif
         if(boardAt(pos) != EMPTY || pos == ko) continue;
         if(have[pb] & pm) continue;
         uint8_t isFar = 0;
