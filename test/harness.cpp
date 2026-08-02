@@ -434,7 +434,7 @@ static int playGame(int gameNo, int level, uint8_t aiColor, bool verbose) {
                                 gameNo, moves, cname, toVertex(x, y).c_str(),
                                 gnugoSuggest.c_str(), drop, preEst.c_str(),
                                 postEst.c_str());
-                        if(drop >= huntThresh) {
+                        if(drop >= huntThresh && huntLog) {
                             huntCount++;
                             fprintf(huntLog,
                                 "== blunder %d: game %d mv %d %s played %s"
