@@ -20,6 +20,25 @@ static uint8_t rnd(uint8_t n);
 #define SYS_RNDW(n)  (int16_t)(rnd16() % (uint16_t)(n))
 #endif
 
+// ==================== experiment flags ====================
+// Every measured experiment stays in the tree behind a flag, with its
+// verdict at the definition site. None are set in shipped builds.
+//   Strength (paired-gauntlet verdicts):
+//     NO_KEIMA          remove the cuttable-keima prior  (-26/1000: KEEP prior)
+//     NO_RESIGN         never resign                     (171=171: zero equity)
+//     LOWLINE_EARLY_X2  2x early low-line penalty        (-18/1000)
+//     LCB_LEADER_MEAN   leader competes with mean q      (-3/2000 combined)
+//     STEAL_VERIFY      +50% budget before a steal pick  (-3/2000 combined)
+//     CLUTCH2           second clutch extension          (189=189: saturated)
+//     FASTPLAY_STOP / CFG_PRIOR / CAPSIZE_PRIOR / ALMOST_VITAL /
+//     LD_CLASS / LD_CRIT   earlier arcs, all measured dead
+//   Speed (emulator-bench verdicts, all movecmp byte-identical):
+//     PACKED_NBR        delta-or-zero flood walk         (+4.6% mid)
+//     PACKED_PRESCAN    same encoding, seed pre-scan     (+1.8% mid)
+//     PACKED_TRIT       base-9 direction stream          (+7.5% mid)
+//   Probes (diagnostics, host only):
+//     PLAYOUT_STATS PLAYOUT_SNAP DECIDE_PROBE WIDEN_PROBE LATENT_DEBUG
+
 // Dynamic-komi state for graceful losing — adapted at the end of
 // each think, applied to playout scoring (see scoreWinner /
 // vKomiWinner / the adaptation block in think).
@@ -901,6 +920,87 @@ static uint8_t posXY(uint8_t pos) {
 static uint8_t groupLibsCore(uint8_t start, uint8_t markAll, uint8_t cap);
 static uint8_t glcL1, glcL2;   // first two liberties of the last flood
 
+
+// ============== experimental neighbour walkers (gated) ==============
+// Jay's packed-neighbour family, 2026-08. All three are provably
+// correct (movecmp byte-identical while active) and all three lose to
+// the sentinel lpm walk -- lpm Z+ hands over a ready absolute index
+// in 3 cycles with zero decode, a bar no encoding has cleared.
+// Verdicts: PACKED_NBR +4.6% mid (4x body defeats -Os allocation);
+// PACKED_PRESCAN +1.8% mid (upfront loads beat 5 early-exiting lpms);
+// PACKED_TRIT +7.5% mid (/9 %9 digit split ~10 cy/direction).
+// Encodings: see NBR_A/NBR_B and NBR_TRIT in neighbor_table.h.
+
+#ifdef PACKED_PRESCAN
+// Unrolled pre-scan: missing directions self-probe (q == start, own
+// colour); the q != start guard keeps capturedGroupN honest for ko.
+#define HL_PRESCAN(start) do { \
+        uint8_t A = pgm_read_byte(NBR_A + (start)); \
+        uint8_t B = pgm_read_byte(NBR_B + (start)); \
+        uint8_t q, s; \
+        HLP_STEP((start) + (A & 7)) \
+        HLP_STEP((start) - ((A >> 3) & 7)) \
+        HLP_STEP((A & 0x80) ? (start) - 9 : (start)) \
+        HLP_STEP((start) + ((B & 7) ? 9 : 0)) \
+    } while(0)
+#define HLP_STEP(QEXPR) \
+        q = (uint8_t)(QEXPR); \
+        s = boardAt(q); \
+        if(s == EMPTY) return 1; \
+        if(s == color && q != start) *wp++ = q;
+#endif
+
+#ifdef PACKED_NBR
+// Unrolled flood walk: delta-or-zero fields, self-probes absorbed by
+// the mark test.
+#define HL_FLOOD_WALK(p) do { \
+        uint8_t A = pgm_read_byte(NBR_A + (p)); \
+        uint8_t B = pgm_read_byte(NBR_B + (p)); \
+        uint8_t q, s; \
+        HLF_STEP((p) + (A & 7)) \
+        HLF_STEP((p) - ((A >> 3) & 7)) \
+        HLF_STEP((A & 0x80) ? (p) - 9 : (p)) \
+        HLF_STEP((p) + ((B & 7) ? 9 : 0)) \
+    } while(0)
+#define HLF_STEP(QEXPR) \
+        q = (uint8_t)(QEXPR); \
+        s = boardAt(q); \
+        if(s == EMPTY) return 1; \
+        if(s == color) { \
+            uint8_t *mp = markPtr(q); \
+            if(*mp != markEpoch) { \
+                *mp = markEpoch; \
+                *wp++ = q; \
+            } \
+        }
+#elif defined(PACKED_TRIT)
+// Trit-stream flood walk: base-9 direction codes, 5-8 = stop; B is
+// read only when a cell has a third direction.
+#define HL_FLOOD_WALK(p) do { \
+        const uint8_t *e = NBR_TRIT + (p) * 2; \
+        uint8_t bytev = lpmNext(e); \
+        uint8_t q, s, code; \
+        code = bytev % 9; HLT_STEP() \
+        code = bytev / 9; HLT_STEP() \
+        bytev = lpmNext(e); \
+        code = bytev % 9; HLT_STEP() \
+        code = bytev / 9; HLT_STEP() \
+    } while(0)
+#define HLT_STEP() \
+        q = (uint8_t)(p + (int8_t)pgm_read_byte(TRIT_DELTA + code)); \
+        s = boardAt(q); \
+        if(s == EMPTY) return 1; \
+        if(s == color) { \
+            uint8_t *mp = markPtr(q); \
+            if(*mp != markEpoch) { \
+                *mp = markEpoch; \
+                *wp++ = q; \
+            } \
+        } \
+        if(code >= 5) break;
+#endif
+// ====================================================================
+
 // Does the group at start have any liberty? Dedicated flood: unlike the
 // shared core it keeps no liberty list, count, or dedup — it just bails
 // on the first empty cell it sees. This is the hottest liberty query
@@ -927,27 +1027,7 @@ static uint8_t hasLiberty(uint8_t start, uint8_t color) {
     uint8_t *wp = rp + 1;
     {
 #ifdef PACKED_PRESCAN
-        // Packed-direction unrolled pre-scan (Jay): missing directions
-        // self-probe (q == start, own colour); the q != start guard on
-        // the push keeps capturedGroupN honest for the ko test.
-        // MEASURED 2026-08: correct (movecmp byte-identical) but
-        // +1.8% mid / +1.6% open -- two table loads plus four field
-        // extracts cost more than the sentinel lpm walk they replace
-        // (lpm Z+ = 3 cycles per ready neighbour is the bar every
-        // alternative has failed to clear).
-        uint8_t A = pgm_read_byte(NBR_A + start);
-        uint8_t B = pgm_read_byte(NBR_B + start);
-        uint8_t q, s;
-#define HLP_STEP(QEXPR) \
-        q = (uint8_t)(QEXPR); \
-        s = boardAt(q); \
-        if(s == EMPTY) return 1; \
-        if(s == color && q != start) *wp++ = q;
-        HLP_STEP(start + (A & 7))
-        HLP_STEP(start - ((A >> 3) & 7))
-        HLP_STEP((A & 0x80) ? start - 9 : start)
-        HLP_STEP(start + ((B & 7) ? 9 : 0))
-#undef HLP_STEP
+        HL_PRESCAN(start);
 #else
         const uint8_t *e = NEIGHBOR_TABLE + start * 5;
         uint8_t q;
@@ -974,66 +1054,8 @@ static uint8_t hasLiberty(uint8_t start, uint8_t color) {
     for(uint8_t *dp = rp; dp != wp; dp++) simMark[*dp] = markEpoch;
     while(rp != wp) {
         uint8_t p = *rp++;
-#ifdef PACKED_NBR
-        // Jay's packed-direction unrolled walk (see NBR_A/NBR_B):
-        // each field is its direction's delta or 0, so a missing
-        // direction computes q == p -- our own already-marked stone,
-        // absorbed by the mark test with no special case. Correct
-        // (movecmp byte-identical) but MEASURED +4.6% mid / +414 B:
-        // the 4x body defeats -Os allocation. Kept for reference.
-        uint8_t A = pgm_read_byte(NBR_A + p);
-        uint8_t B = pgm_read_byte(NBR_B + p);
-        uint8_t q, s;
-#define HLF_STEP(QEXPR) \
-        q = (uint8_t)(QEXPR); \
-        s = boardAt(q); \
-        if(s == EMPTY) return 1; \
-        if(s == color) { \
-            uint8_t *mp = markPtr(q); \
-            if(*mp != markEpoch) { \
-                *mp = markEpoch; \
-                *wp++ = q; \
-            } \
-        }
-        HLF_STEP(p + (A & 7))                        // east:  p + 0/1
-        HLF_STEP(p - ((A >> 3) & 7))                 // west:  p - 0/1
-        HLF_STEP((A & 0x80) ? p - 9 : p)             // north: bit 7
-        HLF_STEP(p + ((B & 7) ? 9 : 0))              // south
-#undef HLF_STEP
-#elif defined(PACKED_TRIT)
-        // Jay's trit-coded stream (see NBR_TRIT): decode base-9
-        // digits; codes 5-8 are direction-and-STOP, so corners never
-        // read B and edges stop after B's first digit. The lpm Z+
-        // fetching A leaves the pointer on B for free.
-        // MEASURED 2026-08: correct (movecmp byte-identical) but
-        // +7.5% mid / +8.1% open -- the /9 %9 digit split plus delta
-        // lookup plus stop-test costs ~10 cy per direction against
-        // the sentinel walk's 3-cycle ready-index lpm.
-        const uint8_t *e = NBR_TRIT + p * 2;
-        uint8_t bytev = lpmNext(e);   // A; e now points at B
-        uint8_t q, s, code;
-#define HLT_STEP() \
-        q = (uint8_t)(p + (int8_t)pgm_read_byte(TRIT_DELTA + code)); \
-        s = boardAt(q); \
-        if(s == EMPTY) return 1; \
-        if(s == color) { \
-            uint8_t *mp = markPtr(q); \
-            if(*mp != markEpoch) { \
-                *mp = markEpoch; \
-                *wp++ = q; \
-            } \
-        } \
-        if(code >= 5) continue;
-        code = bytev % 9;
-        HLT_STEP()
-        code = bytev / 9;
-        HLT_STEP()
-        bytev = lpmNext(e);           // B, deferred until needed
-        code = bytev % 9;
-        HLT_STEP()
-        code = bytev / 9;
-        HLT_STEP()
-#undef HLT_STEP
+#if defined(PACKED_NBR) || defined(PACKED_TRIT)
+        HL_FLOOD_WALK(p);
 #else
         const uint8_t *e = NEIGHBOR_TABLE + p * 5;
         uint8_t q;
@@ -1048,7 +1070,7 @@ static uint8_t hasLiberty(uint8_t start, uint8_t color) {
                 }
             }
         }
-#endif // PACKED_NBR
+#endif // PACKED_NBR/PACKED_TRIT
     }
     capturedGroupN = (uint8_t)(wp - &floodSlot(0));
     return 0;
