@@ -500,7 +500,12 @@ uint8_t AI::chooseMove(Game &game) {
 #define RESIGN2_DENOM 6
 #endif
 #ifndef RESIGN2_STREAK
-#define RESIGN2_STREAK 5
+#define RESIGN2_STREAK 4 // was 5; 2026-08 blunder-gap hunt: one think
+                         // less of hopeless-game garbage. Blunders -7%
+                         // on 400 hunt games with IDENTICAL wins;
+                         // paired 1000: 187 vs 188, exactly 1 game
+                         // diverged (an earlier resignation of a lost
+                         // game). Swindle equity vs L0 measured ZERO.
 #endif
 #ifndef RESIGN_STREAK
 #define RESIGN_STREAK 2
