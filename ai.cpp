@@ -32,6 +32,9 @@ static uint8_t rnd(uint8_t n);
 //                       decided games; settled nakade is post-hoc. OFF)
 //     NET               net/geta capping prior           (-19/1000 @+4,
 //                       p=.25, disc 115/134: negative, dose test stopped. OFF)
+//     BMARG             komi-dither tree rewards         (-27/1000 flat,
+//                       -17 tapered@40: an underdog's best wins are NARROW
+//                       wins -- dither devalues our winning moves. OFF)
 //     BDEF              playout boundary-defense answer  (refuted at the
 //                       ownership gate: p=1 RAISES the inflation -- playouts
 //                       never attempt the attack, so defense can't deflate
@@ -484,6 +487,16 @@ uint8_t AI::chooseMove(Game &game) {
 // it is a prior and the tree does the verifying.
 #ifndef PRIOR_NET
 #define PRIOR_NET 4
+#endif
+
+// Komi-dither half-width in points for BMARG tree rewards, and the
+// stone count where dithering stops (endgame half-point precision:
+// K=3 dither everywhere measured -27/1000).
+#ifndef BMARG_K
+#define BMARG_K 3
+#endif
+#ifndef BMARG_END
+#define BMARG_END 40
 #endif
 
 // BDEF playout answer rate = 1/(BDEF_MASK+1); mask 1 = 1/2, 3 = 1/4.
@@ -4517,7 +4530,25 @@ static void mctsIterate(Game &game) {
         ? (int16_t)(lastMargin2 - (int16_t)simKomi)
         : (int16_t)((int16_t)simKomi - lastMargin2);
 #endif
+#ifdef BMARG
+    // Margin-aware tree rewards via KOMI DITHERING. MEASURED DEAD at
+    // both operating points: K=3 everywhere -27/1000 (endgame
+    // half-point blur), K=3 tapered off past 40 stones -17/1000 --
+    // the midgame dither itself hurts. THE LESSON: an underdog's best
+    // wins are NARROW wins -- against a stronger referee our correct
+    // lines win by small margins by nature, so margin-robustness
+    // weighting systematically devalues exactly our winning moves.
+    // Calibration-by-margin is a luxury of the stronger player. OFF.
+    if(rootStones < BMARG_END) {
+        int16_t bar = (int16_t)simKomi;
+        if(rootTurn == BLACK) bar -= vKomi2;
+        else bar += vKomi2;
+        bar += (int16_t)rnd(4 * BMARG_K + 1) - 2 * BMARG_K;
+        winner = lastMargin2 > bar ? BLACK : WHITE;
+    } else if(vKomi2) winner = vKomiWinner();
+#else
     if(vKomi2) winner = vKomiWinner();
+#endif
 
     // Fold this simulation into the root RAVE tables. Byte-walk the
     // mask: an all-zero byte skips 8 cells for one load, and the
