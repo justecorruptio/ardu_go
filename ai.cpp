@@ -60,6 +60,11 @@ static uint8_t rnd(uint8_t n);
 //                       picks the must-block side in real play. OFF)
 //     NO_RESIGN         never resign                     (171=171: zero equity)
 //     LOWLINE_EARLY_X2  2x early low-line penalty        (-18/1000)
+//     EL2X              line-2 nearEnemy exempt any phase (+4/1000: neutral.
+//                       KataGo corpus: admission repaired, eval race binds)
+//     EL2B/EL2B1/EL2B2  both-colors low-line exempt (Jay) (pooled -1/2000,
+//                       line1-only -15, line2-only -3: all OFF; see the
+//                       exemption block for the full KataGo-corpus story)
 //     LCB_LEADER_MEAN   leader competes with mean q      (-3/2000 combined)
 //     STEAL_VERIFY      +50% budget before a steal pick  (-3/2000 combined)
 //     CLUTCH2           second clutch extension          (189=189: saturated)
@@ -3895,12 +3900,62 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
         // still failed to outrank the field even exempted). The
         // unconditional line-1 penalty stays. OFF.
         if(!isFar && rootStones >= EARLY_STONES) {
+#elif defined(EL2X)
+        // Early line-2 exemption (KataGo corpus 2026-08): of 829 missed
+        // winning edge moves, 310 are line-2 near-enemy below
+        // EARLY_STONES -- suppressed solely by the unconditional early
+        // gate. A line-2 move with an enemy inside the 5x5 is a
+        // boundary play regardless of phase; only lone low slides stay
+        // penalized early.
+        if(!isFar && ed == 1) {
+#elif defined(EL2B) || defined(EL2B1) || defined(EL2B2)
+        // Boundary heuristic (Jay, 2026-08): a legitimate low move sits
+        // BETWEEN forces. Exempt low lines in ANY phase when the 5x5
+        // holds both an enemy and an own stone -- 99% of KataGo's 829
+        // missed edge corrections satisfy this (all 197 line-1 ones),
+        // while a low move next to nothing (or next to only one side)
+        // stays penalized. ALL MEASURED NEUTRAL-TO-NEGATIVE, OFF:
+        // EL2B = lines 1+2 (2x1000: +21/-22, pooled -1); EL2B2 =
+        // line 2 only (-3/1000); EL2B1 = line 1 only, line 2 keeps the
+        // base late enemy-only rule (-15/1000 -- line-1 admission
+        // hurts even both-colors-tight, matching LL1X's -14).
+        // Admission genuinely repairs (KataGo's move: median rank
+        // 14->5, top-8 34%->65% over the 829-move edge-miss corpus)
+        // but chosen-move conversion is only +4% net (bestprobe, 3
+        // seeds) -- the eval race, not admission, binds at 400 iters.
+        // Companion enemy-only variant EL2X (line 2 any phase):
+        // +4/1000, same story.
+#  if defined(EL2B)
+        if(!isFar) {
+#  elif defined(EL2B2)
+        if(!isFar && ed == 1) {
+#  else
+        if(!isFar && (ed == 0 || rootStones >= EARLY_STONES)) {
+#  endif
 #else
         if(!isFar && ed == 1 && rootStones >= EARLY_STONES) {
 #endif
             // (isFar: the 5x5 is provably empty; nearEnemy stays 0
             // either way -- byte-identical skip)
             const uint8_t *rp = simBoard + pos - 2 * BOARD_SIZE;
+#if defined(EL2B) || defined(EL2B1) || defined(EL2B2)
+            uint8_t nearOwn = 0;
+            for(int8_t dy = -2; dy <= 2 && !(nearEnemy & nearOwn);
+                dy++, rp += BOARD_SIZE) {
+                if((uint8_t)(y + dy) >= BOARD_SIZE) continue; // row off-board
+                for(int8_t dx = -2; dx <= 2; dx++) {
+                    if((uint8_t)(x + dx) >= BOARD_SIZE) continue;
+                    uint8_t cc = rp[dx];
+                    if(cc == opp) nearEnemy = 1;
+                    else if(cc == toMove) nearOwn = 1;
+                }
+            }
+#  ifdef EL2B1
+            if(ed == 0) nearEnemy &= nearOwn; // line 2 keeps enemy-only
+#  else
+            nearEnemy &= nearOwn;
+#  endif
+#else
             for(int8_t dy = -2; dy <= 2 && !nearEnemy;
                 dy++, rp += BOARD_SIZE) {
                 if((uint8_t)(y + dy) >= BOARD_SIZE) continue; // row off-board
@@ -3912,6 +3967,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
                     }
                 }
             }
+#endif
         }
         if(!nearEnemy) {
             lowLineBad = 1;
