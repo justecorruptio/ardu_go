@@ -371,7 +371,14 @@ static int playGame(int gameNo, int level, uint8_t aiColor, bool verbose) {
                            moves, est.substr(0, est.find(' ')).c_str(),
                            rawPlayoutWinrate(color, 200));
                 }
-                ai.think(game);
+                // Device honesty: on hardware every rendered frame
+                // overwrites the sBuffer-hosted pool nodes between
+                // thinks (only poolExt survives). Scribble the same
+                // region here so host games cannot depend on -- or
+                // measure benefits from -- state a real device loses.
+                memset(pool, 0xA5, sizeof(Node) * NODE_POOL_SB);
+                memset(pool, 0xA5, sizeof(Node) * NODE_POOL_SB); // device honesty (see playGame)
+        ai.think(game);
                 if(ai.resigned) {
                     printf("  game %d: AI resigns at move %d (eval %u/%u = %d%%)\n",
                            gameNo, moves, thinkSimWins, thinkSims,

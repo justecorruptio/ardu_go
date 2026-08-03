@@ -32,6 +32,13 @@ static uint8_t rnd(uint8_t n);
 //                       decided games; settled nakade is post-hoc. OFF)
 //     NET               net/geta capping prior           (-19/1000 @+4,
 //                       p=.25, disc 115/134: negative, dose test stopped. OFF)
+//     TREUSE            cross-move subtree reuse          (-3/1000 p=.91,
+//                       disc 143/146: NEUTRAL -- opponent picks unexplored
+//                       replies ~half the time and matched crowns are thin
+//                       at 400 iters; complexity not paid for. OFF)
+//     TREEVAL           live-tree integrity validator     (host debug tool;
+//                       proved base engine tree-clean during the TREUSE
+//                       aliasing hunt)
 //     LL1X              midgame line-1 nearEnemy exempt  (-14/1000: junk in,
 //                       blocks still don't outrank the field. OFF)
 //     BLOCKW            +3 PRIOR_BLOCK on contact answers (-20/1000: fires
@@ -98,7 +105,17 @@ static void applyInvSym(uint8_t &x, uint8_t &y, uint8_t s) {
     if(s & 2) x = BOARD_SIZE - 1 - x;
 }
 
+#ifdef TREUSE
+// Cross-move subtree reuse metadata (see the stash block above think):
+// reuseValid is zeroed by anything that clobbers the borrowed scratch
+// (ownVote's playouts), by adoption itself, and by AI::reset.
+#define REUSE_MAX 54
+static uint8_t reuseValid, reuseNReplies, reuseCount;
+#endif
 void AI::reset() {
+#ifdef TREUSE
+    reuseValid = 0;
+#endif
     bookAlive = 0xFF;
     for(uint8_t s = 0; s < 8; s++)
         bookPos[s] = 0;
@@ -3063,6 +3080,9 @@ static void loadRootBoard(Game &game) {
 // counting per cell how often it finishes black-owned (black stone, or
 // empty bordered only by black — same rules as scoreWinner).
 static void ownVote(Game &game, uint8_t *own) {
+#ifdef TREUSE
+    reuseValid = 0;  // the vote's playouts clobber the stash regions
+#endif
     for(uint8_t i = 0; i < BOARD_CELLS; i++) own[i] = 0;
 
     rootTurn = game.turn;
@@ -4477,6 +4497,265 @@ static void mctsIterate(Game &game) {
     }
 }
 
+#ifdef TREUSE
+// ===== Cross-move subtree reuse (2026-08, Jay) =====
+// Between thinks the sBuffer-hosted pool is clobbered by rendering,
+// but poolExt AND the think-scoped scratch arrays (simBoard, simMark,
+// ladderBoard, chainId) sit idle -- 738 bytes = up to 123 stashed
+// nodes. At the end of bestMove the chosen move's subtree crown is
+// compacted into that space (BFS order, so links point forward);
+// at the next think, if the opponent played a stashed reply, its
+// subtree is copied into the fresh pool with stats halved -- the
+// search starts warm on the lines it already read, scored under the
+// old dynamic komi (the discount bounds that staleness).
+// INVALIDATION: settleVote/scoreDead/ownVote clobber the scratch
+// regions between thinks -- they zero reuseValid; so does a pass on
+// either side (no reply to match) and adoption itself (one-shot).
+// The stash deliberately EXCLUDES poolExt: past 143 allocated nodes the
+// live tree occupies it, and stash writes there clobbered the very
+// sibling chains stashRemapChain was still walking (garbage links ->
+// merged chains -> a DAG -> reclaim's sibling walk spun forever; game
+// 1002 was the reproducer). The four think-scoped scratch arrays never
+// alias tree memory, so reads and writes cannot collide: 324B = 54
+// nodes, write-safe by construction.
+static uint8_t *stashPtr(uint16_t i) {
+    if(i < BOARD_CELLS) return simBoard + i;
+    i -= BOARD_CELLS;
+    if(i < BOARD_CELLS) return simMark + i;
+    i -= BOARD_CELLS;
+    if(i < BOARD_CELLS) return ladderBoard + i;
+    i -= BOARD_CELLS;
+    return chainId + i;
+}
+static void stashNodeWr(uint8_t k, const Node *n) {
+    const uint8_t *s = (const uint8_t *)n;
+    uint16_t off = (uint16_t)k * sizeof(Node);
+    for(uint8_t j = 0; j < sizeof(Node); j++) *stashPtr(off + j) = *s++;
+}
+static void stashNodeRd(uint8_t k, Node *n) {
+    uint8_t *d = (uint8_t *)n;
+    uint16_t off = (uint16_t)k * sizeof(Node);
+    for(uint8_t j = 0; j < sizeof(Node); j++) *d++ = *stashPtr(off + j);
+}
+// first member of sel[0..n) reachable from `idx` along the sibling
+// chain (0xFF-terminated); returns its sel POSITION or 0xFF
+static uint8_t stashRemapChain(uint8_t idx, const uint8_t *sel, uint8_t n) {
+    while(idx != 0xFF) {
+        for(uint8_t k = 0; k < n; k++)
+            if(sel[k] == idx) return k;
+        idx = node(idx).nextSibling;
+    }
+    return 0xFF;
+}
+// Compact the subtree of the chosen root child (move bm) into the
+// stash. Called as the LAST thing bestMove does: every scratch region
+// the stash borrows is dead until the next think.
+static void stashSubtree(uint8_t bm) {
+    reuseValid = 0;
+    if(bm >= BOARD_CELLS) return;
+    uint8_t c = node(0).firstChild;
+    while(c != 0xFF && (node(c).move != bm)) c = node(c).nextSibling;
+    if(c == 0xFF) return;
+    uint8_t *sel = raveV;   // 162B contiguous scratch, RAVE is dead now
+    uint8_t n = 0;
+    // BFS collect: the reply layer first, then descendants, cap 123.
+    for(uint8_t r = node(c).firstChild; r != 0xFF && n < REUSE_MAX;
+        r = node(r).nextSibling) {
+        if(node(r).move & 0x80) continue;              // latent
+        if(nRefVisits(node(r)) >= POISONED) continue;  // poisoned
+        sel[n++] = r;
+    }
+    reuseNReplies = n;
+    if(!n) return;
+    for(uint8_t head = 0; head < n && n < REUSE_MAX; head++) {
+        for(uint8_t k = node(sel[head]).firstChild;
+            k != 0xFF && n < REUSE_MAX; k = node(k).nextSibling) {
+            if(node(k).move & 0x80) continue;
+            if(nRefVisits(node(k)) >= POISONED) continue;
+            sel[n++] = k;
+        }
+    }
+    for(uint8_t k = 0; k < n; k++) {
+        Node t = node(sel[k]);
+        t.firstChild = stashRemapChain(t.firstChild, sel, n);
+        t.nextSibling = stashRemapChain(t.nextSibling, sel, n);
+        stashNodeWr(k, &t);
+    }
+    reuseCount = n;
+    reuseValid = 1;
+#if !defined(ARDUINO) && defined(TREUSE_STATS)
+    for(uint8_t a = 0; a < n; a++)
+        for(uint8_t b = a + 1; b < n; b++)
+            if(sel[a] == sel[b])
+                fprintf(stderr, "STASH DUP live node %u at sel %u and %u"
+                        " (chosen %u)\n", sel[a], a, b, bm);
+    {   // validate the LIVE tree from the root (post-search)
+        static uint8_t lseen[NODE_POOL]; memset(lseen, 0, sizeof(lseen));
+        static uint8_t lstk[NODE_POOL]; int lsp = 0;
+        lstk[lsp++] = 0; lseen[0] = 1;
+        while(lsp > 0) {
+            uint8_t nn = lstk[--lsp];
+            for(uint8_t c2 = node(nn).firstChild; c2 != 0xFF;
+                c2 = node(c2).nextSibling) {
+                if(lseen[c2]) { fprintf(stderr,
+                    "LIVE TREE DUP at %u (parent %u) pre-stash\n", c2, nn);
+                    lsp = 0; break; }
+                lseen[c2] = 1; lstk[lsp++] = c2;
+            }
+        }
+    }
+    {   // validate the stash forest: walk every reply subtree
+        static uint8_t sseen[REUSE_MAX]; memset(sseen, 0, sizeof(sseen));
+        for(uint8_t r = 0; r < reuseNReplies; r++) {
+            static uint8_t sstk[REUSE_MAX]; int ssp = 0;
+            if(sseen[r]) { fprintf(stderr, "STASH FOREST DUP root %u\n", r); break; }
+            sseen[r] = 1; sstk[ssp++] = r;
+            while(ssp > 0) {
+                uint8_t k = sstk[--ssp];
+                Node t; stashNodeRd(k, &t);
+                for(uint8_t ch = t.firstChild; ch != 0xFF; ) {
+                    if(sseen[ch]) { fprintf(stderr,
+                        "STASH FOREST DUP node %u (parent %u, reply %u)\n",
+                        ch, k, r); ssp = 0; break; }
+                    sseen[ch] = 1; sstk[ssp++] = ch;
+                    Node t2; stashNodeRd(ch, &t2);
+                    ch = t2.nextSibling;
+                }
+            }
+        }
+    }
+#endif
+#if !defined(ARDUINO) && defined(TREUSE_STATS)
+    fprintf(stderr, "STASH move=%u replies=%u nodes=%u\n",
+            bm, reuseNReplies, n);
+#endif
+}
+// Adopt the stashed subtree matching the opponent's reply (rootLast).
+// Called right after the root node exists and BEFORE loadRootBoard
+// floods over the borrowed scratch. Stats halve on the way in
+// (stale-vKomi discount); visits clamp to >= 1 so no zero-visit child
+// ever reaches selectChild's divide.
+static void adoptStash() {
+    uint8_t hit = 0xFF;
+    if(reuseValid && rootLast != 0xFF)
+        for(uint8_t k = 0; k < reuseNReplies; k++) {
+            Node t; stashNodeRd(k, &t);
+            if(t.move == rootLast) { hit = k; break; }
+        }
+    reuseValid = 0;   // one-shot
+    if(hit == 0xFF) return;
+    // membership: forward pass (BFS order => links point forward)
+    static uint8_t inSub[(REUSE_MAX + 7) / 8];
+    memset(inSub, 0, sizeof(inSub));
+    inSub[hit >> 3] |= (uint8_t)(1 << (hit & 7));
+    uint8_t *map = raveV;   // stashIdx -> pool idx (memset by think after)
+    memset(map, 0xFF, REUSE_MAX);
+    uint8_t adopted = 0;
+    for(uint8_t k = hit; k < reuseCount; k++) {
+        if(!(inSub[k >> 3] & (1 << (k & 7)))) continue;
+        Node t; stashNodeRd(k, &t);
+        for(uint8_t ch = t.firstChild; ch != 0xFF; ) {
+            inSub[ch >> 3] |= (uint8_t)(1 << (ch & 7));
+            Node t2; stashNodeRd(ch, &t2);
+            ch = t2.nextSibling;
+        }
+        if(k != hit) {                       // hit itself becomes the root
+            uint8_t ni = newNode(0);         // fields overwritten below
+            if(ni == 0xFF) break;            // pool full: partial adopt
+            map[k] = ni;
+            adopted++;
+        }
+    }
+    // second pass: write contents with mapped links
+    for(uint8_t k = hit; k < reuseCount; k++) {
+        Node t;
+        uint8_t dst;
+        if(k == hit) { stashNodeRd(k, &t); dst = 0; }
+        else {
+            if(map[k] == 0xFF) continue;
+            stashNodeRd(k, &t);
+            dst = map[k];
+        }
+        uint16_t v = (uint16_t)(t.s[0] | ((uint16_t)(t.s[1] & 0x0F) << 8));
+        uint16_t w = (uint16_t)((t.s[1] >> 4) | ((uint16_t)t.s[2] << 4));
+        v >>= 1; w >>= 1;
+        if(v == 0) v = 1;
+        Node &d = node(dst);
+        if(k == hit) {
+            // the reply node becomes the root: inherit only the
+            // children (skip pruned-away heads to the first mapped)
+            uint8_t ch = t.firstChild;
+            while(ch != 0xFF && map[ch] == 0xFF) {
+                Node t2; stashNodeRd(ch, &t2); ch = t2.nextSibling;
+            }
+            d.firstChild = (ch == 0xFF) ? 0xFF : map[ch];
+            continue;
+        }
+        d.move = t.move;
+        uint8_t ch = t.firstChild;
+        while(ch != 0xFF && map[ch] == 0xFF) {
+            Node t2; stashNodeRd(ch, &t2); ch = t2.nextSibling;
+        }
+        d.firstChild = (ch == 0xFF) ? 0xFF : map[ch];
+        uint8_t sb = t.nextSibling;
+        while(sb != 0xFF && map[sb] == 0xFF) {
+            Node t2; stashNodeRd(sb, &t2); sb = t2.nextSibling;
+        }
+        d.nextSibling = (sb == 0xFF) ? 0xFF : map[sb];
+        d.s[0] = (uint8_t)v;
+        d.s[1] = (uint8_t)((v >> 8) | ((w & 0x0F) << 4));
+        d.s[2] = (uint8_t)(w >> 4);
+    }
+#if !defined(ARDUINO) && defined(TREUSE_STATS)
+    for(uint8_t k = hit; k < reuseCount; k++) {
+        if(k != hit && map[k] == 0xFF) continue;
+        uint8_t dst = (k == hit) ? 0 : map[k];
+        fprintf(stderr, "  wr stash%u -> pool%u move=%u fc=%u sib=%u\n",
+                k, dst, node(dst).move, node(dst).firstChild,
+                node(dst).nextSibling);
+    }
+#endif
+    // the pass child expandNode would have added
+    if(node(0).firstChild != 0xFF) {
+        uint8_t pc = addChild(0, MOVE_PASS, 0);
+        if(pc != 0xFF) nSetStats(pc, PRIOR_BASE_V, 0);
+    }
+#if !defined(ARDUINO) && defined(TREUSE_STATS)
+    // tree validity: reachable set must be acyclic, in-bounds, no dups
+    {
+        static uint8_t seen[NODE_POOL];
+        static uint8_t seenBy[NODE_POOL];
+        memset(seen, 0, sizeof(seen));
+        memset(seenBy, 0xFF, sizeof(seenBy));
+        static uint8_t stk[NODE_POOL]; int sp = 0;
+        stk[sp++] = 0; seen[0] = 1;
+        int reach = 0, bad = 0;
+        while(sp > 0) {
+            uint8_t nn = stk[--sp]; reach++;
+            for(uint8_t c2 = node(nn).firstChild; c2 != 0xFF;
+                c2 = node(c2).nextSibling) {
+                if(c2 >= NODE_POOL) { fprintf(stderr, "ADOPT BAD idx %u\n", c2); bad=1; break; }
+                if(seen[c2]) { fprintf(stderr, "ADOPT CYCLE/DUP at %u (parent %u, first parent %u) hit-era reuseCount=%u\n", c2, nn, seenBy[c2], reuseCount); bad=1; break; }
+                seen[c2] = 1; seenBy[c2] = nn;
+                stk[sp++] = c2;
+            }
+            if(bad) break;
+        }
+        if(bad) abort();
+        fprintf(stderr, "ADOPT tree ok, reachable=%d poolUsed=%u\n", reach, poolUsed);
+    }
+    {
+        uint32_t tv = 0;
+        for(uint8_t c2 = node(0).firstChild; c2 != 0xFF; c2 = node(c2).nextSibling)
+            tv += nRefVisits(node(c2));
+        fprintf(stderr, "ADOPT reply=%u nodes=%u inheritedVisits=%lu\n",
+                rootLast, adopted, (unsigned long)tv);
+    }
+#endif
+}
+#endif // TREUSE
+
+
 void AI::think(Game &game) {
 #if !defined(ARDUINO) && defined(THINK_TRACE)
     fprintf(stderr, "THINK rng=%u epoch=%u vk=%u pool=%u\n",
@@ -4587,12 +4866,21 @@ void AI::think(Game &game) {
     }
     if(caps == 1) rootKo = capPos;
 
+#ifdef TREUSE
+    // Root created early: adoption must read the stash (simBoard/
+    // simMark/ladderBoard/chainId slices) BEFORE loadRootBoard's
+    // unpack + vital floods overwrite them.
+    newNode(0xFF); // root
+    adoptStash();
+#endif
     loadRootBoard(game);
 
     memset(raveV, 0, BOARD_CELLS);
     memset(raveW, 0, BOARD_CELLS);
 
+#ifndef TREUSE
     newNode(0xFF); // root
+#endif
     uint16_t iters = mctsIterations;
     if(rootStones < OPENING_BOOST_STONES) iters += iters / 2;
     uint16_t total = iters;
@@ -4914,7 +5202,33 @@ uint8_t AI::bestMove(Game &game, uint8_t &x, uint8_t &y) {
         if(game.winner() == game.turn) return 0;
     }
 
+#if !defined(ARDUINO) && defined(TREEVAL)
+    // Live-tree integrity check (any build): the search's tree must be
+    // a tree -- a node reachable from two parents means reclaim or the
+    // latent machinery corrupted links.
+    {
+        static uint8_t lseen[NODE_POOL];
+        static uint8_t lstk[NODE_POOL];
+        memset(lseen, 0, sizeof(lseen));
+        int lsp = 0; lstk[lsp++] = 0; lseen[0] = 1;
+        while(lsp > 0) {
+            uint8_t nn = lstk[--lsp];
+            for(uint8_t c2 = node(nn).firstChild; c2 != 0xFF;
+                c2 = node(c2).nextSibling) {
+                if(lseen[c2]) { fprintf(stderr,
+                    "TREEVAL DUP node %u (parent %u) poolUsed=%u\n",
+                    c2, nn, poolUsed); lsp = 0; break; }
+                lseen[c2] = 1; lstk[lsp++] = c2;
+            }
+        }
+    }
+#endif
     x = best % BOARD_SIZE;
     y = best / BOARD_SIZE;
+#ifdef TREUSE
+    // LAST thing before returning: every scratch region the stash
+    // borrows (simBoard included) is dead until the next think.
+    stashSubtree(best);
+#endif
     return 1;
 }
