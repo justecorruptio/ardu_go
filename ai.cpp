@@ -32,6 +32,10 @@ static uint8_t rnd(uint8_t n);
 //                       decided games; settled nakade is post-hoc. OFF)
 //     NET               net/geta capping prior           (-19/1000 @+4,
 //                       p=.25, disc 115/134: negative, dose test stopped. OFF)
+//     BDEF              playout boundary-defense answer  (refuted at the
+//                       ownership gate: p=1 RAISES the inflation -- playouts
+//                       never attempt the attack, so defense can't deflate
+//                       the belief. OFF; zero gauntlets spent)
 //     TREUSE            cross-move subtree reuse          (-3/1000 p=.91,
 //                       disc 143/146: NEUTRAL -- opponent picks unexplored
 //                       replies ~half the time and matched crowns are thin
@@ -480,6 +484,11 @@ uint8_t AI::chooseMove(Game &game) {
 // it is a prior and the tree does the verifying.
 #ifndef PRIOR_NET
 #define PRIOR_NET 4
+#endif
+
+// BDEF playout answer rate = 1/(BDEF_MASK+1); mask 1 = 1/2, 3 = 1/4.
+#ifndef BDEF_MASK
+#define BDEF_MASK 1
 #endif
 
 // Urgency: reinforcing an own 2-liberty group near the opponent's
@@ -1608,6 +1617,13 @@ static uint8_t settledRegionColor(uint8_t seed) {
     return owner;                         // 0 = no bordering stone (open board)
 }
 
+// Bit pos set iff cell pos is >=2 from every board edge (the interior
+// 5x5): the "big open point" edge test (widenNode) and, complemented,
+// the line-1/2 test (the BDEF playout step).
+static const uint8_t PROGMEM FAR_BITMAP[11] = {
+    0x00, 0x00, 0xF0, 0xE1, 0xC3, 0x87, 0x0F, 0x1F, 0x00, 0x00, 0x00
+};
+
 // All orthogonal neighbors own color (or edge)
 static uint8_t isOwnEye(uint8_t pos, uint8_t color) {
     // Unrolled sentinel walk (the pre-scan recipe): min degree 2 makes
@@ -2432,6 +2448,48 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                 }
             }
         }
+
+#ifdef BDEF
+        // Boundary-defense answer. REFUTED AT THE CALIBRATION GATE
+        // (ownership probe, game 1467 mv35): p=1/2 moved raw winrate
+        // 70.2 -> 67.5 (target ~50), and the CEILING test p=1 moved it
+        // UP to 71.8 with the leaked side unmoved -- because the
+        // ATTACK never happens in playouts: random policy does not
+        // generate the coherent multi-move crawl, so added defense
+        // just answers pushes that never come and makes the simulated
+        // world safer. Boundary eval inflation = un-attempted attacks,
+        // not unanswered pushes; no local heuristic generates 3-move
+        // coordinated plans. Kept opt-in as the measured record.
+        if(last < BOARD_CELLS && boardAt(last) != EMPTY) {
+            uint8_t lb = last >> 3;
+            if(!(pgm_read_byte(FAR_BITMAP + lb) & bitMask(last))) {
+                uint8_t touch = 0, q;
+                FOR_EACH_NEIGHBOR(q, last)
+                    if(boardAt(q) == toMove) { touch = 1; break; }
+                if(touch && (rnd16() & BDEF_MASK) == 0) {
+                    uint8_t cand[4], nc = 0;
+                    FOR_EACH_NEIGHBOR(q, last) {
+                        if(boardAt(q) != EMPTY) continue;
+                        uint8_t r2, own = 0;
+                        FOR_EACH_NEIGHBOR(r2, q)
+                            if(boardAt(r2) == toMove) { own = 1; break; }
+                        if(own) cand[nc++] = q;
+                    }
+                    if(nc) {
+                        uint8_t bp = cand[nc == 1 ? 0 : rnd(nc)];
+                        uint16_t rr = playoutTry(bp, toMove, ko, m);
+                        if(rr) {
+                            ko = (uint8_t)rr;
+                            last = bp;
+                            passes = 0;
+                            toMove = 3 - toMove;
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+#endif
 
         // Simple life & death: if the last move borders a small
         // one-color eyespace, its vital point decides life — take it
@@ -3299,11 +3357,6 @@ static uint8_t emptyCorners;
 // root widen (~20% of all widen calls) instead of re-stamped per stone.
 static uint8_t rootNear[12];
 static uint8_t rootNearAny, rootEmptyCorners, rootNearValid;
-// Bit pos set iff cell pos is >=2 from every board edge (the interior
-// 5x5): the "big open point" edge test, precomputed (see widenNode).
-static const uint8_t PROGMEM FAR_BITMAP[11] = {
-    0x00, 0x00, 0xF0, 0xE1, 0xC3, 0x87, 0x0F, 0x1F, 0x00, 0x00, 0x00
-};
 
 // 81-bit bitmap of points within distance 2 of any stone.
 // Returns 0 if the board has no stones (then allow everything).
