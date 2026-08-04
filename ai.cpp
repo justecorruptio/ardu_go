@@ -2195,25 +2195,20 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
             if(a > bb) continue;                 // not in triangle
             if(a != a0 || bb != b0) continue;    // not minimal (a0,b0 is min by construction)
             if(bestSym == 0xFF) { bestSym = s; continue; }
-            // lexicographic tie-break over sorted transformed stone keys:
-            // key = pos*2 + (color==WHITE), selection-scan without RAM
-            uint8_t better = 0;
-            uint16_t prevKey = 0;
-            for(uint8_t k = 0; k < nstones; k++) {
-                uint16_t mnS = 0xFFFF, mnB = 0xFFFF;
-                for(uint8_t p = 0; p < 81; p++) {
-                    if(simBoard[p] == EMPTY) continue;
-                    uint8_t px, py, qx, qy;
-                    nnSymPos(p % 9, p / 9, s, px, py);
-                    nnSymPos(p % 9, p / 9, bestSym, qx, qy);
-                    // x-major to match the trainer's (x,y)-tuple sort
-                    uint16_t kS = (uint16_t)(px * 9 + py) * 2 + (simBoard[p] == WHITE);
-                    uint16_t kB = (uint16_t)(qx * 9 + qy) * 2 + (simBoard[p] == WHITE);
-                    if(kS >= prevKey && kS < mnS) mnS = kS;
-                    if(kB >= prevKey && kB < mnB) mnB = kB;
-                }
-                if(mnS != mnB) { better = mnS < mnB; break; }
-                prevKey = mnS + 1;
+            // lexicographic tie-break over sorted transformed stone keys
+            // (key = pos*2 + (color==WHITE), x-major): equivalent to a
+            // merge-walk of the two TRANSFORMED boards in key order via
+            // inverse syms — stone beats empty, black key < white key.
+            uint8_t sI = (s & 4) ? (4 | ((s & 1) << 1) | ((s >> 1) & 1)) : s;
+            uint8_t bI = (bestSym & 4) ? (4 | ((bestSym & 1) << 1) | ((bestSym >> 1) & 1)) : bestSym;
+            uint8_t better = 0, decided = 0;
+            for(uint8_t q = 0; q < 81 && !decided; q++) {
+                uint8_t px, py;
+                uint8_t va = simBoard[nnSymPos(q / 9, q % 9, sI, px, py)];
+                uint8_t vb = simBoard[nnSymPos(q / 9, q % 9, bI, px, py)];
+                if(va == vb) continue;
+                better = vb == EMPTY || (va != EMPTY && va != WHITE);
+                decided = 1;
             }
             if(better) bestSym = s;
         }
