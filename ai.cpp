@@ -1854,6 +1854,12 @@ __attribute__((noinline)) static int8_t nnRd(const uint8_t *t, uint16_t i) {   /
 #else
 #define NNRD(t, i) ((int8_t)pgm_read_byte((const uint8_t *)(t) + (i)))
 #endif
+
+// add one H-wide weight row (row*NN_H..+NN_H-1) into the pre[] accumulators
+__attribute__((noinline)) static void nnAddRow(int16_t *pre, const uint8_t *t, uint16_t row) {
+    uint16_t i = row * NN_H;
+    for(uint8_t h = 0; h < NN_H; h++) pre[h] += NNRD(t, i + h);
+}
 // 4-neighbor of p in direction d (0..3), 0xFF off-board
 __attribute__((noinline)) static uint8_t nnNb(uint8_t p, uint8_t d) {
     uint8_t x = p % 9, y = p / 9;
@@ -1868,11 +1874,6 @@ __attribute__((noinline)) static uint8_t nnCheby(uint8_t p, uint8_t cx, uint8_t 
     uint8_t dy = py > cy ? py - cy : cy - py;
     return dx > dy ? dx : dy;
 }
-__attribute__((noinline)) static uint8_t nnPop11(const uint8_t *bs) {
-    uint8_t n = 0;
-    for(uint8_t i = 0; i < 11; i++) n += __builtin_popcount(bs[i]);
-    return n;
-}
 #ifndef NN_QUIET_MAXTEMP
 #define NN_QUIET_MAXTEMP 0  // decline if any chain has <= 2 libs
 #endif
@@ -1885,15 +1886,36 @@ __attribute__((noinline)) static uint8_t nnSymPos(uint8_t x, uint8_t y, uint8_t 
     return (uint8_t)(y * 9 + x);
 }
 
+// threshold-ladder bucketizer: b = count of thresholds v exceeds.
+// Replaces the ternary compare ladders (each ~30-60B at -Os).
+static const int8_t NN_TH_GAIN[] PROGMEM = {0, 2, 5};    // dil gain / oppDilGain
+static const int8_t NN_TH_PAT[]  PROGMEM = {-5, -1, 0, 2, 4}; // pattern buckets
+static const int8_t NN_TH_GD[]   PROGMEM = {-8, -2, 1, 7};    // globDiff
+static const int8_t NN_TH_LB[]   PROGMEM = {2, 3, 4};    // census lib bucket
+static const int8_t NN_TH_12[]   PROGMEM = {1, 2};       // ela b2 / crossLD line
+__attribute__((noinline)) static uint8_t nnBucket(int8_t v, const int8_t *thrs, uint8_t n) {
+    uint8_t b = 0;
+    while(b < n && v > (int8_t)pgm_read_byte(thrs + b)) b++;
+    return b;
+}
+
+// nnOpeningMove runs before think() builds its node pool in sBuffer, so
+// the screen buffer is free scratch here (same borrow as the pool).
+// 81-byte maps replace bitsets: no 1<<(n&7) shift loops at -Os.
+static uint8_t * const nnMapA = Arduboy2Base::sBuffer;        // weakMap
+static uint8_t * const nnMapB = Arduboy2Base::sBuffer + 81;   // doneMap / deadMap
+static uint8_t * const nnMapC = Arduboy2Base::sBuffer + 162;  // nnChain libSeen
+static uint8_t * const nnMapD = Arduboy2Base::sBuffer + 243;  // nnChain seen
+
 // flood a chain on simBoard from p; returns liberty count treating
-// cells set in deadMask (bitset over 81) as EMPTY; chain cells -> simMark
-__attribute__((noinline)) static uint8_t nnChain(uint8_t p, const uint8_t *deadMask, uint8_t *cells, uint8_t &ncells) {
+// cells set in deadMap (byte map over 81) as EMPTY; chain cells -> cells[]
+__attribute__((noinline)) static uint8_t nnChain(uint8_t p, const uint8_t *deadMap, uint8_t *cells, uint8_t &ncells) {
     uint8_t col = simBoard[p];
     uint8_t libs = 0;
-    uint8_t libSeen[11]; memset(libSeen, 0, 11);
-    uint8_t seen[11]; memset(seen, 0, 11);
+    uint8_t *libSeen = nnMapC, *seen = nnMapD;
+    memset(libSeen, 0, 162);          // both maps, contiguous
     uint8_t st[40]; uint8_t sp = 0;
-    st[sp++] = p; seen[p >> 3] |= 1 << (p & 7);
+    st[sp++] = p; seen[p] = 1;
     ncells = 0;
     while(sp) {
         uint8_t q = st[--sp];
@@ -1902,15 +1924,14 @@ __attribute__((noinline)) static uint8_t nnChain(uint8_t p, const uint8_t *deadM
         for(uint8_t d = 0; d < 4; d++) {
             uint8_t n = nnNb((uint8_t)(qy * 9 + qx), d);
             if(n > 80) continue;
-            uint8_t empty = simBoard[n] == EMPTY ||
-                            (deadMask && (deadMask[n >> 3] & (1 << (n & 7))));
+            uint8_t empty = simBoard[n] == EMPTY || (deadMap && deadMap[n]);
             if(empty) {
-                if(!(libSeen[n >> 3] & (1 << (n & 7)))) {
-                    libSeen[n >> 3] |= 1 << (n & 7);
+                if(!libSeen[n]) {
+                    libSeen[n] = 1;
                     libs++;
                 }
-            } else if(simBoard[n] == col && !(seen[n >> 3] & (1 << (n & 7)))) {
-                seen[n >> 3] |= 1 << (n & 7);
+            } else if(simBoard[n] == col && !seen[n]) {
+                seen[n] = 1;
                 st[sp++] = n;
             }
         }
@@ -1919,19 +1940,175 @@ __attribute__((noinline)) static uint8_t nnChain(uint8_t p, const uint8_t *deadM
 }
 
 // manhattan-dilate a color's stones into an 81-bitset (radius r)
-__attribute__((noinline)) static void nnDilate(uint8_t col, uint8_t r, uint8_t *out) {
-    memset(out, 0, 11);
-    for(uint8_t p = 0; p < 81; p++) {
-        if(simBoard[p] != col) continue;
-        int8_t px = p % 9, py = p / 9;
-        for(int8_t dx = -r; dx <= r; dx++)
-            for(int8_t dy = -(int8_t)r + (dx < 0 ? -dx : dx); dy <= r - (dx < 0 ? -dx : dx); dy++) {
-                int8_t nx = px + dx, ny = py + dy;
-                if((uint8_t)nx > 8 || (uint8_t)ny > 8) continue;
-                uint8_t n = ny * 9 + nx;
-                out[n >> 3] |= 1 << (n & 7);
+// Manhattan-distance map from a color's stones (generation BFS, cap 3).
+// dist[p] = 0 for the stones, 1..3 rings, 0xFF beyond. (Jay's byte-board
+// dilation: state@r == dist<=r, gain@r tests dist>r — replaces 6 bitsets.)
+__attribute__((noinline)) static void nnDistMap(uint8_t col, uint8_t *dist) {
+    memset(dist, 0xFF, 81);
+    for(uint8_t p = 0; p < 81; p++)
+        if(simBoard[p] == col) dist[p] = 0;
+    for(uint8_t g = 0; g < 3; g++)
+        for(uint8_t p = 0; p < 81; p++) {
+            if(dist[p] != g) continue;
+            for(uint8_t d = 0; d < 4; d++) {
+                uint8_t n = nnNb(p, d);
+                if(n <= 80 && dist[n] > g + 1) dist[n] = g + 1;
             }
+        }
+}
+// Liberty family for a candidate: captures, post-capture resulting-lib
+// bucket (suicide-clamped), enemy-libs-after (with the trainer's
+// captured-chain quirk). Fills deadMask; returns packed rlb | ela<<4 | cap<<7.
+static const int8_t OD4[4][2] = {{1,0},{-1,0},{0,1},{0,-1}};
+
+// One 81-cell pass gathering every per-stone statistic the features
+// need: out[0]=no out[1]=ne out[2]=dens2 out[3]=dens4 out[4]=bro
+// out[5]=bre out[6]=wd out[7]=ring(ro|re<<1)
+__attribute__((noinline)) static void nnStoneScan(uint8_t cx, uint8_t cy,
+        uint8_t toMove, const uint8_t *cellLb, const uint8_t *weakMask,
+        uint8_t *out) {
+    uint8_t no = 9, ne = 9, dens2 = 0, dens4 = 0;
+    uint8_t blo = 99, bro = 3, ble = 99, bre = 3;
+    uint8_t wd = 4, ro = 0, re = 0;
+    uint8_t cpos = cy * 9 + cx;
+    for(uint8_t p = 0; p < 81; p++) {
+        uint8_t v = simBoard[p];
+        if(v == EMPTY || p == cpos) continue;
+        uint8_t ch = nnCheby(p, cx, cy);
+        if(v == toMove) {
+            if(ch < no) no = ch;
+            if(ch < blo || (ch == blo && cellLb[p] < bro)) { blo = ch; bro = cellLb[p]; }
+            if(ch == 2) ro = 1;
+        } else {
+            if(ch < ne) ne = ch;
+            if(ch < ble || (ch == ble && cellLb[p] < bre)) { ble = ch; bre = cellLb[p]; }
+            if(ch == 2) re = 1;
+        }
+        if(ch <= 2) dens2++;
+        if(ch <= 4) dens4++;
+        if(weakMask[p] && ch < wd) wd = ch;
     }
+    out[0] = no; out[1] = ne; out[2] = dens2; out[3] = dens4;
+    out[4] = bro; out[5] = bre; out[6] = wd; out[7] = ro | (re << 1);
+}
+
+
+
+// dilation state + area-gain classes for 3 radii (6 fx entries).
+__attribute__((noinline)) static uint8_t nnDilFeats(uint8_t cx, uint8_t cy,
+        const uint8_t *ODS, const uint8_t *EDS,
+        uint8_t *fx, uint8_t nf) {
+    uint8_t cpos = cy * 9 + cx;
+    // dilation states + gains (board coords)
+    for(uint8_t di = 0; di < 3; di++) {
+        uint8_t r = di + 1;
+        uint8_t st2 = (ODS[cpos] <= r) + 2 * (EDS[cpos] <= r);
+        uint8_t gain = 0;
+        for(int8_t dx = -(int8_t)r; dx <= (int8_t)r; dx++) {
+        int8_t rem = r - (dx < 0 ? -dx : dx);
+        for(int8_t dy = -rem; dy <= rem; dy++) {
+            int8_t nx = cx + dx, ny = cy + dy;
+            if((uint8_t)nx > 8 || (uint8_t)ny > 8) continue;
+            uint8_t n = ny * 9 + nx;
+            if(ODS[n] > r) gain++;
+        }
+        }
+        uint8_t gb = nnBucket(gain, NN_TH_GAIN, 3);
+        fx[nf++] = 25 + di * 8 + st2;
+        fx[nf++] = 25 + di * 8 + 4 + gb;
+    }
+    return nf;
+}
+
+
+// 48 rules, 169 bytes
+PROGMEM static const uint8_t NN_SHAPES[] = { // 48 rules
+    0x10,0xD1,0x31,0x10,0xD7,0x31,0x12,0xD1,0x31,0x12,0xD9,0x31,0x1E,0xDF,0x31,0x1E,
+    0xD7,0x31,0x20,0xDF,0x31,0x20,0xD9,0x31,0x50,0x34,0x52,0x34,0x5E,0x34,0x60,0x34,
+    0x26,0x9F,0x32,0x66,0x9F,0x35,0x0A,0x91,0x32,0x4A,0x91,0x35,0x1A,0x99,0x32,0x5A,
+    0x99,0x35,0x16,0x97,0x32,0x56,0x97,0x35,0x21,0x99,0xA0,0x33,0x61,0x99,0xA0,0x36,
+    0x1D,0x97,0x9E,0x33,0x5D,0x97,0x9E,0x36,0x13,0x99,0x92,0x33,0x53,0x99,0x92,0x36,
+    0x0F,0x97,0x90,0x33,0x4F,0x97,0x90,0x36,0x27,0x9F,0xA0,0x33,0x67,0x9F,0xA0,0x36,
+    0x25,0x9F,0x9E,0x33,0x65,0x9F,0x9E,0x36,0x0B,0x91,0x92,0x33,0x4B,0x91,0x92,0x36,
+    0x09,0x91,0x90,0x33,0x49,0x91,0x90,0x36,0x11,0x17,0x90,0x37,0x11,0x19,0x92,0x37,
+    0x1F,0x17,0x9E,0x37,0x1F,0x19,0xA0,0x37,0x5F,0x66,0x20,0x38,0x5F,0x66,0x1E,0x38,
+    0x51,0x4A,0x10,0x38,0x51,0x4A,0x12,0x38,0x59,0x5A,0x20,0x38,0x59,0x5A,0x12,0x38,
+    0x57,0x56,0x10,0x38,0x57,0x56,0x1E,0x38,0x3C,
+};
+
+// Table-driven shape walker (Jay's time-for-flash rule): each rule is
+// (offset|cond) cells then 0x80|flagbit; conds: 0=own 1=opp 2=empty
+// 3=not-opp; off-board fails the rule. Emits the same 4 classes.
+__attribute__((noinline)) static uint8_t nnRelShapes(uint8_t cx, uint8_t cy,
+        uint8_t toMove, uint8_t opp, uint8_t *fx, uint8_t nf) {
+    uint8_t flags = 0, ok = 1;
+    const uint8_t *tp = NN_SHAPES;
+    for(;;) {
+        uint8_t b = pgm_read_byte(tp++);
+        uint8_t v = b & 0x3F;
+        if(v > 48) {
+            if(v == 60) break;              // table end
+            if(ok) flags |= 1 << (v - 49);  // rule end
+            ok = 1;
+            continue;
+        }
+        if(!ok) continue;
+        int8_t qx = cx + (int8_t)(v / 7) - 3;
+        int8_t qy = cy + (int8_t)(v % 7) - 3;
+        if((uint8_t)qx > 8 || (uint8_t)qy > 8) { ok = 0; continue; }
+        uint8_t c = simBoard[qy * 9 + qx];
+        uint8_t cond = b >> 6;
+        if(cond == 0) ok = c == toMove;
+        else if(cond == 1) ok = c == opp;
+        else if(cond == 2) ok = c == EMPTY;
+        else ok = c != opp;
+    }
+    uint8_t fOwn = flags & 7, fEnm = (flags >> 3) & 7;
+    uint8_t nOwnRel = fOwn == 0 ? 0 : (fOwn & (fOwn - 1)) ? 4 :
+              fOwn == 1 ? 1 : fOwn == 2 ? 2 : 3;
+    uint8_t nEnmRel = fEnm == 0 ? 0 : (fEnm & 1) ? 1 : (fEnm & 2) ? 2 : 3;
+    fx[nf++] = 91 + nOwnRel;
+    fx[nf++] = 96 + nEnmRel;
+    fx[nf++] = 100 + ((flags >> 6) & 1);
+    fx[nf++] = 102 + (flags >> 7);
+    return nf;
+}
+
+__attribute__((noinline)) static uint8_t nnLibFam(uint8_t cpos, uint8_t toMove,
+        uint8_t opp, uint8_t *deadMask, uint8_t *cells) {
+    uint8_t nc;
+    memset(deadMask, 0, 81);
+    uint8_t cap = 0;
+    simBoard[cpos] = toMove;
+    for(uint8_t d = 0; d < 4; d++) {
+        uint8_t n = nnNb(cpos, d);
+        if(n > 80) continue;
+        if(simBoard[n] == opp && !deadMask[n]) {
+            if(nnChain(n, 0, cells, nc) == 0) {
+                cap = 1;
+                for(uint8_t i = 0; i < nc; i++)
+                    deadMask[cells[i]] = 1;
+            }
+        }
+    }
+    uint8_t rl = nnChain(cpos, deadMask, cells, nc);
+    uint8_t rlb = rl == 0 ? 0 : (rl > 4 ? 4 : rl) - 1;
+    uint8_t ela = 3;
+    for(uint8_t d = 0; d < 4; d++) {
+        uint8_t n = nnNb(cpos, d);
+        if(n > 80) continue;
+        if(simBoard[n] == opp) {
+            if(deadMask[n]) {
+                if(2 < ela) ela = 2;
+            } else {
+                uint8_t l = nnChain(n, deadMask, cells, nc);
+                uint8_t b2 = nnBucket(l, NN_TH_12, 2);
+                if(b2 < ela) ela = b2;
+            }
+        }
+    }
+    simBoard[cpos] = EMPTY;
+    return rlb | (ela << 4) | (cap << 7);
 }
 
 __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uint8_t &oy) {
@@ -1948,37 +2125,38 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
     // quiet gate + fight temperature: chains at <= 2 libs
     uint8_t cells[40], nc;
     uint8_t temp = 0;
-    static uint8_t cellLb[81];        // per-stone: chain lib bucket 0..3
-    uint8_t weakMask[11]; memset(weakMask, 0, 11);
+    uint8_t *cellLb = simMark;        // borrow think scratch (free in chooseMove)
+    uint8_t *weakMask = nnMapA; memset(weakMask, 0, 81);
     {
-        uint8_t done[11]; memset(done, 0, 11);
+        uint8_t *done = nnMapB; memset(done, 0, 81);
         uint8_t wmin = 255;
         for(uint8_t p = 0; p < 81; p++) {
-            if(simBoard[p] == EMPTY || (done[p >> 3] & (1 << (p & 7)))) continue;
+            if(simBoard[p] == EMPTY || done[p]) continue;
             uint8_t libs = nnChain(p, 0, cells, nc);
-            uint8_t lb = libs <= 2 ? 0 : libs == 3 ? 1 : libs == 4 ? 2 : 3;
+            uint8_t lb = nnBucket(libs, NN_TH_LB, 3);
             for(uint8_t i = 0; i < nc; i++) {
-                done[cells[i] >> 3] |= 1 << (cells[i] & 7);
+                done[cells[i]] = 1;
                 cellLb[cells[i]] = lb;
             }
             if(libs <= 2) temp++;
             if(simBoard[p] == game.turn) {
                 if(libs < wmin) {
-                    wmin = libs; memset(weakMask, 0, 11);
+                    wmin = libs; memset(weakMask, 0, 81);
                 }
                 if(libs == wmin)
                     for(uint8_t i = 0; i < nc; i++)
-                        weakMask[cells[i] >> 3] |= 1 << (cells[i] & 7);
+                        weakMask[cells[i]] = 1;
             }
         }
         if(temp > NN_QUIET_MAXTEMP) return 0;
     }
     if(temp > 3) temp = 3;
     // dilations (board coords): ladderBoard hosts 6 bitsets of 11B
-    uint8_t *ownD1 = ladderBoard, *ownD2 = ladderBoard + 11, *ownD3 = ladderBoard + 22;
-    uint8_t *enmD1 = ladderBoard + 33, *enmD2 = ladderBoard + 44, *enmD3 = ladderBoard + 55;
-    nnDilate(toMove, 1, ownD1); nnDilate(toMove, 2, ownD2); nnDilate(toMove, 3, ownD3);
-    nnDilate(opp, 1, enmD1); nnDilate(opp, 2, enmD2); nnDilate(opp, 3, enmD3);
+#ifndef MEAS_NODIL
+    uint8_t *distOwn = ladderBoard, *distEnm = chainId;   // think scratch
+    nnDistMap(toMove, distOwn);
+    nnDistMap(opp, distEnm);
+#endif
     uint8_t lx = nnLast % 9, ly = nnLast / 9;
     uint8_t lastContact = 0;                     // last (opp) touches our chain
     {
@@ -2049,9 +2227,9 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
         // ---- accumulators ----
         int16_t lin = NNRD(NN_B, bcls);
         int16_t pre[NN_H];
-        for(uint8_t h = 0; h < NN_H; h++)
-            pre[h] = NNRD(NN_B1, h) +
-                     NNRD(NN_EB, bcls * NN_H + h);
+        for(uint8_t h = 0; h < NN_H; h++) pre[h] = 0;
+        nnAddRow(pre, (const uint8_t *)NN_B1, 0);
+        nnAddRow(pre, (const uint8_t *)NN_EB, bcls);
 #ifndef ARDUINO
         {
             const char *dbg = getenv("NN_DBG3");
@@ -2059,6 +2237,7 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
                 fprintf(stderr, "SYM cpos=%d bestSym=%d bcls=%d\n", cpos, bestSym, bcls);
         }
 #endif
+#ifndef MEAS_NOWE
         // ---- coarse offsets per stone (canonical frame) ----
         for(uint8_t p = 0; p < 81; p++) {
             if(simBoard[p] == EMPTY) continue;
@@ -2079,96 +2258,41 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
                             (int)NNRD(NN_W, ((uint16_t)(dx + 8) * 17 + (dy + 8)) * 2 + col));
             }
 #endif
-            for(uint8_t h = 0; h < NN_H; h++)
-                pre[h] += NNRD(NN_E, cls * NN_H + h);
+            nnAddRow(pre, (const uint8_t *)NN_E, cls);
             // exact-pairwise linear path (uncapped offsets, output scale)
             lin += NNRD(NN_W, ((uint16_t)(dx + 8) * 17 + (dy + 8)) * 2 + col);
         }
+#endif
         // ---- fx features (board coords), EXACT trainer layout ----
         uint8_t fx[32]; uint8_t nf = 0;
-        // captures + post-capture resulting libs
-        uint8_t deadMask[11]; memset(deadMask, 0, 11);
-        uint8_t cap = 0;
-        simBoard[cpos] = toMove;
-        for(uint8_t d = 0; d < 4; d++) {
-            uint8_t n = nnNb((uint8_t)(cy * 9 + cx), d);
-            if(n > 80) continue;
-            if(simBoard[n] == opp && !(deadMask[n >> 3] & (1 << (n & 7)))) {
-                if(nnChain(n, 0, cells, nc) == 0) {
-                    cap = 1;
-                    for(uint8_t i = 0; i < nc; i++)
-                        deadMask[cells[i] >> 3] |= 1 << (cells[i] & 7);
-                }
-            }
-        }
-        uint8_t rl = nnChain(cpos, deadMask, cells, nc);
-        uint8_t rlb = (rl > 4 ? 4 : rl) - 1;
-        // enemy libs after (non-captured adjacent enemy chains)
-        uint8_t ela = 3;
-        for(uint8_t d = 0; d < 4; d++) {
-            uint8_t n = nnNb((uint8_t)(cy * 9 + cx), d);
-            if(n > 80) continue;
-            if(simBoard[n] == opp) {
-                if(deadMask[n >> 3] & (1 << (n & 7))) {
-                    // trainer quirk: captured adjacent chain (libs 0 at
-                    // eval time) falls into the 3+ bucket — replicate
-                    if(2 < ela) ela = 2;
-                } else {
-                    uint8_t l = nnChain(n, deadMask, cells, nc);
-                    uint8_t b2 = l <= 1 ? 0 : l == 2 ? 1 : 2;
-                    if(b2 < ela) ela = b2;
-                }
-            }
-        }
-        simBoard[cpos] = EMPTY;
-        // nearest / densities / last-dist (chebyshev)
-        uint8_t no = 9, ne = 9, dens2 = 0, dens4 = 0;
-        for(uint8_t p = 0; p < 81; p++) {
-            if(simBoard[p] == EMPTY) continue;
-            uint8_t px = p % 9, py = p / 9;
-            uint8_t ddx = px > cx ? px - cx : cx - px;
-            uint8_t ddy = py > cy ? py - cy : cy - py;
-            uint8_t ch = ddx > ddy ? ddx : ddy;
-            if(simBoard[p] == toMove) { if(ch < no) no = ch; }
-            else if(ch < ne) ne = ch;
-            if(ch <= 2) dens2++;
-            if(ch <= 4) dens4++;
-        }
+#ifndef MEAS_NOLIB
+        uint8_t *deadMask = nnMapB;   // census done-map is dead by now
+        uint8_t lf = nnLibFam(cpos, toMove, opp, deadMask, cells);
+        uint8_t rlb = lf & 0xF ? lf & 0xF : 0;
+        uint8_t rl = 1;                       // clamp applied inside helper
+        uint8_t ela = (lf >> 4) & 7;
+        uint8_t cap = lf >> 7;
+#endif
+        uint8_t ss[8];
+        nnStoneScan(cx, cy, toMove, cellLb, weakMask, ss);
+        uint8_t no = ss[0], ne = ss[1], dens2 = ss[2], dens4 = ss[3];
         uint8_t ld = nnCheby((uint8_t)(ly * 9 + lx), cx, cy);
-        fx[nf++] = rl == 0 ? 0 : rlb;   // suicide clamp (spec rule)
+        fx[nf++] = lf & 0xF;            // resLibs, suicide-clamped in helper
         fx[nf++] = 4 + cap;
         fx[nf++] = 6 + (no > 5 ? 5 : no) - 1;
 #ifndef NN_CORE_TIER
         fx[nf++] = 11 + (ne > 5 ? 5 : ne) - 1;
 #endif
 #ifndef NN_CORE_TIER
-        fx[nf++] = 20 + ((dens4 / 2) > 3 ? 3 : dens4 / 2);
+        fx[nf++] = 16 + ((dens4 / 2) > 3 ? 3 : dens4 / 2);
 #endif
 #ifndef NN_CORE_TIER
-        fx[nf++] = 24 + (ld > 5 ? 5 : ld) - 1;
+        fx[nf++] = 20 + (ld > 5 ? 5 : ld) - 1;
 #endif
         (void)dens2;
-        // dilation states + gains (board coords)
-        const uint8_t *ODS[3] = { ownD1, ownD2, ownD3 };
-        const uint8_t *EDS[3] = { enmD1, enmD2, enmD3 };
-        for(uint8_t di = 0; di < 3; di++) {
-            uint8_t r = di + 1;
-            uint8_t st2 = ((ODS[di][cpos >> 3] >> (cpos & 7)) & 1) +
-                          2 * ((EDS[di][cpos >> 3] >> (cpos & 7)) & 1);
-            uint8_t gain = 0;
-            for(int8_t dx = -(int8_t)r; dx <= (int8_t)r; dx++) {
-                int8_t rem = r - (dx < 0 ? -dx : dx);
-                for(int8_t dy = -rem; dy <= rem; dy++) {
-                    int8_t nx = cx + dx, ny = cy + dy;
-                    if((uint8_t)nx > 8 || (uint8_t)ny > 8) continue;
-                    uint8_t n = ny * 9 + nx;
-                    if(!((ODS[di][n >> 3] >> (n & 7)) & 1)) gain++;
-                }
-            }
-            uint8_t gb = gain == 0 ? 0 : gain <= 2 ? 1 : gain <= 5 ? 2 : 3;
-            fx[nf++] = 35 + di * 8 + st2;
-            fx[nf++] = 35 + di * 8 + 4 + gb;
-        }
+#ifndef MEAS_NODILF
+        nf = nnDilFeats(cx, cy, distOwn, distEnm, fx, nf);
+#endif
         // fight block
         {
             uint8_t rel = 0;
@@ -2219,23 +2343,23 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
                 if(c3 == toMove) oo = 1;
                 else if(c3 != EMPTY) oe = 1;
             }
-            fx[nf++] = 59 + ela;
-            fx[nf++] = 63 + rel;
-            fx[nf++] = 68 + (nOwn > 2 ? 2 : nOwn);
-            fx[nf++] = 71 + (nEnm > 2 ? 2 : nEnm);
+            fx[nf++] = 49 + ela;
+            fx[nf++] = 53 + rel;
+            fx[nf++] = 58 + (nOwn > 2 ? 2 : nOwn);
+            fx[nf++] = 61 + (nEnm > 2 ? 2 : nEnm);
             (void)xcut;
-            fx[nf++] = 80 + oo + 2 * oe;
+            fx[nf++] = 64 + oo + 2 * oe;
         }
         // ---- 3e: pattern / corner / global diff / nearest-chain libs ----
         {
+#ifndef MEAS_NOPAT
             int8_t ps = patternBonus(cx, cy, toMove);
-            uint8_t pb = ps <= -5 ? 0 : ps <= -1 ? 1 : ps == 0 ? 2 :
-                         ps <= 2 ? 3 : ps <= 4 ? 4 : 5;
-            fx[nf++] = 93 + pb;
+            uint8_t pb = nnBucket(ps, NN_TH_PAT, 5);
+            fx[nf++] = 68 + pb;
             int8_t po = patternBonus(cx, cy, opp);       // r3: opponent swap
-            uint8_t pb2 = po <= -5 ? 0 : po <= -1 ? 1 : po == 0 ? 2 :
-                          po <= 2 ? 3 : po <= 4 ? 4 : 5;
-            uint8_t fxOppPat = 148 + pb2;
+            uint8_t pb2 = nnBucket(po, NN_TH_PAT, 5);
+            uint8_t fxOppPat = 104 + pb2;
+#endif
             // nearest corner state at r2 (corners: 3-3 points)
             static const uint8_t CPTS[4] = { 2*9+2, 2*9+6, 6*9+2, 6*9+6 };
 #ifndef NN_CORE_TIER
@@ -2244,97 +2368,28 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
             for(uint8_t i = 0; i < 4; i++) {
                 uint8_t d = nnCheby(CPTS[i], cx, cy);
                 uint8_t cp = CPTS[i];
-                uint8_t st3 = ((ownD2[cp >> 3] >> (cp & 7)) & 1) +
-                              2 * ((enmD2[cp >> 3] >> (cp & 7)) & 1);
+                uint8_t st3 = (distOwn[cp] <= 2) + 2 * (distEnm[cp] <= 2);
                 if(d < bd2) { bd2 = d; cst = st3; }
                 else if(d == bd2 && st3 < cst) cst = st3;
             }
-            fx[nf++] = 99 + cst;
+            fx[nf++] = 74 + cst;
 #endif
 #ifndef NN_CORE_TIER
-            int8_t gd = (int8_t)(nnPop11(ownD3) - nnPop11(enmD3));
-            uint8_t db = gd <= -8 ? 0 : gd <= -2 ? 1 : gd <= 1 ? 2 : gd <= 7 ? 3 : 4;
-            fx[nf++] = 118 + db;
+            int8_t gd = 0;
+            for(uint8_t p = 0; p < 81; p++) {
+                if(distOwn[p] <= 3) gd++;
+                if(distEnm[p] <= 3) gd--;
+            }
+            uint8_t db = nnBucket(gd, NN_TH_GD, 4);
+            fx[nf++] = 78 + db;
 #endif
             // nearest own / enemy chain lib-buckets (order-free: min dist,
             // then min bucket among equidistant) via per-cell cellLb
-            uint8_t blo = 99, bro = 3, ble = 99, bre = 3;
-            for(uint8_t p = 0; p < 81; p++) {
-                if(simBoard[p] == EMPTY || p == cpos) continue;
-                uint8_t d = nnCheby(p, cx, cy);
-                if(simBoard[p] == toMove) {
-                    if(d < blo || (d == blo && cellLb[p] < bro)) { blo = d; bro = cellLb[p]; }
-                } else if(d < ble || (d == ble && cellLb[p] < bre)) { ble = d; bre = cellLb[p]; }
-            }
-            fx[nf++] = 123 + bro;
-            fx[nf++] = 127 + bre;
+            uint8_t bro = ss[4], bre = ss[5];
+            fx[nf++] = 83 + bro;
+            fx[nf++] = 87 + bre;
 #ifndef NN_DEVICE_TIER
-            // ---- 3f: clean relations + shapes ----
-            uint8_t fOwn = 0, fEnm = 0;   // bit1 kosumi, bit2 jump, bit4 keima
-            for(int8_t dxx = -1; dxx <= 1; dxx += 2) for(int8_t dyy = -1; dyy <= 1; dyy += 2) {
-                int8_t qx = cx + dxx, qy = cy + dyy;
-                if((uint8_t)qx > 8 || (uint8_t)qy > 8) continue;
-                uint8_t q = qy * 9 + qx;
-                if(simBoard[q] == toMove) {
-                    uint8_t o1 = cy * 9 + qx, o2 = qy * 9 + cx;
-                    if(!(simBoard[o1] == opp && simBoard[o2] == opp)) fOwn |= 1;
-                } else if(simBoard[q] == opp) fEnm |= 1;
-            }
-            static const int8_t JMP[4][2] = {{2,0},{-2,0},{0,2},{0,-2}};
-            for(uint8_t j = 0; j < 4; j++) {
-                int8_t qx = cx + JMP[j][0], qy = cy + JMP[j][1];
-                if((uint8_t)qx > 8 || (uint8_t)qy > 8) continue;
-                uint8_t q = qy * 9 + qx;
-                uint8_t midp = (uint8_t)((cy + qy) / 2 * 9 + (cx + qx) / 2);
-                if(simBoard[midp] != EMPTY) continue;
-                if(simBoard[q] == toMove) fOwn |= 2;
-                else if(simBoard[q] == opp) fEnm |= 2;
-            }
-            static const int8_t KMA[8][2] = {{1,2},{1,-2},{-1,2},{-1,-2},{2,1},{2,-1},{-2,1},{-2,-1}};
-            for(uint8_t j = 0; j < 8; j++) {
-                int8_t dxx = KMA[j][0], dyy = KMA[j][1];
-                int8_t qx = cx + dxx, qy = cy + dyy;
-                if((uint8_t)qx > 8 || (uint8_t)qy > 8) continue;
-                uint8_t q = qy * 9 + qx;
-                if(simBoard[q] == EMPTY) continue;
-                uint8_t p1, p2;
-                if(dxx == 1 || dxx == -1) {
-                    p1 = (uint8_t)((cy + dyy / 2) * 9 + cx);
-                    p2 = (uint8_t)((cy + dyy / 2) * 9 + qx);
-                } else {
-                    p1 = (uint8_t)(cy * 9 + cx + dxx / 2);
-                    p2 = (uint8_t)(qy * 9 + cx + dxx / 2);
-                }
-                if(simBoard[p1] != EMPTY || simBoard[p2] != EMPTY) continue;
-                if(simBoard[q] == toMove) fOwn |= 4;
-                else fEnm |= 4;
-            }
-            uint8_t nOwnRel = fOwn == 0 ? 0 : (fOwn & (fOwn - 1)) ? 4 :
-                              fOwn == 1 ? 1 : fOwn == 2 ? 2 : 3;
-            uint8_t nEnmRel = fEnm == 0 ? 0 : (fEnm & 1) ? 1 : (fEnm & 2) ? 2 : 3;
-            fx[nf++] = 131 + nOwnRel;
-            fx[nf++] = 136 + nEnmRel;
-            uint8_t et = 0;
-            for(int8_t dxx = -1; dxx <= 1; dxx += 2) for(int8_t dyy = -1; dyy <= 1; dyy += 2) {
-                int8_t qx = cx + dxx, qy = cy + dyy;
-                if((uint8_t)qx > 8 || (uint8_t)qy > 8) continue;
-                if(simBoard[cy * 9 + qx] == toMove && simBoard[qy * 9 + cx] == toMove &&
-                   simBoard[qy * 9 + qx] == EMPTY) et = 1;
-            }
-            fx[nf++] = 140 + et;
-            uint8_t hh = 0;
-            static const int8_t OD4[4][2] = {{1,0},{-1,0},{0,1},{0,-1}};
-            for(uint8_t j = 0; j < 4; j++) {
-                int8_t dxx = OD4[j][0], dyy = OD4[j][1];
-                int8_t e1x = cx + dxx, e1y = cy + dyy, e2x = cx + 2 * dxx, e2y = cy + 2 * dyy;
-                if((uint8_t)e2x > 8 || (uint8_t)e2y > 8) continue;
-                if(simBoard[e1y * 9 + e1x] != opp || simBoard[e2y * 9 + e2x] != opp) continue;
-                int8_t px = dyy, py = dxx;
-                uint8_t s1x = e1x + px, s1y = e1y + py, s2x = e1x - px, s2y = e1y - py;
-                if(((uint8_t)s1x <= 8 && (uint8_t)s1y <= 8 && simBoard[s1y * 9 + s1x] == toMove) ||
-                   ((uint8_t)s2x <= 8 && (uint8_t)s2y <= 8 && simBoard[s2y * 9 + s2x] == toMove)) hh = 1;
-            }
-            fx[nf++] = 142 + hh;
+            nf = nnRelShapes(cx, cy, toMove, opp, fx, nf);
 #endif
             fx[nf++] = fxOppPat;
 #ifndef NN_DEVICE_TIER
@@ -2346,10 +2401,10 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
                     int8_t qx = cx + dxx, qy = cy + dyy;
                     if((uint8_t)qx > 8 || (uint8_t)qy > 8) continue;
                     uint8_t q = qy * 9 + qx;
-                    if(!((enmD2[q >> 3] >> (q & 7)) & 1)) og++;
+                    if(distEnm[q] > 2) og++;
                 }
             }
-            fx[nf++] = 154 + (og == 0 ? 0 : og <= 2 ? 1 : og <= 5 ? 2 : 3);
+            fx[nf++] = 110 + nnBucket(og, NN_TH_GAIN, 3);
 #endif
 #ifndef NN_DEVICE_TIER
             // r3: one-ply liberty lookahead on the placed chain
@@ -2359,48 +2414,34 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
                 int8_t qx = cx + OD4[j][0], qy = cy + OD4[j][1];
                 if((uint8_t)qx > 8 || (uint8_t)qy > 8) continue;
                 uint8_t q = qy * 9 + qx;
-                if(simBoard[q] != EMPTY || (deadMask[q >> 3] & (1 << (q & 7)))) continue;
+                if(simBoard[q] != EMPTY || deadMask[q]) continue;
                 simBoard[q] = opp;
                 uint8_t l2 = nnChain(cpos, deadMask, cells, nc);
                 simBoard[q] = EMPTY;
                 if(l2 < ll) ll = l2;
             }
             simBoard[cpos] = EMPTY;
-            fx[nf++] = 158 + ll;
+            fx[nf++] = 114 + ll;
 #endif
 #ifndef NN_CORE_TIER
             // r3: distance to weakest own chain
-            uint8_t wd = 4;
-            for(uint8_t p = 0; p < 81; p++) {
-                if(!((weakMask[p >> 3] >> (p & 7)) & 1)) continue;
-                uint8_t d = nnCheby(p, cx, cy);
-                if(d < wd) wd = d;
-            }
-            fx[nf++] = 162 + wd;
+            uint8_t wd = ss[6];
+            fx[nf++] = 118 + wd;
 #endif
 #ifndef NN_DEVICE_TIER
             // r3: 5x5 ring presence
-            uint8_t ro = 0, re = 0;
-            for(int8_t dxx = -2; dxx <= 2; dxx++) for(int8_t dyy = -2; dyy <= 2; dyy++) {
-                int8_t m1 = dxx < 0 ? -dxx : dxx, m2 = dyy < 0 ? -dyy : dyy;
-                if((m1 > m2 ? m1 : m2) != 2) continue;
-                int8_t qx = cx + dxx, qy = cy + dyy;
-                if((uint8_t)qx > 8 || (uint8_t)qy > 8) continue;
-                uint8_t c3 = simBoard[qy * 9 + qx];
-                if(c3 == toMove) ro = 1;
-                else if(c3 != EMPTY) re = 1;
-            }
-            fx[nf++] = 167 + ro + 2 * re;
+            uint8_t ro = ss[7] & 1, re = ss[7] >> 1;
+            fx[nf++] = 123 + ro + 2 * re;
 #endif
 #ifndef NN_CORE_TIER
             // r3: line-class x nearestOwn cross
             uint8_t lc = cx < 8 - cx ? cx : 8 - cx;
             uint8_t lc2 = cy < 8 - cy ? cy : 8 - cy;
             if(lc2 < lc) lc = lc2;
-            uint8_t lcc = lc <= 1 ? 0 : lc == 2 ? 1 : 2;
+            uint8_t lcc = nnBucket(lc, NN_TH_12, 2);
             uint8_t nod = no >= 1 ? (no > 4 ? 4 : no) - 1 : 0;
             uint8_t cr = lcc * 4 + nod;
-            fx[nf++] = 171 + (cr > 11 ? 11 : cr);
+            fx[nf++] = 127 + (cr > 11 ? 11 : cr);
 #endif
         }
 #ifndef ARDUINO
@@ -2416,8 +2457,7 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
         // ---- score ----
         for(uint8_t i = 0; i < nf; i++) {
             lin += NNRD(NN_LF, fx[i]);
-            for(uint8_t h = 0; h < NN_H; h++)
-                pre[h] += NNRD(NN_F, (uint16_t)fx[i] * NN_H + h);
+            nnAddRow(pre, (const uint8_t *)NN_F, fx[i]);
         }
         int32_t score = (int32_t)lin * NN_KSCALE;
         for(uint8_t h = 0; h < NN_H; h++)
