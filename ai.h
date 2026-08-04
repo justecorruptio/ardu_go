@@ -35,6 +35,10 @@ class AI {
     private:
     uint16_t bookPos[8]; // child-list offset per symmetry candidate
     uint8_t bookAlive;   // bitmask of surviving candidates
+#ifdef NNOPEN
+    uint8_t nnLast;      // last move (0xFF none): opening-net feature
+    uint8_t nnOpeningMove(Game &game, uint8_t &ox, uint8_t &oy);
+#endif
     uint8_t firstMove;   // 1 until any stone has been played
     uint8_t passToWin;   // set by think(): pass now to end a won game
     uint8_t resignCount; // consecutive hopeless searches (strict tier)

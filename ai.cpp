@@ -132,6 +132,9 @@ void AI::reset() {
     for(uint8_t s = 0; s < 8; s++)
         bookPos[s] = 0;
     firstMove = 1;
+#ifdef NNOPEN
+    nnLast = 0xFF;
+#endif
     resigned = 0;
     resignCount = 0;
     resignCount2 = 0;
@@ -230,6 +233,9 @@ static uint8_t bookFindChild(uint8_t t) {
 
 void AI::notifyMove(uint8_t x, uint8_t y) {
     firstMove = 0;
+#ifdef NNOPEN
+    nnLast = y * 9 + x;
+#endif
 
     // Book never contains first-line moves
     if(x == 0 || x == BOARD_SIZE - 1 || y == 0 || y == BOARD_SIZE - 1) {
@@ -256,6 +262,9 @@ void AI::notifyMove(uint8_t x, uint8_t y) {
 
 void AI::notifyPass() {
     firstMove = 0;
+#ifdef NNOPEN
+    nnLast = 0xFF;
+#endif
     bookAlive = 0; // a pass leaves all book lines
 }
 
@@ -302,6 +311,7 @@ uint8_t AI::bookLookup(uint8_t &x, uint8_t &y) {
     return 0;
 }
 
+
 uint8_t AI::chooseMove(Game &game) {
     uint8_t x, y;
     if(bookLookup(x, y) && game.isValidMove(x, y)) {
@@ -309,6 +319,13 @@ uint8_t AI::chooseMove(Game &game) {
         notifyMove(x, y);
         return 1;
     }
+#ifdef NNOPEN
+    if(nnOpeningMove(game, x, y)) {
+        game.playMove(x, y);
+        notifyMove(x, y);
+        return 1;
+    }
+#endif
     return 0;
 }
 
@@ -1792,6 +1809,587 @@ static uint8_t simPlay(uint8_t pos, uint8_t color, uint8_t ko,
 // Snapshot for ladder reading (static: too big for the AVR stack at
 // the depths this gets called from)
 static uint8_t ladderBoard[BOARD_CELLS];
+
+#ifdef NNOPEN
+// ==================== TINY OPENING NET ====================
+// Distilled KataGo opening policy (Jay's idea, 2026-08): int8 net over
+// hand features, trained on the expected-winrate-loss ("competitive")
+// objective. Picks the opening move instantly while the position is
+// quiet, superseding think() below NN_MAX_STONES. Borrows think-scoped
+// scratch (simBoard/simMark/ladderBoard) — zero standing RAM beyond
+// the 1-byte last-move tracker. Weights: nn_open_weights.h (export:
+// scratchpad nn_export.py). Feature layout MUST mirror nn_train3d.py;
+// parity-checked by test/nnprobe.cpp against the Python int emulation.
+#include "nn_open_weights.h"
+static int8_t patternBonus(int8_t cx, int8_t cy, uint8_t color); // defined below
+#if NN_BITS <= 4
+static int8_t nnRd(const uint8_t *t, uint16_t i) {   // signed nibble unpack
+    uint8_t b = pgm_read_byte(t + (i >> 1));
+    uint8_t v = (i & 1) ? (b >> 4) : (b & 0xF);
+    return (int8_t)((v ^ 8) - 8);
+}
+#define NNRD(t, i) nnRd((const uint8_t *)(t), (uint16_t)(i))
+#else
+#define NNRD(t, i) ((int8_t)pgm_read_byte((const uint8_t *)(t) + (i)))
+#endif
+static uint8_t nnPop11(const uint8_t *bs) {
+    uint8_t n = 0;
+    for(uint8_t i = 0; i < 11; i++) n += __builtin_popcount(bs[i]);
+    return n;
+}
+#ifndef NN_QUIET_MAXTEMP
+#define NN_QUIET_MAXTEMP 0  // decline if any chain has <= 2 libs
+#endif
+
+static uint8_t nnSymPos(uint8_t x, uint8_t y, uint8_t s, uint8_t &ox, uint8_t &oy) {
+    if(s & 1) x = 8 - x;
+    if(s & 2) y = 8 - y;
+    if(s & 4) { uint8_t t = x; x = y; y = t; }
+    ox = x; oy = y;
+    return (uint8_t)(y * 9 + x);
+}
+
+// flood a chain on simBoard from p; returns liberty count treating
+// cells set in deadMask (bitset over 81) as EMPTY; chain cells -> simMark
+static uint8_t nnChain(uint8_t p, const uint8_t *deadMask, uint8_t *cells, uint8_t &ncells) {
+    uint8_t col = simBoard[p];
+    uint8_t libs = 0;
+    uint8_t libSeen[11]; memset(libSeen, 0, 11);
+    uint8_t seen[11]; memset(seen, 0, 11);
+    uint8_t st[40]; uint8_t sp = 0;
+    st[sp++] = p; seen[p >> 3] |= 1 << (p & 7);
+    ncells = 0;
+    while(sp) {
+        uint8_t q = st[--sp];
+        cells[ncells++] = q;
+        uint8_t qx = q % 9, qy = q / 9;
+        for(uint8_t d = 0; d < 4; d++) {
+            int8_t nx = qx + (d == 0) - (d == 1);
+            int8_t ny = qy + (d == 2) - (d == 3);
+            if((uint8_t)nx > 8 || (uint8_t)ny > 8) continue;
+            uint8_t n = ny * 9 + nx;
+            uint8_t empty = simBoard[n] == EMPTY ||
+                            (deadMask && (deadMask[n >> 3] & (1 << (n & 7))));
+            if(empty) {
+                if(!(libSeen[n >> 3] & (1 << (n & 7)))) {
+                    libSeen[n >> 3] |= 1 << (n & 7);
+                    libs++;
+                }
+            } else if(simBoard[n] == col && !(seen[n >> 3] & (1 << (n & 7)))) {
+                seen[n >> 3] |= 1 << (n & 7);
+                st[sp++] = n;
+            }
+        }
+    }
+    return libs;
+}
+
+// manhattan-dilate a color's stones into an 81-bitset (radius r)
+static void nnDilate(uint8_t col, uint8_t r, uint8_t *out) {
+    memset(out, 0, 11);
+    for(uint8_t p = 0; p < 81; p++) {
+        if(simBoard[p] != col) continue;
+        int8_t px = p % 9, py = p / 9;
+        for(int8_t dx = -r; dx <= r; dx++)
+            for(int8_t dy = -(int8_t)r + (dx < 0 ? -dx : dx); dy <= r - (dx < 0 ? -dx : dx); dy++) {
+                int8_t nx = px + dx, ny = py + dy;
+                if((uint8_t)nx > 8 || (uint8_t)ny > 8) continue;
+                uint8_t n = ny * 9 + nx;
+                out[n >> 3] |= 1 << (n & 7);
+            }
+    }
+}
+
+uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uint8_t &oy) {
+    if(nnLast > 80) return 0;                    // need a last move
+    // unpack + census
+    uint8_t nstones = 0;
+    for(uint8_t p = 0; p < 81; p++) {
+        simBoard[p] = game.at(p % 9, p / 9);
+        if(simBoard[p] != EMPTY) nstones++;
+    }
+    if(nstones == 0 || nstones > NN_MAX_STONES) return 0;
+    uint8_t toMove = game.turn;
+    uint8_t opp = 3 - toMove;
+    // quiet gate + fight temperature: chains at <= 2 libs
+    uint8_t cells[40], nc;
+    uint8_t temp = 0;
+    static uint8_t cellLb[81];        // per-stone: chain lib bucket 0..3
+    uint8_t weakMask[11]; memset(weakMask, 0, 11);
+    {
+        uint8_t done[11]; memset(done, 0, 11);
+        uint8_t wmin = 255;
+        for(uint8_t p = 0; p < 81; p++) {
+            if(simBoard[p] == EMPTY || (done[p >> 3] & (1 << (p & 7)))) continue;
+            uint8_t libs = nnChain(p, 0, cells, nc);
+            uint8_t lb = libs <= 2 ? 0 : libs == 3 ? 1 : libs == 4 ? 2 : 3;
+            for(uint8_t i = 0; i < nc; i++) {
+                done[cells[i] >> 3] |= 1 << (cells[i] & 7);
+                cellLb[cells[i]] = lb;
+            }
+            if(libs <= 2) temp++;
+            if(simBoard[p] == game.turn) {
+                if(libs < wmin) {
+                    wmin = libs; memset(weakMask, 0, 11);
+                }
+                if(libs == wmin)
+                    for(uint8_t i = 0; i < nc; i++)
+                        weakMask[cells[i] >> 3] |= 1 << (cells[i] & 7);
+            }
+        }
+        if(temp > NN_QUIET_MAXTEMP) return 0;
+    }
+    if(temp > 3) temp = 3;
+    // dilations (board coords): ladderBoard hosts 6 bitsets of 11B
+    uint8_t *ownD1 = ladderBoard, *ownD2 = ladderBoard + 11, *ownD3 = ladderBoard + 22;
+    uint8_t *enmD1 = ladderBoard + 33, *enmD2 = ladderBoard + 44, *enmD3 = ladderBoard + 55;
+    nnDilate(toMove, 1, ownD1); nnDilate(toMove, 2, ownD2); nnDilate(toMove, 3, ownD3);
+    nnDilate(opp, 1, enmD1); nnDilate(opp, 2, enmD2); nnDilate(opp, 3, enmD3);
+    uint8_t lx = nnLast % 9, ly = nnLast / 9;
+    uint8_t lastContact = 0;                     // last (opp) touches our chain
+    {
+        for(uint8_t d = 0; d < 4; d++) {
+            int8_t nx = lx + (d == 0) - (d == 1);
+            int8_t ny = ly + (d == 2) - (d == 3);
+            if((uint8_t)nx > 8 || (uint8_t)ny > 8) continue;
+            if(simBoard[ny * 9 + nx] == toMove) lastContact = 1;
+        }
+    }
+    int32_t bestScore = (int32_t)-2147483647;
+    uint8_t bestPos = 0xFF;
+    for(uint8_t cx = 0; cx < 9; cx++) for(uint8_t cy = 0; cy < 9; cy++) {
+        uint8_t cpos = cy * 9 + cx;
+        if(simBoard[cpos] != EMPTY) continue;
+        // ---- canonical sym: min (a,b), tie-break lexicographic ----
+        uint8_t a0 = cx < 8 - cx ? cx : 8 - cx;
+        uint8_t b0 = cy < 8 - cy ? cy : 8 - cy;
+        if(a0 > b0) { uint8_t t = a0; a0 = b0; b0 = t; }
+        uint8_t bestSym = 0xFF;
+        for(uint8_t s = 0; s < 8; s++) {
+            uint8_t tx, ty;
+            nnSymPos(cx, cy, s, tx, ty);
+            uint8_t a = tx < 8 - tx ? tx : 8 - tx;
+            uint8_t bb = ty < 8 - ty ? ty : 8 - ty;
+            if(a > bb) continue;                 // not in triangle
+            if(a != a0 || bb != b0) continue;    // not minimal (a0,b0 is min by construction)
+            if(bestSym == 0xFF) { bestSym = s; continue; }
+            // lexicographic tie-break over sorted transformed stone keys:
+            // key = pos*2 + (color==WHITE), selection-scan without RAM
+            uint8_t better = 0;
+            uint16_t prevKey = 0;
+            for(uint8_t k = 0; k < nstones; k++) {
+                uint16_t mnS = 0xFFFF, mnB = 0xFFFF;
+                for(uint8_t p = 0; p < 81; p++) {
+                    if(simBoard[p] == EMPTY) continue;
+                    uint8_t px, py, qx, qy;
+                    nnSymPos(p % 9, p / 9, s, px, py);
+                    nnSymPos(p % 9, p / 9, bestSym, qx, qy);
+                    // x-major to match the trainer's (x,y)-tuple sort
+                    uint16_t kS = (uint16_t)(px * 9 + py) * 2 + (simBoard[p] == WHITE);
+                    uint16_t kB = (uint16_t)(qx * 9 + qy) * 2 + (simBoard[p] == WHITE);
+                    if(kS >= prevKey && kS < mnS) mnS = kS;
+                    if(kB >= prevKey && kB < mnB) mnB = kB;
+                }
+                if(mnS != mnB) { better = mnS < mnB; break; }
+                prevKey = mnS + 1;
+            }
+            if(better) bestSym = s;
+        }
+        uint8_t tcx, tcy;
+        nnSymPos(cx, cy, bestSym, tcx, tcy);
+        uint8_t a = tcx < 8 - tcx ? tcx : 8 - tcx;
+        uint8_t bcl = tcy < 8 - tcy ? tcy : 8 - tcy;
+        if(a > bcl) { uint8_t t = a; a = bcl; bcl = t; }
+        uint8_t bcls = a * 5 + bcl - (a * (a + 1)) / 2;
+        // ---- accumulators ----
+        int16_t lin = NNRD(NN_B, bcls);
+        int16_t pre[NN_H];
+        for(uint8_t h = 0; h < NN_H; h++)
+            pre[h] = NNRD(NN_B1, h) +
+                     NNRD(NN_EB, bcls * NN_H + h);
+#ifndef ARDUINO
+        {
+            const char *dbg = getenv("NN_DBG3");
+            if(dbg && (uint8_t)atoi(dbg) == cpos)
+                fprintf(stderr, "SYM cpos=%d bestSym=%d bcls=%d\n", cpos, bestSym, bcls);
+        }
+#endif
+        // ---- coarse offsets per stone (canonical frame) ----
+        for(uint8_t p = 0; p < 81; p++) {
+            if(simBoard[p] == EMPTY) continue;
+            uint8_t sx, sy;
+            nnSymPos(p % 9, p / 9, bestSym, sx, sy);
+            int8_t dx = (int8_t)sx - (int8_t)tcx, dy = (int8_t)sy - (int8_t)tcy;
+            uint8_t adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
+            if(adx > 3) adx = 3;
+            if(ady > 3) ady = 3;
+            uint8_t col = simBoard[p] == toMove ? 0 : 1;
+            uint16_t cls = ((((uint16_t)adx * 4 + ady) * 2 + (dx < 0)) * 2 + (dy < 0)) * 2 + col;
+#ifndef ARDUINO
+            {
+                const char *dbg = getenv("NN_DBG3");
+                if(dbg && (uint8_t)atoi(dbg) == cpos)
+                    fprintf(stderr, "  stone p=%d cls=%d woff=%d wv=%d\n", p, (int)cls,
+                            (int)(((uint16_t)(dx + 8) * 17 + (dy + 8)) * 2 + col),
+                            (int)NNRD(NN_W, ((uint16_t)(dx + 8) * 17 + (dy + 8)) * 2 + col));
+            }
+#endif
+            for(uint8_t h = 0; h < NN_H; h++)
+                pre[h] += NNRD(NN_E, cls * NN_H + h);
+            // exact-pairwise linear path (uncapped offsets, output scale)
+            lin += NNRD(NN_W, ((uint16_t)(dx + 8) * 17 + (dy + 8)) * 2 + col);
+        }
+        // ---- fx features (board coords), EXACT trainer layout ----
+        uint8_t fx[32]; uint8_t nf = 0;
+        // captures + post-capture resulting libs
+        uint8_t deadMask[11]; memset(deadMask, 0, 11);
+        uint8_t cap = 0;
+        simBoard[cpos] = toMove;
+        for(uint8_t d = 0; d < 4; d++) {
+            int8_t nx = cx + (d == 0) - (d == 1);
+            int8_t ny = cy + (d == 2) - (d == 3);
+            if((uint8_t)nx > 8 || (uint8_t)ny > 8) continue;
+            uint8_t n = ny * 9 + nx;
+            if(simBoard[n] == opp && !(deadMask[n >> 3] & (1 << (n & 7)))) {
+                if(nnChain(n, 0, cells, nc) == 0) {
+                    cap = 1;
+                    for(uint8_t i = 0; i < nc; i++)
+                        deadMask[cells[i] >> 3] |= 1 << (cells[i] & 7);
+                }
+            }
+        }
+        uint8_t rl = nnChain(cpos, deadMask, cells, nc);
+        uint8_t rlb = (rl > 4 ? 4 : rl) - 1;
+        // enemy libs after (non-captured adjacent enemy chains)
+        uint8_t ela = 3;
+        for(uint8_t d = 0; d < 4; d++) {
+            int8_t nx = cx + (d == 0) - (d == 1);
+            int8_t ny = cy + (d == 2) - (d == 3);
+            if((uint8_t)nx > 8 || (uint8_t)ny > 8) continue;
+            uint8_t n = ny * 9 + nx;
+            if(simBoard[n] == opp) {
+                if(deadMask[n >> 3] & (1 << (n & 7))) {
+                    // trainer quirk: captured adjacent chain (libs 0 at
+                    // eval time) falls into the 3+ bucket — replicate
+                    if(2 < ela) ela = 2;
+                } else {
+                    uint8_t l = nnChain(n, deadMask, cells, nc);
+                    uint8_t b2 = l <= 1 ? 0 : l == 2 ? 1 : 2;
+                    if(b2 < ela) ela = b2;
+                }
+            }
+        }
+        simBoard[cpos] = EMPTY;
+        // nearest / densities / last-dist (chebyshev)
+        uint8_t no = 9, ne = 9, dens2 = 0, dens4 = 0;
+        for(uint8_t p = 0; p < 81; p++) {
+            if(simBoard[p] == EMPTY) continue;
+            uint8_t px = p % 9, py = p / 9;
+            uint8_t ddx = px > cx ? px - cx : cx - px;
+            uint8_t ddy = py > cy ? py - cy : cy - py;
+            uint8_t ch = ddx > ddy ? ddx : ddy;
+            if(simBoard[p] == toMove) { if(ch < no) no = ch; }
+            else if(ch < ne) ne = ch;
+            if(ch <= 2) dens2++;
+            if(ch <= 4) dens4++;
+        }
+        uint8_t ldx = lx > cx ? lx - cx : cx - lx;
+        uint8_t ldy = ly > cy ? ly - cy : cy - ly;
+        uint8_t ld = ldx > ldy ? ldx : ldy;
+        fx[nf++] = rl == 0 ? 0 : rlb;   // suicide clamp (spec rule)
+        fx[nf++] = 4 + cap;
+        fx[nf++] = 6 + (no > 5 ? 5 : no) - 1;
+        fx[nf++] = 11 + (ne > 5 ? 5 : ne) - 1;
+        fx[nf++] = 20 + ((dens4 / 2) > 3 ? 3 : dens4 / 2);
+        fx[nf++] = 24 + (ld > 5 ? 5 : ld) - 1;
+        (void)dens2;
+        // dilation states + gains (board coords)
+        const uint8_t *ODS[3] = { ownD1, ownD2, ownD3 };
+        const uint8_t *EDS[3] = { enmD1, enmD2, enmD3 };
+        for(uint8_t di = 0; di < 3; di++) {
+            uint8_t r = di + 1;
+            uint8_t st2 = ((ODS[di][cpos >> 3] >> (cpos & 7)) & 1) +
+                          2 * ((EDS[di][cpos >> 3] >> (cpos & 7)) & 1);
+            uint8_t gain = 0;
+            for(int8_t dx = -(int8_t)r; dx <= (int8_t)r; dx++) {
+                int8_t rem = r - (dx < 0 ? -dx : dx);
+                for(int8_t dy = -rem; dy <= rem; dy++) {
+                    int8_t nx = cx + dx, ny = cy + dy;
+                    if((uint8_t)nx > 8 || (uint8_t)ny > 8) continue;
+                    uint8_t n = ny * 9 + nx;
+                    if(!((ODS[di][n >> 3] >> (n & 7)) & 1)) gain++;
+                }
+            }
+            uint8_t gb = gain == 0 ? 0 : gain <= 2 ? 1 : gain <= 5 ? 2 : 3;
+            fx[nf++] = 35 + di * 8 + st2;
+            fx[nf++] = 35 + di * 8 + 4 + gb;
+        }
+        // fight block
+        {
+            uint8_t rel = 0;
+            if(lastContact) {
+                uint8_t touchOwn = 0;
+                for(uint8_t d = 0; d < 4; d++) {
+                    int8_t nx = cx + (d == 0) - (d == 1);
+                    int8_t ny = cy + (d == 2) - (d == 3);
+                    if((uint8_t)nx > 8 || (uint8_t)ny > 8) continue;
+                    if(simBoard[ny * 9 + nx] == toMove) touchOwn = 1;
+                }
+                if(ld == 1 && ldx + ldy == 1) rel = 2;
+                else if(ld <= 1 && touchOwn) rel = 1;
+                else if(ld <= 2) rel = 3;
+                else rel = 4;
+            }
+            // distinct adjacent own / enemy chains (dedupe by chain min-cell)
+            uint8_t ownIds[4], enmIds[4], nOwn = 0, nEnm = 0;
+            for(uint8_t d = 0; d < 4; d++) {
+                int8_t nx = cx + (d == 0) - (d == 1);
+                int8_t ny = cy + (d == 2) - (d == 3);
+                if((uint8_t)nx > 8 || (uint8_t)ny > 8) continue;
+                uint8_t n = ny * 9 + nx;
+                if(simBoard[n] == EMPTY) continue;
+                nnChain(n, 0, cells, nc);
+                uint8_t mn = 81;
+                for(uint8_t i = 0; i < nc; i++) if(cells[i] < mn) mn = cells[i];
+                uint8_t *ids = simBoard[n] == toMove ? ownIds : enmIds;
+                uint8_t *cnt = simBoard[n] == toMove ? &nOwn : &nEnm;
+                uint8_t dup = 0;
+                for(uint8_t i = 0; i < *cnt; i++) if(ids[i] == mn) dup = 1;
+                if(!dup && *cnt < 4) ids[(*cnt)++] = mn;
+            }
+            uint8_t xcut = 0;
+            for(int8_t dx = -1; dx <= 1; dx += 2) for(int8_t dy = -1; dy <= 1; dy += 2) {
+                int8_t qx = cx + dx, qy = cy + dy;
+                if((uint8_t)qx > 8 || (uint8_t)qy > 8) continue;
+                if(simBoard[qy * 9 + qx] == toMove &&
+                   simBoard[cy * 9 + qx] == opp && simBoard[qy * 9 + cx] == opp)
+                    xcut = 1;
+            }
+            uint8_t oo = 0, oe = 0;
+            for(int8_t dx = -1; dx <= 1; dx++) for(int8_t dy = -1; dy <= 1; dy++) {
+                if(!dx && !dy) continue;
+                int8_t qx = cx + dx, qy = cy + dy;
+                if((uint8_t)qx > 8 || (uint8_t)qy > 8) continue;
+                uint8_t c3 = simBoard[qy * 9 + qx];
+                if(c3 == toMove) oo = 1;
+                else if(c3 != EMPTY) oe = 1;
+            }
+            fx[nf++] = 59 + ela;
+            fx[nf++] = 63 + rel;
+            fx[nf++] = 68 + (nOwn > 2 ? 2 : nOwn);
+            fx[nf++] = 71 + (nEnm > 2 ? 2 : nEnm);
+            (void)xcut;
+            fx[nf++] = 80 + oo + 2 * oe;
+        }
+        // ---- 3e: pattern / corner / global diff / nearest-chain libs ----
+        {
+            int8_t ps = patternBonus(cx, cy, toMove);
+            uint8_t pb = ps <= -5 ? 0 : ps <= -1 ? 1 : ps == 0 ? 2 :
+                         ps <= 2 ? 3 : ps <= 4 ? 4 : 5;
+            fx[nf++] = 93 + pb;
+            int8_t po = patternBonus(cx, cy, opp);       // r3: opponent swap
+            uint8_t pb2 = po <= -5 ? 0 : po <= -1 ? 1 : po == 0 ? 2 :
+                          po <= 2 ? 3 : po <= 4 ? 4 : 5;
+            uint8_t fxOppPat = 148 + pb2;
+            // nearest corner state at r2 (corners: 3-3 points)
+            static const uint8_t CPTS[4] = { 2*9+2, 2*9+6, 6*9+2, 6*9+6 };
+            // frame-independent: min state among nearest-tied corners
+            uint8_t bd2 = 255, cst = 3;
+            for(uint8_t i = 0; i < 4; i++) {
+                uint8_t kx = CPTS[i] % 9, ky = CPTS[i] / 9;
+                uint8_t ddx = kx > cx ? kx - cx : cx - kx;
+                uint8_t ddy = ky > cy ? ky - cy : cy - ky;
+                uint8_t d = ddx > ddy ? ddx : ddy;
+                uint8_t cp = CPTS[i];
+                uint8_t st3 = ((ownD2[cp >> 3] >> (cp & 7)) & 1) +
+                              2 * ((enmD2[cp >> 3] >> (cp & 7)) & 1);
+                if(d < bd2) { bd2 = d; cst = st3; }
+                else if(d == bd2 && st3 < cst) cst = st3;
+            }
+            fx[nf++] = 99 + cst;
+            int8_t gd = (int8_t)(nnPop11(ownD3) - nnPop11(enmD3));
+            uint8_t db = gd <= -8 ? 0 : gd <= -2 ? 1 : gd <= 1 ? 2 : gd <= 7 ? 3 : 4;
+            fx[nf++] = 118 + db;
+            // nearest own / enemy chain lib-buckets (order-free: min dist,
+            // then min bucket among equidistant) via per-cell cellLb
+            uint8_t blo = 99, bro = 3, ble = 99, bre = 3;
+            for(uint8_t p = 0; p < 81; p++) {
+                if(simBoard[p] == EMPTY || p == cpos) continue;
+                uint8_t px = p % 9, py = p / 9;
+                uint8_t ddx = px > cx ? px - cx : cx - px;
+                uint8_t ddy = py > cy ? py - cy : cy - py;
+                uint8_t d = ddx > ddy ? ddx : ddy;
+                if(simBoard[p] == toMove) {
+                    if(d < blo || (d == blo && cellLb[p] < bro)) { blo = d; bro = cellLb[p]; }
+                } else if(d < ble || (d == ble && cellLb[p] < bre)) { ble = d; bre = cellLb[p]; }
+            }
+            fx[nf++] = 123 + bro;
+            fx[nf++] = 127 + bre;
+            // ---- 3f: clean relations + shapes ----
+            uint8_t fOwn = 0, fEnm = 0;   // bit1 kosumi, bit2 jump, bit4 keima
+            for(int8_t dxx = -1; dxx <= 1; dxx += 2) for(int8_t dyy = -1; dyy <= 1; dyy += 2) {
+                int8_t qx = cx + dxx, qy = cy + dyy;
+                if((uint8_t)qx > 8 || (uint8_t)qy > 8) continue;
+                uint8_t q = qy * 9 + qx;
+                if(simBoard[q] == toMove) {
+                    uint8_t o1 = cy * 9 + qx, o2 = qy * 9 + cx;
+                    if(!(simBoard[o1] == opp && simBoard[o2] == opp)) fOwn |= 1;
+                } else if(simBoard[q] == opp) fEnm |= 1;
+            }
+            static const int8_t JMP[4][2] = {{2,0},{-2,0},{0,2},{0,-2}};
+            for(uint8_t j = 0; j < 4; j++) {
+                int8_t qx = cx + JMP[j][0], qy = cy + JMP[j][1];
+                if((uint8_t)qx > 8 || (uint8_t)qy > 8) continue;
+                uint8_t q = qy * 9 + qx;
+                uint8_t midp = (uint8_t)((cy + qy) / 2 * 9 + (cx + qx) / 2);
+                if(simBoard[midp] != EMPTY) continue;
+                if(simBoard[q] == toMove) fOwn |= 2;
+                else if(simBoard[q] == opp) fEnm |= 2;
+            }
+            static const int8_t KMA[8][2] = {{1,2},{1,-2},{-1,2},{-1,-2},{2,1},{2,-1},{-2,1},{-2,-1}};
+            for(uint8_t j = 0; j < 8; j++) {
+                int8_t dxx = KMA[j][0], dyy = KMA[j][1];
+                int8_t qx = cx + dxx, qy = cy + dyy;
+                if((uint8_t)qx > 8 || (uint8_t)qy > 8) continue;
+                uint8_t q = qy * 9 + qx;
+                if(simBoard[q] == EMPTY) continue;
+                uint8_t p1, p2;
+                if(dxx == 1 || dxx == -1) {
+                    p1 = (uint8_t)((cy + dyy / 2) * 9 + cx);
+                    p2 = (uint8_t)((cy + dyy / 2) * 9 + qx);
+                } else {
+                    p1 = (uint8_t)(cy * 9 + cx + dxx / 2);
+                    p2 = (uint8_t)(qy * 9 + cx + dxx / 2);
+                }
+                if(simBoard[p1] != EMPTY || simBoard[p2] != EMPTY) continue;
+                if(simBoard[q] == toMove) fOwn |= 4;
+                else fEnm |= 4;
+            }
+            uint8_t nOwnRel = fOwn == 0 ? 0 : (fOwn & (fOwn - 1)) ? 4 :
+                              fOwn == 1 ? 1 : fOwn == 2 ? 2 : 3;
+            uint8_t nEnmRel = fEnm == 0 ? 0 : (fEnm & 1) ? 1 : (fEnm & 2) ? 2 : 3;
+            fx[nf++] = 131 + nOwnRel;
+            fx[nf++] = 136 + nEnmRel;
+            uint8_t et = 0;
+            for(int8_t dxx = -1; dxx <= 1; dxx += 2) for(int8_t dyy = -1; dyy <= 1; dyy += 2) {
+                int8_t qx = cx + dxx, qy = cy + dyy;
+                if((uint8_t)qx > 8 || (uint8_t)qy > 8) continue;
+                if(simBoard[cy * 9 + qx] == toMove && simBoard[qy * 9 + cx] == toMove &&
+                   simBoard[qy * 9 + qx] == EMPTY) et = 1;
+            }
+            fx[nf++] = 140 + et;
+            uint8_t hh = 0;
+            static const int8_t OD4[4][2] = {{1,0},{-1,0},{0,1},{0,-1}};
+            for(uint8_t j = 0; j < 4; j++) {
+                int8_t dxx = OD4[j][0], dyy = OD4[j][1];
+                int8_t e1x = cx + dxx, e1y = cy + dyy, e2x = cx + 2 * dxx, e2y = cy + 2 * dyy;
+                if((uint8_t)e2x > 8 || (uint8_t)e2y > 8) continue;
+                if(simBoard[e1y * 9 + e1x] != opp || simBoard[e2y * 9 + e2x] != opp) continue;
+                int8_t px = dyy, py = dxx;
+                uint8_t s1x = e1x + px, s1y = e1y + py, s2x = e1x - px, s2y = e1y - py;
+                if(((uint8_t)s1x <= 8 && (uint8_t)s1y <= 8 && simBoard[s1y * 9 + s1x] == toMove) ||
+                   ((uint8_t)s2x <= 8 && (uint8_t)s2y <= 8 && simBoard[s2y * 9 + s2x] == toMove)) hh = 1;
+            }
+            fx[nf++] = 142 + hh;
+            fx[nf++] = fxOppPat;
+            // r3: opponent dilation gain at r2 (manhattan ball vs enmD2)
+            uint8_t og = 0;
+            for(int8_t dxx = -2; dxx <= 2; dxx++) {
+                int8_t rem = 2 - (dxx < 0 ? -dxx : dxx);
+                for(int8_t dyy = -rem; dyy <= rem; dyy++) {
+                    int8_t qx = cx + dxx, qy = cy + dyy;
+                    if((uint8_t)qx > 8 || (uint8_t)qy > 8) continue;
+                    uint8_t q = qy * 9 + qx;
+                    if(!((enmD2[q >> 3] >> (q & 7)) & 1)) og++;
+                }
+            }
+            fx[nf++] = 154 + (og == 0 ? 0 : og <= 2 ? 1 : og <= 5 ? 2 : 3);
+            // r3: one-ply liberty lookahead on the placed chain
+            simBoard[cpos] = toMove;
+            uint8_t ll = 3;
+            for(uint8_t j = 0; j < 4; j++) {
+                int8_t qx = cx + OD4[j][0], qy = cy + OD4[j][1];
+                if((uint8_t)qx > 8 || (uint8_t)qy > 8) continue;
+                uint8_t q = qy * 9 + qx;
+                if(simBoard[q] != EMPTY || (deadMask[q >> 3] & (1 << (q & 7)))) continue;
+                simBoard[q] = opp;
+                uint8_t l2 = nnChain(cpos, deadMask, cells, nc);
+                simBoard[q] = EMPTY;
+                if(l2 < ll) ll = l2;
+            }
+            simBoard[cpos] = EMPTY;
+            fx[nf++] = 158 + ll;
+            // r3: distance to weakest own chain
+            uint8_t wd = 4;
+            for(uint8_t p = 0; p < 81; p++) {
+                if(!((weakMask[p >> 3] >> (p & 7)) & 1)) continue;
+                uint8_t px = p % 9, py = p / 9;
+                uint8_t ddx = px > cx ? px - cx : cx - px;
+                uint8_t ddy = py > cy ? py - cy : cy - py;
+                uint8_t d = ddx > ddy ? ddx : ddy;
+                if(d < wd) wd = d;
+            }
+            fx[nf++] = 162 + wd;
+            // r3: 5x5 ring presence
+            uint8_t ro = 0, re = 0;
+            for(int8_t dxx = -2; dxx <= 2; dxx++) for(int8_t dyy = -2; dyy <= 2; dyy++) {
+                int8_t m1 = dxx < 0 ? -dxx : dxx, m2 = dyy < 0 ? -dyy : dyy;
+                if((m1 > m2 ? m1 : m2) != 2) continue;
+                int8_t qx = cx + dxx, qy = cy + dyy;
+                if((uint8_t)qx > 8 || (uint8_t)qy > 8) continue;
+                uint8_t c3 = simBoard[qy * 9 + qx];
+                if(c3 == toMove) ro = 1;
+                else if(c3 != EMPTY) re = 1;
+            }
+            fx[nf++] = 167 + ro + 2 * re;
+            // r3: line-class x nearestOwn cross
+            uint8_t lc = cx < 8 - cx ? cx : 8 - cx;
+            uint8_t lc2 = cy < 8 - cy ? cy : 8 - cy;
+            if(lc2 < lc) lc = lc2;
+            uint8_t lcc = lc <= 1 ? 0 : lc == 2 ? 1 : 2;
+            uint8_t nod = no >= 1 ? (no > 4 ? 4 : no) - 1 : 0;
+            uint8_t cr = lcc * 4 + nod;
+            fx[nf++] = 171 + (cr > 11 ? 11 : cr);
+        }
+#ifndef ARDUINO
+        {
+            const char *dbg = getenv("NN_DBG");
+            if(dbg && (uint8_t)atoi(dbg) == cpos) {
+                fprintf(stderr, "FX cpos=%d:", cpos);
+                for(uint8_t i = 0; i < nf; i++) fprintf(stderr, " %d", fx[i]);
+                fprintf(stderr, "\n");
+            }
+        }
+#endif
+        // ---- score ----
+        for(uint8_t i = 0; i < nf; i++) {
+            lin += NNRD(NN_LF, fx[i]);
+            for(uint8_t h = 0; h < NN_H; h++)
+                pre[h] += NNRD(NN_F, (uint16_t)fx[i] * NN_H + h);
+        }
+        int32_t score = (int32_t)lin * NN_KSCALE;
+        for(uint8_t h = 0; h < NN_H; h++)
+            if(pre[h] > 0)
+                score += (int32_t)NNRD(NN_V, h) * pre[h];
+#ifndef ARDUINO
+        {
+            const char *dbg = getenv("NN_DBG");
+            if(dbg && atoi(dbg) == -1)
+                fprintf(stderr, "SC %d %ld %d\n", cpos, (long)score, (int)bcls);
+        }
+#endif
+        if(score > bestScore && game.isValidMove(cx, cy)) {
+            bestScore = score;
+            bestPos = cpos;
+        }
+    }
+    if(bestPos > 80) return 0;
+    ox = bestPos % 9;
+    oy = bestPos / 9;
+    return 1;
+}
+#endif // NNOPEN
+
 
 // Light ladder reader. The group containing defStart is in atari with
 // sole liberty esc; run the forced chase and return 1 if it escapes.
