@@ -33,8 +33,6 @@ class AI {
     uint16_t statTotal;
 
     private:
-    uint16_t bookPos[8]; // child-list offset per symmetry candidate
-    uint8_t bookAlive;   // bitmask of surviving candidates
 #ifdef NNOPEN
     uint8_t nnLast;      // last move (0xFF none): opening-net feature
     uint8_t nnOpeningMove(Game &game, uint8_t &ox, uint8_t &oy);
@@ -44,5 +42,4 @@ class AI {
     uint8_t resignCount; // consecutive hopeless searches (strict tier)
     uint8_t resignCount2; // consecutive bad searches (mild tier)
 
-    uint8_t bookLookup(uint8_t &x, uint8_t &y);
 };

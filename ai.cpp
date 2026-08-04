@@ -1,5 +1,4 @@
 #include "ai.h"
-#include "opening_book.h"
 #include "neighbor_table.h"
 
 // Random draws: the device uses the engine's own xorshift (seeded at
@@ -97,26 +96,6 @@ static uint8_t rnd(uint8_t n);
 #endif
 static uint8_t vKomi2;
 
-// ==================== Opening book ====================
-
-// The trie stores moves in book coordinates. A candidate symmetry s maps
-// game coordinates -> book coordinates via applySym; its inverse maps a
-// book move back onto the actual game.
-// s: bit0 = flip y, bit1 = flip x, bit2 = transpose (flips first)
-static void applySym(uint8_t &x, uint8_t &y, uint8_t s) {
-    uint8_t t;
-    if(s & 1) y = BOARD_SIZE - 1 - y;
-    if(s & 2) x = BOARD_SIZE - 1 - x;
-    if(s & 4) { t = x; x = y; y = t; }
-}
-
-static void applyInvSym(uint8_t &x, uint8_t &y, uint8_t s) {
-    uint8_t t;
-    if(s & 4) { t = x; x = y; y = t; }
-    if(s & 1) y = BOARD_SIZE - 1 - y;
-    if(s & 2) x = BOARD_SIZE - 1 - x;
-}
-
 #ifdef TREUSE
 // Cross-move subtree reuse metadata (see the stash block above think):
 // reuseValid is zeroed by anything that clobbers the borrowed scratch
@@ -128,9 +107,6 @@ void AI::reset() {
 #ifdef TREUSE
     reuseValid = 0;
 #endif
-    bookAlive = 0xFF;
-    for(uint8_t s = 0; s < 8; s++)
-        bookPos[s] = 0;
     firstMove = 1;
 #ifdef NNOPEN
     nnLast = 0xFF;
@@ -141,126 +117,11 @@ void AI::reset() {
     vKomi2 = 0;
 }
 
-// ==================== v2 bitstream walker ====================
-// Format: see opening_book.h. LSB-first bit stream; a node's children
-// follow its header; every group's first child is absolute (IDX[5]
-// LEAF LAST) and the rest are gap-coded tails sorted ascending by table
-// index (match-only, so the order is free). The root group is
-// all-absolute (its order carries OPENING_ROOT_WEIGHTS).
-//
-// The walk is forward-only, so a single global cursor (bkPos) + flag
-// statics replace out-parameters -- pointer plumbing tripled the code
-// size at -Os.
-static uint16_t bkPos;   // bit cursor
-static uint8_t bkFlags;  // node just decoded: bit0 = leaf, bit1 = last
-
-__attribute__((noinline))
-static uint8_t bookReadBits(uint16_t p, uint8_t mask) {
-    // up to 8 bits (mask = (1<<n)-1, constant at every call site); the
-    // stream carries a pad byte so the 2-byte window never over-reads
-    uint16_t byte = p >> 3;
-    uint8_t sh = p & 7;
-    uint16_t w = pgm_read_byte(OPENING_BOOK_TRIE + byte) |
-                 ((uint16_t)pgm_read_byte(OPENING_BOOK_TRIE + byte + 1) << 8);
-    return (uint8_t)(w >> sh) & mask;
-}
-
-__attribute__((noinline))
-static uint8_t bkAbs(void) {              // IDX[5] LEAF LAST, one read
-    uint8_t v = bookReadBits(bkPos, 0x7F);
-    bkPos += 7;
-    bkFlags = v >> 5;
-    return v & 31;
-}
-
-__attribute__((noinline))
-static uint8_t bkGap(void) {
-    // branches only compute (gap, flag bits, advance); the stores and the
-    // 16-bit cursor update live in ONE shared tail -- gcc duplicated them
-    // per branch otherwise (~34 B each)
-    uint8_t v = bookReadBits(bkPos, 0xFF);
-    uint8_t g, f, adv;
-    if(!(v & 1))      { g = 1;                  f = v >> 1; adv = 3; }
-    else if(!(v & 2)) { g = 2 + ((v >> 2) & 1); f = v >> 3; adv = 5; }
-    else if(!(v & 4)) { g = 4 + ((v >> 3) & 3); f = v >> 5; adv = 7; }
-    else {                       // 8-bit escape: flags in a second read
-        g = 8 + (v >> 3);
-        bkPos += 8;
-        f = bookReadBits(bkPos, 0x03);
-        adv = 2;
-    }
-    bkFlags = f & 3;
-    bkPos += adv;
-    return g;
-}
-
-
-static void bkSkipGroup(void) {           // cursor at first child -> past group
-    bkAbs();
-    uint8_t f = bkFlags;
-    if(!(f & 1)) bkSkipGroup();
-    while(!(f & 2)) {
-        bkGap();
-        f = bkFlags;
-        if(!(f & 1)) bkSkipGroup();
-    }
-}
-
-static uint8_t bookPointIdx(uint8_t mv) { // 7x7 move -> table index
-    for(uint8_t i = 0; i < 32; i++)
-        if(pgm_read_byte(BOOK_POINTS + i) == mv) return i;
-    return 0xFF;
-}
-
-// Scan the group at bkPos for table-idx t. On hit returns 1 with bkPos
-// just past the node header (= its child group when the node is not a
-// leaf).
-static uint8_t bookFindChild(uint8_t t) {
-    uint8_t idx = bkAbs();
-    uint8_t f = bkFlags;
-    if(idx == t) return 1;
-    if(!(f & 1)) bkSkipGroup();
-    int8_t run = -1;
-    while(!(f & 2)) {
-        run += bkGap();
-        idx = (uint8_t)run;
-        f = bkFlags;
-        if(idx == t) return 1;
-        if(!(f & 1)) bkSkipGroup();
-    }
-    return 0;
-}
-
 void AI::notifyMove(uint8_t x, uint8_t y) {
     firstMove = 0;
 #ifdef NNOPEN
     nnLast = y * 9 + x;
 #endif
-#ifdef NN_NO_BOOK
-    return;
-#endif
-
-    // Book never contains first-line moves
-    if(x == 0 || x == BOARD_SIZE - 1 || y == 0 || y == BOARD_SIZE - 1) {
-        bookAlive = 0;
-        return;
-    }
-
-    uint8_t m = 1;
-    for(uint8_t s = 0; s < 8; s++, m <<= 1) {
-        // walking mask: (1 << s) compiles to a variable shift LOOP at -Os
-        if(!(bookAlive & m)) continue;
-
-        uint8_t bx = x, by = y;
-        applySym(bx, by, s);
-        uint8_t t = bookPointIdx((by - 1) * 7 + (bx - 1));
-        bkPos = bookPos[s];
-        if(t == 0xFF || !bookFindChild(t) || (bkFlags & 1)) {
-            bookAlive &= ~m;
-            continue;
-        }
-        bookPos[s] = bkPos; // children start right after the node header
-    }
 }
 
 void AI::notifyPass() {
@@ -268,56 +129,10 @@ void AI::notifyPass() {
 #ifdef NNOPEN
     nnLast = 0xFF;
 #endif
-    bookAlive = 0; // a pass leaves all book lines
 }
-
-uint8_t AI::bookLookup(uint8_t &x, uint8_t &y) {
-    if(firstMove) {
-        // AI plays first: weighted pick among the root options,
-        // in a random orientation for variety
-        uint16_t total = 0;
-        for(uint8_t i = 0; i < OPENING_BOOK_ROOT_OPTIONS; i++)
-            total += pgm_read_byte(OPENING_ROOT_WEIGHTS + i);
-
-        int16_t r = SYS_RNDW(total);
-        bkPos = 0;
-        uint8_t idx = 0;
-        int8_t run = -1;
-        for(uint8_t i = 0; ; i++) {
-            if(i == 0) idx = bkAbs();
-            else { run += bkGap(); idx = (uint8_t)run; }
-            r -= pgm_read_byte(OPENING_ROOT_WEIGHTS + i);
-            if(r < 0) break;
-            if(!(bkFlags & 1)) bkSkipGroup();
-        }
-
-        uint8_t mv = pgm_read_byte(BOOK_POINTS + idx);
-        x = mv % 7 + 1;
-        y = mv / 7 + 1;
-        applyInvSym(x, y, SYS_RND(8));
-        return 1;
-    }
-
-    if(!bookAlive) return 0;
-
-    uint8_t m = 1;
-    for(uint8_t s = 0; s < 8; s++, m <<= 1) {
-        if(!(bookAlive & m)) continue;
-        // First child = highest-policy move (absolute header)
-        uint8_t idx = bookReadBits(bookPos[s], 0x1F);
-        uint8_t mv = pgm_read_byte(BOOK_POINTS + idx);
-        x = mv % 7 + 1;
-        y = mv / 7 + 1;
-        applyInvSym(x, y, s);
-        return 1;
-    }
-    return 0;
-}
-
 
 uint8_t AI::chooseMove(Game &game) {
     uint8_t x, y;
-#ifdef NN_NO_BOOK
     if(firstMove) {
         // net's own empty-board preference (exact 5-way komoku tie),
         // random member + random symmetry = book-root-like variety
@@ -334,13 +149,6 @@ uint8_t AI::chooseMove(Game &game) {
             return 1;
         }
     }
-#else
-    if(bookLookup(x, y) && game.isValidMove(x, y)) {
-        game.playMove(x, y);
-        notifyMove(x, y);
-        return 1;
-    }
-#endif
 #ifdef NNOPEN
     if(nnOpeningMove(game, x, y)) {
         game.playMove(x, y);
