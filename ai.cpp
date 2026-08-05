@@ -3677,8 +3677,7 @@ static void ownVote(Game &game, uint8_t *own) {
         if(simBoard[i] != EMPTY) rootStones++;
 
     for(uint8_t p = 0; p < SCORE_PLAYOUTS; p++) {
-        for(uint8_t i = 0; i < BOARD_CELLS; i++)
-            simBoard[i] = packedGet(game.board, i);
+        unpackBoard(game);
         playout(game.turn, NO_KO, 0xFF);
         // Per-cell black ownership, same rules as scoreWinner
         for(uint8_t i = 0; i < BOARD_CELLS; i++) {
@@ -5759,8 +5758,7 @@ uint8_t AI::bestMove(Game &game, uint8_t &x, uint8_t &y) {
         if(v < POISONED && v > maxV) maxV = v;
     }
     // Root position for rootSelfAtari and the settled-territory check
-    for(uint8_t i = 0; i < BOARD_CELLS; i++)
-        simBoard[i] = packedGet(game.board, i);
+    unpackBoard(game);
     for(uint8_t c = node(0).firstChild; c != 0xFF; c = node(c).nextSibling) {
         uint16_t v = nVisits(c);
         if(v >= POISONED) continue;
