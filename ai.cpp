@@ -80,10 +80,7 @@ static uint8_t rnd(uint8_t n);
 // Dynamic-komi state for graceful losing — adapted at the end of
 // each think, applied to playout scoring (see scoreWinner /
 // vKomiWinner / the adaptation block in think).
-#ifndef VKOMI_STEP2
 #define VKOMI_STEP2 4   // adaptation step, half-points (= 2 points)
-#endif
-#ifndef VKOMI_MAX2
 #define VKOMI_MAX2 48   // spot at most 24 points before giving up
                         // (2026-08 blunder-gap hunt: 24 left evals
                         // coin-flip once behind >12 pts and the tree
@@ -93,7 +90,6 @@ static uint8_t rnd(uint8_t n);
                         // 188 vs 189 with only 5 diverged games; game
                         // length +0.7 moves; 96 = byte-identical to 48,
                         // saturation. Resign timing unchanged.)
-#endif
 static uint8_t vKomi2;
 
 #ifdef TREUSE
@@ -202,9 +198,7 @@ uint8_t AI::chooseMove(Game &game) {
 // ~56 root moves, full UCB1-Tuned exploration (~0.3 at n=10) dwarfs
 // the real q spread (~0.1) and the search polls uniformly instead of
 // concentrating on the best line.
-#ifndef UCB_EXPLORE_SHIFT
 #define UCB_EXPLORE_SHIFT 1
-#endif
 
 // Virtual win/visit priors seeded at expansion; real playout results
 // accumulate on top and wash these out. The base is deliberately heavy
@@ -221,11 +215,6 @@ uint8_t AI::chooseMove(Game &game) {
 #ifndef PRIOR_CAPTURE
 #define PRIOR_CAPTURE 6     // captures an enemy group (its last liberty)
 #endif
-#ifdef CAPSIZE_PRIOR
-// michi's CAPTURE_MANY (30 vs 15): a multi-stone capture outranks a
-// lone-stone snapback. Dose 1 on our compressed prior scale.
-#define PRIOR_CAPTURE_MANY 3
-#endif
 #ifndef PRIOR_SAVE
 #define PRIOR_SAVE 4        // extends an own group out of atari
 #endif
@@ -237,19 +226,6 @@ uint8_t AI::chooseMove(Game &game) {
 #endif
 #ifndef PRIOR_LOCAL
 #define PRIOR_LOCAL 2       // adjacent or diagonal to the previous move
-#ifdef CFG_PRIOR
-// michi's common-fate-graph locality (its heaviest prior, [24,22,8]
-// against an even prior of 10): chains contract to a point, so "near
-// the last move" follows walls and groups instead of a Chebyshev
-// circle. Replaces PRIOR_LOCAL. Dose 1 scaled to our prior units.
-// dose 1 (+5/+4/+2) lost -3.3pp p=0.045: with batch widening the
-// prior is an ADMISSION ranking, and hot locality displaces tactical
-// candidates from the tree (michi expands everything and only
-// reorders). dose 2: half weight.
-#define CFG_PRIOR_1 3
-#define CFG_PRIOR_2 2
-#define CFG_PRIOR_3 1
-#endif
 #endif
 #ifndef PRIOR_BIG
 #define PRIOR_BIG 2         // big open point (far from every stone)
@@ -479,9 +455,7 @@ uint8_t AI::chooseMove(Game &game) {
 #endif
 
 // Progressive widening (non-root): children allowed = 1 + visits/RATE
-#ifndef WIDEN_RATE
 #define WIDEN_RATE 6
-#endif
 // Root progressive widening: start with the best ROOT_INIT prior
 // candidates (plus pass) and widen by visits. Full root expansion
 // diluted 400-600 iterations over 25-40 candidates (~15 visits each)
@@ -494,13 +468,9 @@ uint8_t AI::chooseMove(Game &game) {
 #ifndef ROOT_WIDEN_RATE
 #define ROOT_WIDEN_RATE 12
 #endif
-#ifndef WIDEN_CAP
 #define WIDEN_CAP 16
-#endif
 // Candidates added per widenNode scan (see the batch comment there)
-#ifndef WIDEN_BATCH
 #define WIDEN_BATCH 3
-#endif
 // A leaf must collect this many visits (prior seed included) before it
 // may grow a child: playouts from a cold leaf are as informative as a
 // one-child subtree, and each expansion costs a full prior scan.
@@ -875,32 +845,6 @@ static uint8_t glcL1, glcL2;   // first two liberties of the last flood
 // Verdict: PACKED_TRIT +7.5% mid (/9 %9 digit split ~10 cy/direction).
 // Encoding: see NBR_TRIT in neighbor_table.h.
 
-#ifdef PACKED_TRIT
-// Trit-stream flood walk: base-9 direction codes, 5-8 = stop; B is
-// read only when a cell has a third direction.
-#define HL_FLOOD_WALK(p) do { \
-        const uint8_t *e = NBR_TRIT + (p) * 2; \
-        uint8_t bytev = lpmNext(e); \
-        uint8_t q, s, code; \
-        code = bytev % 9; HLT_STEP() \
-        code = bytev / 9; HLT_STEP() \
-        bytev = lpmNext(e); \
-        code = bytev % 9; HLT_STEP() \
-        code = bytev / 9; HLT_STEP() \
-    } while(0)
-#define HLT_STEP() \
-        q = (uint8_t)(p + (int8_t)pgm_read_byte(TRIT_DELTA + code)); \
-        s = boardAt(q); \
-        if(s == EMPTY) return 1; \
-        if(s == color) { \
-            uint8_t *mp = markPtr(q); \
-            if(*mp != markEpoch) { \
-                *mp = markEpoch; \
-                *wp++ = q; \
-            } \
-        } \
-        if(code >= 5) break;
-#endif
 // ====================================================================
 
 
@@ -964,9 +908,6 @@ prescanDone:;
     for(uint8_t *dp = rp; dp != wp; dp++) simMark[*dp] = markEpoch;
     while(rp != wp) {
         uint8_t p = *rp++;
-#ifdef PACKED_TRIT
-        HL_FLOOD_WALK(p);
-#else
         // NOT unrolled: +0.88% pre-always_inline, retested +3.3%
         // WITH inlining enforced -- so unlike the seed scan this is
         // genuine allocation cost (markPtr body x4 with rp/wp live
@@ -986,7 +927,6 @@ prescanDone:;
                 }
             }
         }
-#endif // PACKED_TRIT
     }
     capturedGroupN = (uint8_t)(wp - &floodSlot(0));
     return 0;
@@ -2044,16 +1984,6 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
         uint8_t cpos = cy * 9 + cx;
         if(simBoard[cpos] != EMPTY) continue;
         // ---- canonical sym: min (a,b), tie-break lexicographic ----
-#ifdef NN_SIMPLE_CANON
-        uint8_t bestSym = 0;
-        for(uint8_t s = 0; s < 8; s++) {
-            uint8_t tx, ty;
-            nnSymPos(cx, cy, s, tx, ty);
-            uint8_t a = nnEdge(tx);
-            uint8_t bb = nnEdge(ty);
-            if(a <= bb) { bestSym = s; break; }   // first-min-sym (trainer rule)
-        }
-#else
         uint8_t a0 = nnEdge(cx);
         uint8_t b0 = nnEdge(cy);
         if(a0 > b0) { uint8_t t = a0; a0 = b0; b0 = t; }
@@ -2068,19 +1998,11 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
             if(bestSym == 0xFF) { bestSym = s; continue; }
             if(nnCanonBetter(s, bestSym)) bestSym = s;
         }
-#endif
         uint8_t tcx, tcy;
         nnSymPos(cx, cy, bestSym, tcx, tcy);
-#ifdef NN_SIMPLE_CANON
-        uint8_t a = nnEdge(tcx);
-        uint8_t bcl = nnEdge(tcy);
-        if(a > bcl) { uint8_t t = a; a = bcl; bcl = t; }
-        uint8_t bcls = a * 5 + bcl - (a * (a + 1)) / 2;
-#else
         // the sym loop accepted only a==a0 && bb==b0, so nnEdge(tcx)==a0 and
         // nnEdge(tcy)==b0 (already min-ordered): reuse them, skip recompute+swap
         uint8_t bcls = a0 * 5 + b0 - (a0 * (a0 + 1)) / 2;
-#endif
         // ---- accumulators ----
         int16_t lin = NNRD(NN_B, bcls);
         int16_t pre[NN_H] = {0};
@@ -2370,37 +2292,9 @@ static uint8_t ladderEscapes(uint8_t defStart, uint8_t esc,
         // remaining liberty)
         uint8_t chase = 0xFF, next = 0xFF;
         uint8_t bestRoom = 0xFF;
-#ifdef LADDER_PRUNE
-        // GNU Go simple_ladder branch prune (reading.c:5629): if the
-        // DEFENDER extending at a liberty would reach 4+ libs, the
-        // attacker must block exactly there -- the room heuristic
-        // below can pick the wrong side and read a working ladder as
-        // an escape. The threshold is 4, not the reader's post-move
-        // 3: in a WORKING ladder the tentative extension transiently
-        // shows 3 libs before the chase re-ataris. Both sides
-        // reaching 4+ = ladder broken, stop. (Tentative stone
-        // without captures, like the attacker probe: an underestimate
-        // only demotes a must-block to the old heuristic, never the
-        // reverse.)
-        uint8_t must = 0xFF;
-        {
-            uint8_t nMust = 0;
-            for(uint8_t t = 0; t < 2; t++) {
-                uint8_t cand = t ? l2 : l1;
-                simBoard[cand] = defColor;
-                uint8_t dlibs = groupLibsFind(cand);
-                simBoard[cand] = EMPTY;
-                if(dlibs >= 4) { must = cand; nMust++; }
-            }
-            if(nMust == 2) break;  // escapes both ways
-        }
-#endif
         for(uint8_t t = 0; t < 2; t++) {
             uint8_t cand = t ? l2 : l1;
             uint8_t other = t ? l1 : l2;
-#ifdef LADDER_PRUNE
-            if(must != 0xFF && cand != must) continue;
-#endif
             simBoard[cand] = atkColor; // tentative, no captures
             uint8_t alibs = groupLibsMax3(cand);
             simBoard[cand] = EMPTY;
@@ -2865,16 +2759,6 @@ uint16_t dpLastChange; uint8_t dpPrevBest;
 // probe-only: widening-waste statistics
 uint16_t wpCalls, wpAdded, wpEmpty, wpAllocFail;
 #endif
-#ifdef PLAYOUT_SNAP
-// probe-only: board snapshots at fixed playout depths
-uint8_t plSnap40[81], plSnap60[81], plSnap80[81];
-#endif
-#ifdef PLAYOUT_SNAP_EMPT
-// probe-only: snapshots when the empty count first reaches thresholds
-uint8_t plSnapThresh[4] = {12, 10, 8, 6};
-uint8_t plSnapE[4][81];
-uint8_t plSnapMove[4]; // 0xFF = not yet reached
-#endif
 // Random playout from current simBoard; returns winning color.
 // `last` = the previous move (0xFF/pass = none).
 __attribute__((optimize("O2")))
@@ -2889,23 +2773,6 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
 #endif
     for(uint8_t m = 0; m < PLAYOUT_CAP && passes < 2; m++) {
         PS_TICK
-#ifdef PLAYOUT_SNAP
-        if(m == 40) memcpy(plSnap40, simBoard, 81);
-        else if(m == 60) memcpy(plSnap60, simBoard, 81);
-        else if(m == 80) memcpy(plSnap80, simBoard, 81);
-#endif
-#ifdef PLAYOUT_SNAP_EMPT
-        {
-            uint8_t emp = 0;
-            for(uint8_t i = 0; i < BOARD_CELLS; i++)
-                if(simBoard[i] == EMPTY) emp++;
-            for(uint8_t t = 0; t < 4; t++)
-                if(emp <= plSnapThresh[t] && plSnapMove[t] == 0xFF) {
-                    memcpy(plSnapE[t], simBoard, 81);
-                    plSnapMove[t] = m;
-                }
-        }
-#endif
         // Mercy rule: a lopsided capture balance has decided the game;
         // the area score already reflects it, skip the remaining fill
         if(capB > capW + MERCY_MARGIN || capW > capB + MERCY_MARGIN) {
@@ -2946,15 +2813,6 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                 // Capture the atari'd group
                 tac = l1;
             } else if(libs == 2 && ((rb & 8)
-#ifdef SQZ34
-                      // Phase-gated 3/4 squeeze: MEASURED -20/1000
-                      // (17.9 vs 19.9, p=0.28) -- pressing harder past
-                      // EARLY_STONES distorts healthy fights too; the
-                      // doomed-save belief error survives it. Both
-                      // squeeze variants (flat 3/4: opening craze;
-                      // phase-gated: this) are now dead. OFF.
-                      || (rootStones + m >= EARLY_STONES && (rnd16() & 1))
-#endif
                      )) {
                 // Squeeze a 2-liberty group: fill one of its
                 // liberties. (A 3/4 rate was tried with the race
@@ -3003,47 +2861,6 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
             }
         }
 
-#ifdef BDEF
-        // Boundary-defense answer. REFUTED AT THE CALIBRATION GATE
-        // (ownership probe, game 1467 mv35): p=1/2 moved raw winrate
-        // 70.2 -> 67.5 (target ~50), and the CEILING test p=1 moved it
-        // UP to 71.8 with the leaked side unmoved -- because the
-        // ATTACK never happens in playouts: random policy does not
-        // generate the coherent multi-move crawl, so added defense
-        // just answers pushes that never come and makes the simulated
-        // world safer. Boundary eval inflation = un-attempted attacks,
-        // not unanswered pushes; no local heuristic generates 3-move
-        // coordinated plans. Kept opt-in as the measured record.
-        if(last < BOARD_CELLS && boardAt(last) != EMPTY) {
-            uint8_t lb = last >> 3;
-            if(!(pgm_read_byte(FAR_BITMAP + lb) & bitMask(last))) {
-                uint8_t touch = 0, q;
-                FOR_EACH_NEIGHBOR(q, last)
-                    if(boardAt(q) == toMove) { touch = 1; break; }
-                if(touch && (rnd16() & BDEF_MASK) == 0) {
-                    uint8_t cand[4], nc = 0;
-                    FOR_EACH_NEIGHBOR(q, last) {
-                        if(boardAt(q) != EMPTY) continue;
-                        uint8_t r2, own = 0;
-                        FOR_EACH_NEIGHBOR(r2, q)
-                            if(boardAt(r2) == toMove) { own = 1; break; }
-                        if(own) cand[nc++] = q;
-                    }
-                    if(nc) {
-                        uint8_t bp = cand[nc == 1 ? 0 : rnd(nc)];
-                        uint16_t rr = playoutTry(bp, toMove, ko, m);
-                        if(rr) {
-                            ko = (uint8_t)rr;
-                            last = bp;
-                            passes = 0;
-                            toMove = 3 - toMove;
-                            continue;
-                        }
-                    }
-                }
-            }
-        }
-#endif
 
         // Simple life & death: if the last move borders a small
         // one-color eyespace, its vital point decides life — take it
@@ -3338,65 +3155,6 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
 #ifndef SCORE_PLAYOUTS
 #define SCORE_PLAYOUTS 64
 #endif
-#ifdef ALMOST_VITAL
-// Almost-enclosed eyespace: a small empty region walled by ONE colour
-// except a short enemy poke (1-2 boundary stones). regionVital calls
-// such regions contested and goes blind exactly when the fight starts
-// (hunt game 5328: White E9 touched the eyespace and the vital
-// machinery recused itself). This variant feeds the ROOT playout-probe
-// list ONLY -- regionVital proper and its consumers (priors, settle,
-// pass) never see contested regions as owned. Returns the unique
-// max-degree vital cell, or 0xFF.
-static uint8_t almostVital(uint8_t seed) {
-    uint8_t region[SETTLED_REGION_MAX];
-    uint8_t cnt = 0, head = 0;
-    uint8_t nB = 0, nW = 0;
-    newMark();
-    region[cnt++] = seed;
-    simMark[seed] = markEpoch;
-    while(head < cnt) {
-        uint8_t q;
-        FOR_EACH_NEIGHBOR(q, region[head++]) {
-            uint8_t st = simBoard[q];
-            if(st != EMPTY) {
-                if(simMark[q] != markEpoch) {  // count each stone once
-                    simMark[q] = markEpoch;
-                    if(st == BLACK) nB++; else nW++;
-                }
-                continue;
-            }
-            if(simMark[q] == markEpoch) continue;
-            if(cnt >= SETTLED_REGION_MAX) return 0xFF;
-            simMark[q] = markEpoch;
-            region[cnt++] = q;
-        }
-    }
-    uint8_t minority = nB < nW ? nB : nW;
-    uint8_t majority = nB < nW ? nW : nB;
-    // minority 0 = single-colour (the regular scan owns those);
-    // a real wall (majority >= 3) poked by at most 2 enemy stones
-    if(minority < 1 || minority > 2 || majority < 3) return 0xFF;
-    if(cnt < 3 || cnt > 6) return 0xFF;
-    // The vital point of an ALMOST-enclosed region is the GATE, not
-    // the eye centre: the region cell adjacent to the poke both stops
-    // the crawl and keeps the space whole (once the wall seals, the
-    // region turns single-colour and the regular max-degree scan
-    // takes over). Probe-verified on 5328: max-degree picked B9
-    // (q=33%, doesn't stop anything); the gate is D9, gnugo's move.
-    // Require a UNIQUE gate cell -- two gates = too broken to call.
-    uint8_t pokeColor = nB < nW ? BLACK : WHITE;
-    uint8_t gate = 0xFF;
-    for(uint8_t j = 0; j < cnt; j++) {
-        uint8_t q;
-        FOR_EACH_NEIGHBOR(q, region[j])
-            if(simBoard[q] == pokeColor) {
-                if(gate != 0xFF && gate != region[j]) return 0xFF;
-                gate = region[j];
-            }
-    }
-    return gate;
-}
-#endif
 
 #ifdef LD_CLASS
 // ---- Stage-1 life-and-death classifier (design study 2026-08-01) ----
@@ -3423,17 +3181,6 @@ static uint8_t almostVital(uint8_t seed) {
 static uint8_t ldStatus[64];   // per complex root id
 static uint8_t ldMove[64];     // settling move for LD_CRIT
 static uint8_t ldParent[64];
-#ifdef LD_CRIT
-#ifndef PRIOR_CRIT_BOOST
-#define PRIOR_CRIT_BOOST 6   // capture-grade (dose 1)
-#endif
-static uint8_t ldHostageGate[11]; // dose 2: hostage gates only
-// Stage 2: settling moves of CRITICAL complexes on the ROOT board,
-// consumed by candidatePrior during root widening only (the board
-// matches; deeper nodes have descended away from it).
-static uint8_t ldCritBoost[11];
-static uint8_t ldAtRoot;
-#endif
 static uint8_t ldFind(uint8_t x) {
     while(ldParent[x] != x) { ldParent[x] = ldParent[ldParent[x]]; x = ldParent[x]; }
     return x;
@@ -3628,13 +3375,6 @@ static void ldClassify() {
         if(ldChainLibs(cellOf[id]) == pend[k].libsIn) {
             ldStatus[id] = LD_CRIT;
             ldMove[id] = pend[k].gate;
-#ifdef LD_CRIT
-            // dose 2: only capture-grounded hostage gates feed the
-            // prior boost + RAVE exemption (the complex-level CRIT
-            // tags at 32.5% position rate leaned the full package
-            // -1.7pp; hostages are the tags that flip 5328)
-            ldHostageGate[pend[k].gate >> 3] |= bitMask(pend[k].gate);
-#endif
         }
     }
 }
@@ -3666,23 +3406,6 @@ static void loadRootBoard(Game &game) {
             uint8_t v = nakadeVital(i, nakSeen);
             if(v != 0xFF) nakVitals[nNakVitals++] = v;
         }
-    }
-#endif
-#ifdef LD_CRIT
-    memset(ldCritBoost, 0, sizeof(ldCritBoost));
-    memset(ldHostageGate, 0, sizeof(ldHostageGate));
-    ldClassify();
-    // dose 2: the consumed set is the hostage gates alone
-    memcpy(ldCritBoost, ldHostageGate, sizeof(ldCritBoost));
-#endif
-#ifdef ALMOST_VITAL
-    // Second pass: contested-but-almost-enclosed eyespaces (see
-    // almostVital). The i == vital dedupe adds each region once;
-    // single-colour regions return 0xFF here, so no double entries.
-    for(uint8_t i = 0; i < BOARD_CELLS && nRootVitals < 3; i++) {
-        if(simBoard[i] != EMPTY) continue;
-        if(almostVital(i) == i)
-            rootVitals[nRootVitals++] = i;
     }
 #endif
 }
@@ -4010,45 +3733,6 @@ static const int8_t PROGMEM KEIMA_B[12] = {-1,  1, -2,  2, -2,  2, -1,  1,
 static const uint16_t PROGMEM KEIMA_MX[9] = {0xBF0, 0xBFC, 0xFFF, 0xFFF, 0xFFF, 0xFFF, 0xFFF, 0x73F, 0x70F};
 static const uint16_t PROGMEM KEIMA_MY[9] = {0xEAA, 0xEEB, 0xFFF, 0xFFF, 0xFFF, 0xFFF, 0xFFF, 0xDD7, 0xD55};
 
-#ifdef CFG_PRIOR
-// CFG distance from the opponent's last move, chain-contracted:
-// BFS on the graph where every chain is one super-node. Assigning a
-// chain atomically (all stones labeled+enqueued together, via the
-// chain map) keeps plain FIFO BFS correct despite the zero-cost
-// intra-chain edges. Distances >3 stay 0xFF. Computed once per widen
-// scan; the queue borrows floodScratch, which is free until the
-// scan's tactical floods start.
-static uint8_t cfgDist[BOARD_CELLS];
-static void cfgChainAt(uint8_t q, uint8_t nd, uint8_t &tail) {
-    uint8_t id = CHAIN_OF(chainId[q]);
-    for(uint8_t t = 0; t < BOARD_CELLS; t++)
-        if(simBoard[t] != EMPTY && CHAIN_OF(chainId[t]) == id &&
-           cfgDist[t] == 0xFF) {
-            cfgDist[t] = nd;
-            floodScratch[tail++] = t;
-        }
-}
-static void buildCfgDist(uint8_t last) {
-    memset(cfgDist, 0xFF, BOARD_CELLS);
-    if(last >= BOARD_CELLS) return;
-    uint8_t head = 0, tail = 0;
-    cfgChainAt(last, 0, tail);
-    while(head < tail) {
-        uint8_t c = floodScratch[head++];
-        uint8_t d = cfgDist[c];
-        if(d >= 3) continue;
-        uint8_t q;
-        FOR_EACH_NEIGHBOR(q, c) {
-            if(cfgDist[q] != 0xFF) continue;
-            if(simBoard[q] == EMPTY) {
-                cfgDist[q] = d + 1;
-                floodScratch[tail++] = q;
-            } else
-                cfgChainAt(q, d + 1, tail);
-        }
-    }
-}
-#endif
 
 // Prior for one candidate: tactics + center + locality + shape, minus
 // early-game low-line penalties. Negative = virtual losses. isFar
@@ -4058,9 +3742,6 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
                              uint8_t isFar) {
     uint8_t opp = 3 - toMove;
     uint8_t sawCapture = 0, sawSave = 0, sawAtari = 0, sawDoomed = 0;
-#ifdef CAPSIZE_PRIOR
-    uint8_t sawCaptureMany = 0;
-#endif
     uint8_t sawWeakFriend = 0;
     uint8_t hasOrthFriend = 0;
 
@@ -4096,14 +3777,6 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
             if(l < eMinLibs) eMinLibs = l;
             if(l == 1) {
                 sawCapture = 1;             // pos is its last liberty
-#ifdef CAPSIZE_PRIOR
-                // size >= 2 iff q touches a chain-mate: every stone of
-                // a multi-stone chain has a same-colour neighbour, and
-                // adjacent same colour IS the same chain. O(4), no flood.
-                uint8_t r;
-                FOR_EACH_NEIGHBOR(r, q)
-                    if(simBoard[r] == opp) { sawCaptureMany = 1; break; }
-#endif
             }
             else if(l == 2) sawAtari = 1;
 #if PRIOR_RACE
@@ -4142,12 +3815,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
 #endif
 
     int8_t bonus = sawCapture ?
-#ifdef CAPSIZE_PRIOR
-                   (int8_t)(PRIOR_CAPTURE +
-                            (sawCaptureMany ? PRIOR_CAPTURE_MANY : 0)) :
-#else
                    PRIOR_CAPTURE :
-#endif
                    sawSave    ? PRIOR_SAVE :
                    sawRace    ? PRIOR_RACE :
                    sawAtari   ? PRIOR_ATARI : 0;
@@ -4362,36 +4030,6 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
 
 #endif // NO_KEIMA
 
-#ifdef NET
-    // Net (geta) point, GNU Go find_cap_moves' sharp case: the
-    // candidate is the free corner of a 2x2 square whose opposite
-    // corner holds an enemy stone at EXACTLY 2 liberties -- and both
-    // flanking cells of the diagonal are empty, which makes them
-    // provably that chain's entire liberty set. Capping here nets the
-    // stone: extending toward either liberty runs into the cap. The
-    // chain-lib count is the 2-bit saturated stamp buildChainMap left
-    // in chainId's top bits (2 == exactly two). isFar skip is exact:
-    // the diagonal stone lies within Chebyshev 1.
-    if(!isFar) {
-        uint8_t netted = 0;
-        for(int8_t dy = -1; dy <= 1 && !netted; dy += 2)
-            for(int8_t dx = -1; dx <= 1; dx += 2) {
-                int8_t fx = x + dx, fy = y + dy;
-                if(fx < 0 || fx >= BOARD_SIZE ||
-                   fy < 0 || fy >= BOARD_SIZE) continue;
-                uint8_t dpos = pos + dx + dy * BOARD_SIZE;
-                if(simBoard[dpos] != opp) continue;
-                if(simBoard[pos + dx] != EMPTY) continue;
-                if(simBoard[(uint8_t)(pos + dy * BOARD_SIZE)] != EMPTY)
-                    continue;
-                if((*chainPtr(dpos) >> 6) == 2) {
-                    bonus += PRIOR_NET;
-                    netted = 1;
-                    break;
-                }
-            }
-    }
-#endif
 
     // Low-line discipline (see the defines): opening low-line moves
     // are penalized unconditionally; later, second-line moves near an
@@ -4428,14 +4066,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     if(ed <= 1 && !sawCapture && !sawSave && !sawAtari && !vitalHere &&
        !blockHere) {
         uint8_t nearEnemy = 0;
-#ifdef LL1X
-        // First-line exemption. MEASURED -14/1000 (18.5 vs 19.9,
-        // p=0.37): midgame line-1 admission lets in more junk than
-        // dragon-saving blocks (motivating exemplar 1141: gnugo's E9
-        // still failed to outrank the field even exempted). The
-        // unconditional line-1 penalty stays. OFF.
-        if(!isFar && rootStones >= EARLY_STONES) {
-#elif defined(EL2X)
+#if   defined(EL2X)
         // Early line-2 exemption (KataGo corpus 2026-08): of 829 missed
         // winning edge moves, 310 are line-2 near-enemy below
         // EARLY_STONES -- suppressed solely by the unconditional early
@@ -4460,9 +4091,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
         // seeds) -- the eval race, not admission, binds at 400 iters.
         // Companion enemy-only variant EL2X (line 2 any phase):
         // +4/1000, same story.
-#  if defined(EL2B)
-        if(!isFar) {
-#  elif defined(EL2B2)
+#  if   defined(EL2B2)
         if(!isFar && ed == 1) {
 #  else
         if(!isFar && (ed == 0 || rootStones >= EARLY_STONES)) {
@@ -4485,11 +4114,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
                     else if(cc == toMove) nearOwn = 1;
                 }
             }
-#  ifdef EL2B1
-            if(ed == 0) nearEnemy &= nearOwn; // line 2 keeps enemy-only
-#  else
             nearEnemy &= nearOwn;
-#  endif
 #else
             for(int8_t dy = -2; dy <= 2 && !nearEnemy;
                 dy++, rp += BOARD_SIZE) {
@@ -4507,26 +4132,12 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
         if(!nearEnemy) {
             lowLineBad = 1;
             uint8_t pen = (ed == 0) ? PRIOR_EDGE_PENALTY : PRIOR_LINE2_PENALTY;
-#ifdef LOWLINE_EARLY_X2
-            // Hunt 2026-08: 7 of the close-game blunders across 600
-            // games were line-1/2 moves at mv 7-15 reaching the tree
-            // early and winning it (A4 mv7, A5 mv12, B2 mv9...).
-            // Doubling the penalty before EARLY_STONES delays their
-            // widen admission.
-            if(rootStones < EARLY_STONES) pen <<= 1;
-#endif
             bonus -= pen;
         }
     }
 
     // Locality: adjacent or diagonal to the previous move.
     if(!lowLineBad && last < BOARD_CELLS) {
-#ifdef CFG_PRIOR
-        uint8_t cd = cfgDist[pos];
-        if(cd == 1)      bonus += CFG_PRIOR_1;
-        else if(cd == 2) bonus += CFG_PRIOR_2;
-        else if(cd == 3) bonus += CFG_PRIOR_3;
-#else
         int8_t dx = x - last % BOARD_SIZE; if(dx < 0) dx = -dx;
         int8_t dy = y - last / BOARD_SIZE; if(dy < 0) dy = -dy;
         if(dx <= 1 && dy <= 1) {
@@ -4535,14 +4146,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
             // touches us, this candidate touches the pusher
             // ORTHOGONALLY (the junction does; diagonal near-misses
             // scored alike in a real cut-through game until this)
-#ifdef BLOCKW
-            // fenced: +3 on every contact answer board-wide measured
-            // -20/1000 (bonus-prior failure mode); only the low-line
-            // exemption (above, default-on) survived measurement
-            if(blockHere) bonus += PRIOR_BLOCK;
-#endif
         }
-#endif
     }
 
     // Local shape: the same 3x3 patterns the playouts use. This is what
@@ -4586,15 +4190,6 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     // Big open point: the territory-staking move
     if(isFar) bonus += PRIOR_BIG;
 
-#ifdef LD_CRIT
-    // Settling move of a CRITICAL group (stage-2 L&D consumer):
-    // capture-grade priority so the search races it while the budget
-    // is unspent -- the late-discovery fix at the admission layer.
-    if(ldAtRoot) {
-        uint8_t pb = pos >> 3;  // 8-bit shift (see widenNode scan)
-        if(ldCritBoost[pb] & bitMask(pos)) bonus += PRIOR_CRIT_BOOST;
-    }
-#endif
 
     return bonus;
 }
@@ -4698,13 +4293,7 @@ static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t la
         anyStone = rootNearAny;
     } else
         anyStone = buildNearMask(near);
-#ifdef LD_CRIT
-    ldAtRoot = (nodeIdx == 0);
-#endif
     buildChainMap();
-#ifdef CFG_PRIOR
-    buildCfgDist(last);
-#endif
 
     // Batch widening: one scan yields the top WIDEN_BATCH candidates
     // (the scan already ranks everything to find #1; tracking three is
@@ -4724,9 +4313,6 @@ static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t la
     // 19.1), BOTH samples negative with adverse discordants -- the
     // skipped prior evaluations lean into real strength cost, and at
     // fixed iterations the speed is latency-only. Off by default.
-#ifdef WIDEN_TAPER
-    uint8_t scanLeft = (uint8_t)(60 + rnd(22));
-#endif
     // Same two-phase circular scan as playout's global probe (see there).
     // The bitmap byte/mask pair (pb, pm) walks incrementally with pos --
     // shift the mask, step the byte on wrap -- instead of a >>3 and a
@@ -4741,9 +4327,6 @@ static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t la
             pos = 0; scanEnd = startPos;    // phase 2: 0..startPos-1
             pb = 0; pm = 1;
         }
-#ifdef WIDEN_TAPER
-        if(!--scanLeft && bPos[0] != 0xFF) break;
-#endif
         if(boardAt(pos) != EMPTY || pos == ko) continue;
         if(have[pb] & pm) continue;
         uint8_t isFar = 0;
@@ -4993,14 +4576,6 @@ static uint8_t selectChild(uint8_t nodeIdx) {
         // root.) Never lift a poisoned (illegal) child back via RAVE.
         if(atRoot && nv < POISONED &&
            n.move < BOARD_CELLS && raveV[n.move]
-#ifdef LD_CRIT
-           // Settling moves of CRITICAL groups skip the blend: an
-           // order-critical move's AMAF is poisoned by construction
-           // (it only works played NOW; playouts play it late), so
-           // RAVE buries exactly the moves the classifier certifies.
-           // Wrong tags self-correct -- unblended q is honest.
-           && !(ldCritBoost[n.move >> 3] & bitMask(n.move))
-#endif
            ) {
             uint16_t beta = (nv < 64)
                 ? pgm_read_word(BETA_TAB + nv)
@@ -5121,25 +4696,7 @@ static void mctsIterate(Game &game) {
         ? (int16_t)(lastMargin2 - (int16_t)simKomi)
         : (int16_t)((int16_t)simKomi - lastMargin2);
 #endif
-#ifdef BMARG
-    // Margin-aware tree rewards via KOMI DITHERING. MEASURED DEAD at
-    // both operating points: K=3 everywhere -27/1000 (endgame
-    // half-point blur), K=3 tapered off past 40 stones -17/1000 --
-    // the midgame dither itself hurts. THE LESSON: an underdog's best
-    // wins are NARROW wins -- against a stronger referee our correct
-    // lines win by small margins by nature, so margin-robustness
-    // weighting systematically devalues exactly our winning moves.
-    // Calibration-by-margin is a luxury of the stronger player. OFF.
-    if(rootStones < BMARG_END) {
-        int16_t bar = (int16_t)simKomi;
-        if(rootTurn == BLACK) bar -= vKomi2;
-        else bar += vKomi2;
-        bar += (int16_t)rnd(4 * BMARG_K + 1) - 2 * BMARG_K;
-        winner = lastMargin2 > bar ? BLACK : WHITE;
-    } else if(vKomi2) winner = vKomiWinner();
-#else
     if(vKomi2) winner = vKomiWinner();
-#endif
 
     // Fold this simulation into the root RAVE tables. Byte-walk the
     // mask: an all-zero byte skips 8 cells for one load, and the
@@ -5559,9 +5116,6 @@ void AI::think(Game &game) {
     if(rootStones < OPENING_BOOST_STONES) iters += iters / 2;
     uint16_t total = iters;
     uint8_t extended = 0;
-#ifdef CLUTCH2
-    uint8_t extended2 = 0;
-#endif
 #ifdef DECIDE_PROBE
     dpLastChange = 0; dpPrevBest = 0xFF;
 #endif
@@ -5581,18 +5135,6 @@ void AI::think(Game &game) {
         }
 #endif
         // Flat-root check at budget end (see UNCERTAIN_MIN)
-#ifdef CLUTCH2
-        // dose-2 probe: one more +50% when STILL 45-55% after the first
-        // clutch extension. MEASURED DEAD 2026-08: paired 1000 vs the
-        // shipped single extension = 189=189 exactly (67/67 discordant,
-        // +2.2% compute) -- the clutch curve saturates at one step.
-        if(i + 1 == total && extended && !extended2) {
-            extended2 = 1;
-            if((uint32_t)thinkSimWins * 20 > (uint32_t)thinkSims * 9 &&
-               (uint32_t)thinkSimWins * 20 < (uint32_t)thinkSims * 11)
-                total += iters / 2;
-        }
-#endif
         if(i + 1 == total && !extended) {
             extended = 1;
             uint16_t lead = 0;
@@ -5613,44 +5155,6 @@ void AI::think(Game &game) {
             else if((uint32_t)thinkSimWins * 20 > (uint32_t)thinkSims * 9 &&
                     (uint32_t)thinkSimWins * 20 < (uint32_t)thinkSims * 11)
                 total += iters / 2;
-#ifdef STEAL_VERIFY
-            // Steal-verify probe: if the LCB race would currently pick
-            // a NON-leader (a "steal" -- half the observed >=6pt
-            // blunders), buy one +50% extension so the challenger is
-            // either confirmed (visits catch up) or refuted (its q
-            // collapses) before the pick commits. Gates mirror
-            // bestMove's race, minus the board vetoes.
-            // MEASURED DEAD 2026-08: sample1 +20 (20.7 vs 18.7),
-            // sample2 -23 (18.7 vs 21.0) -> combined -3/2000 p=0.93 at
-            // +8% compute; blunder counts unchanged. Same verdict as
-            // the whole selection family: steals are right as often as
-            // wrong, verification re-rolls the dice.
-            if(total == iters) {   // no other extension fired
-                uint16_t maxV = 0; uint8_t leadC = 0xFF;
-                for(uint8_t c = node(0).firstChild; c != 0xFF;
-                    c = node(c).nextSibling) {
-                    uint16_t v = nVisits(c);
-                    if(v < POISONED && !(node(c).move & 0x80) && v > maxV) {
-                        maxV = v; leadC = c;
-                    }
-                }
-                int16_t bestL = -32768; uint8_t bestC2 = 0xFF;
-                for(uint8_t c = node(0).firstChild; c != 0xFF;
-                    c = node(c).nextSibling) {
-                    uint16_t v = nVisits(c);
-                    if(v >= POISONED || (node(c).move & 0x80)) continue;
-                    if(v < LCB_GATE || v * LCB_REL_DIV < maxV) continue;
-                    uint16_t q6 = (nWins(c) << 6) / v;
-                    uint16_t q = q6 << 6;
-                    uint32_t var = (uint16_t)(q6 * (64 - q6));
-                    uint16_t term = isqrt32(((uint32_t)var << 12) / v);
-                    int16_t lcb = (int16_t)q -
-                        (int16_t)(((uint32_t)term * LCB_Z) >> 8);
-                    if(lcb > bestL) { bestL = lcb; bestC2 = c; }
-                }
-                if(bestC2 != 0xFF && bestC2 != leadC) total += iters / 2;
-            }
-#endif
         }
 
         // Early stop when the visit leader's margin exceeds the
@@ -5659,36 +5163,15 @@ void AI::think(Game &game) {
         // almost always implies a dominant LCB, but not provably.
         if((i & 31) == 31) {
             uint16_t top1 = 0, top2 = 0;
-#ifdef FASTPLAY_STOP
-            uint8_t topC = 0xFF;
-#endif
             for(uint8_t c = node(0).firstChild; c != 0xFF; c = node(c).nextSibling) {
                 uint16_t v = nVisits(c);
                 if(v >= POISONED) continue;
                 if(v > top1) {
                     top2 = top1; top1 = v;
-#ifdef FASTPLAY_STOP
-                    topC = c;
-#endif
                 }
                 else if(v > top2) top2 = v;
             }
             if(top1 - top2 > total - 1 - i) break;
-#ifdef FASTPLAY_STOP
-            // michi's FASTPLAY: a decisively winning leader ends the
-            // search early (their 5%/20% sim tiers at 0.95/0.80,
-            // adapted to our budget). The 32-real-visit floor keeps
-            // seeded q honest: at (14,10) max seed, faking q>=0.95
-            // needs more wins than real visits -- impossible.
-            // (dose 1 with michi's second tier -- wr>0.80 at 25% of
-            // budget -- lost -6.4pp/1000: at 400 iters the 25% leader
-            // has ~40 visits and 0.80 has a +-0.12 CI; it stopped in
-            // merely-good games and blew won ones. 0.95-only retry.)
-            if(topC != 0xFF && top1 >= 32 && i >= total / 8) {
-                uint16_t q6 = winRate6(nWins(topC), top1);
-                if(q6 >= 61) break;                  // wr > 0.95
-            }
-#endif
         }
     }
 
@@ -5709,13 +5192,8 @@ void AI::think(Game &game) {
         resignCount2++;
     else
         resignCount2 = 0;
-#ifdef NO_RESIGN
-    // A/B probe: measure the swindle equity resignation concedes
-    resigned = 0;
-#else
     resigned = (resignCount >= resignStreak) ||
                (resignCount2 >= RESIGN2_STREAK);
-#endif
 
     // Dynamic-komi adaptation for the NEXT search (see vKomi2):
     // clearly losing -> ask for two points less, so the tree fights
@@ -5813,9 +5291,6 @@ uint8_t AI::bestMove(Game &game, uint8_t &x, uint8_t &y) {
 
         // Gate: prior-seeded children carry inflated q at tiny n and
         // would fake a strong LCB — demand real sampling first
-#ifdef ROBUST_PICK
-        continue;  // A/B probe: no LCB race, robust child via backup
-#endif
 
         if(v < LCB_GATE || v * LCB_REL_DIV < maxV) continue;
 
@@ -5825,14 +5300,6 @@ uint8_t AI::bestMove(Game &game, uint8_t &x, uint8_t &y) {
         // (var<<12)/v is Q24 of q(1-q)/n, so isqrt lands in Q12
         uint16_t term = isqrt32(((uint32_t)var << 12) / v);
         int16_t lcb = (int16_t)q - (int16_t)(((uint32_t)term * LCB_Z) >> 8);
-#ifdef LCB_LEADER_MEAN
-        // The visit leader competes with its plain mean, not its own
-        // LCB: a challenger must clear the best-sampled estimate after
-        // ITS uncertainty discount. Hunts 7000-7799: every close-game
-        // steal blunder (H2/F5/H6/J6/H8...) beat the leader only
-        // because the leader was discounted too.
-        if(v == maxV) lcb = (int16_t)q;
-#endif
         if(lcb <= bestL) continue;
         if(m != MOVE_PASS && !rootMoveOK(game, m))
             continue;
@@ -5878,27 +5345,6 @@ uint8_t AI::bestMove(Game &game, uint8_t &x, uint8_t &y) {
         if(game.winner() == game.turn) return 0;
     }
 
-#if !defined(ARDUINO) && defined(TREEVAL)
-    // Live-tree integrity check (any build): the search's tree must be
-    // a tree -- a node reachable from two parents means reclaim or the
-    // latent machinery corrupted links.
-    {
-        static uint8_t lseen[NODE_POOL];
-        static uint8_t lstk[NODE_POOL];
-        memset(lseen, 0, sizeof(lseen));
-        int lsp = 0; lstk[lsp++] = 0; lseen[0] = 1;
-        while(lsp > 0) {
-            uint8_t nn = lstk[--lsp];
-            for(uint8_t c2 = node(nn).firstChild; c2 != 0xFF;
-                c2 = node(c2).nextSibling) {
-                if(lseen[c2]) { fprintf(stderr,
-                    "TREEVAL DUP node %u (parent %u) poolUsed=%u\n",
-                    c2, nn, poolUsed); lsp = 0; break; }
-                lseen[c2] = 1; lstk[lsp++] = c2;
-            }
-        }
-    }
-#endif
     x = best % BOARD_SIZE;
     y = best / BOARD_SIZE;
 #ifdef TREUSE
