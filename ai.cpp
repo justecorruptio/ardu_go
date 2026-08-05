@@ -1699,6 +1699,20 @@ __attribute__((noinline)) static uint8_t nnSymPos(uint8_t x, uint8_t y, uint8_t 
     return (uint8_t)(y * 9 + x);
 }
 
+// canon tie-break: is sym s lexicographically better than bestSym?
+__attribute__((noinline)) static uint8_t nnCanonBetter(uint8_t s, uint8_t bestSym) {
+    uint8_t sI = (s & 4) ? (4 | ((s & 1) << 1) | ((s >> 1) & 1)) : s;
+    uint8_t bI = (bestSym & 4) ? (4 | ((bestSym & 1) << 1) | ((bestSym >> 1) & 1)) : bestSym;
+    for(uint8_t q = 0; q < 81; q++) {
+        uint8_t px, py;
+        uint8_t va = simBoard[nnSymPos(q / 9, q % 9, sI, px, py)];
+        uint8_t vb = simBoard[nnSymPos(q / 9, q % 9, bI, px, py)];
+        if(va == vb) continue;
+        return vb == EMPTY || (va != EMPTY && va != WHITE);
+    }
+    return 0;
+}
+
 // threshold-ladder bucketizer: b = count of thresholds v exceeds.
 // Replaces the ternary compare ladders (each ~30-60B at -Os).
 static const int8_t NN_TH_GAIN[] PROGMEM = {0, 2, 5};    // dil gain / oppDilGain
@@ -2018,22 +2032,7 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
             if(a > bb) continue;                 // not in triangle
             if(a != a0 || bb != b0) continue;    // not minimal (a0,b0 is min by construction)
             if(bestSym == 0xFF) { bestSym = s; continue; }
-            // lexicographic tie-break over sorted transformed stone keys
-            // (key = pos*2 + (color==WHITE), x-major): equivalent to a
-            // merge-walk of the two TRANSFORMED boards in key order via
-            // inverse syms — stone beats empty, black key < white key.
-            uint8_t sI = (s & 4) ? (4 | ((s & 1) << 1) | ((s >> 1) & 1)) : s;
-            uint8_t bI = (bestSym & 4) ? (4 | ((bestSym & 1) << 1) | ((bestSym >> 1) & 1)) : bestSym;
-            uint8_t better = 0, decided = 0;
-            for(uint8_t q = 0; q < 81 && !decided; q++) {
-                uint8_t px, py;
-                uint8_t va = simBoard[nnSymPos(q / 9, q % 9, sI, px, py)];
-                uint8_t vb = simBoard[nnSymPos(q / 9, q % 9, bI, px, py)];
-                if(va == vb) continue;
-                better = vb == EMPTY || (va != EMPTY && va != WHITE);
-                decided = 1;
-            }
-            if(better) bestSym = s;
+            if(nnCanonBetter(s, bestSym)) bestSym = s;
         }
 #endif
         uint8_t tcx, tcy;
