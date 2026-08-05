@@ -1663,24 +1663,19 @@ __attribute__((noinline)) static int8_t nnRd(const uint8_t *t, uint16_t i) {   /
 #define NNRD(t, i) ((int8_t)pgm_read_byte((const uint8_t *)(t) + (i)))
 #endif
 
-#if defined(NN_W_SPARSE) || defined(NN_EF_SPARSE)
-// shared flat sparse lookup: scan uint16 index list, return signed nibble
-__attribute__((noinline)) static int8_t nnFlat(uint16_t idx, const uint16_t *ix, const uint8_t *vl, uint8_t nz) {
-    for(uint8_t k = 0; k < nz; k++)
-        if(pgm_read_word(ix + k) == idx) {
-            uint8_t vb = pgm_read_byte(vl + (k >> 1));
+#ifdef NN_W_SPARSE
+#define NN_W_NZ 50
+PROGMEM static const uint16_t NN_W_IDX[50] = {0,1,28,32,36,92,96,104,108,148,156,160,161,164,168,172,176,180,234,242,246,288,292,346,350,351,354,362,370,378,416,420,424,428,442,450,478,482,486,487,490,494,502,510,546,550,554,558,562,570};
+PROGMEM static const uint8_t NN_W_VAL[25] = {66,26,17,17,17,75,17,17,17,26,27,17,20,171,161,17,26,17,42,20,194,171,27,186,52};__attribute__((noinline)) static int8_t nnWsp(uint16_t idx) {
+    for(uint8_t k = 0; k < NN_W_NZ; k++)
+        if(pgm_read_word(NN_W_IDX + k) == idx) {
+            uint8_t vb = pgm_read_byte(NN_W_VAL + (k >> 1));
             uint8_t v = (k & 1) ? (vb >> 4) : (vb & 0xF);
             return (int8_t)((v ^ 8) - 8);
         }
     return 0;
 }
-#endif
-
-#ifdef NN_W_SPARSE
-#define NN_W_NZ 50
-PROGMEM static const uint16_t NN_W_IDX[50] = {0,1,28,32,36,92,96,104,108,148,156,160,161,164,168,172,176,180,234,242,246,288,292,346,350,351,354,362,370,378,416,420,424,428,442,450,478,482,486,487,490,494,502,510,546,550,554,558,562,570};
-PROGMEM static const uint8_t NN_W_VAL[25] = {66,26,17,17,17,75,17,17,17,26,27,17,20,171,161,17,26,17,42,20,194,171,27,186,52};
-#define NNW(i) nnFlat((uint16_t)(i), NN_W_IDX, NN_W_VAL, NN_W_NZ)
+#define NNW(i) nnWsp((uint16_t)(i))
 #else
 #define NNW(i) NNRD(NN_W, (i))
 #endif
@@ -1702,24 +1697,31 @@ PROGMEM static const uint8_t NN_EB_EN[19] = {10,21,11,65,33,6,17,67,13,65,76,34,
 PROGMEM static const uint8_t NN_B1_CN[1] = {2};
 PROGMEM static const uint8_t NN_B1_EN[2] = {6,75};
 #define NN_LF_NZ 16
-PROGMEM static const uint16_t NN_LF_IX[16] = {0,1,4,8,9,12,16,26,30,34,35,46,47,58,66,67};
+PROGMEM static const uint8_t NN_LF_IX[16] = {0,1,4,8,9,12,16,26,30,34,35,46,47,58,66,67};
 PROGMEM static const uint8_t NN_LF_VL[8] = {74,97,33,33,65,129,49,44};__attribute__((noinline)) static void nnAddRowSp(int16_t *pre, const uint8_t *cn, const uint8_t *en, uint8_t row) {
-    // one pass: start = sum(counts[0..row-1]), cnt = counts[row]
-    uint8_t start = 0, cnt = 0;
-    for(uint8_t r = 0; r <= row; r++) {
-        start += cnt;
+    uint16_t start = 0;
+    for(uint8_t r = 0; r < row; r++) {
         uint8_t cb = pgm_read_byte(cn + (r >> 1));
-        cnt = (r & 1) ? (cb >> 4) : (cb & 0xF);
+        start += (r & 1) ? (cb >> 4) : (cb & 0xF);
     }
-    en += start;
+    uint8_t cb = pgm_read_byte(cn + (row >> 1));
+    uint8_t cnt = (row & 1) ? (cb >> 4) : (cb & 0xF);
     for(uint8_t k = 0; k < cnt; k++) {
-        uint8_t b = pgm_read_byte(en + k);
-        uint8_t u = b >> 4;                              // uint8_t -> swap
-        pre[u] += (int8_t)(((b & 0xF) ^ 8) - 8);
+        uint8_t b = pgm_read_byte(en + start + k);
+        pre[b >> 4] += (int8_t)(((b & 0xF) ^ 8) - 8);
     }
 }
+__attribute__((noinline)) static int8_t nnLFsp(uint8_t feat) {
+    for(uint8_t k = 0; k < NN_LF_NZ; k++)
+        if(pgm_read_byte(NN_LF_IX + k) == feat) {
+            uint8_t vb = pgm_read_byte(NN_LF_VL + (k >> 1));
+            uint8_t v = (k & 1) ? (vb >> 4) : (vb & 0xF);
+            return (int8_t)((v ^ 8) - 8);
+        }
+    return 0;
+}
 #define NNADD(p, TAB, row) nnAddRowSp(p, TAB##_CN, TAB##_EN, (uint8_t)(row))
-#define NNLF(i) nnFlat((uint16_t)(i), NN_LF_IX, NN_LF_VL, NN_LF_NZ)
+#define NNLF(i) nnLFsp((uint8_t)(i))
 #else
 #define NNADD(p, TAB, row) nnAddRow(p, (const uint8_t *)TAB, (row))
 #define NNLF(i) NNRD(NN_LF, (i))
