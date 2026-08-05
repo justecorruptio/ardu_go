@@ -1918,6 +1918,14 @@ __attribute__((noinline)) static uint8_t nnRelShapes(uint8_t cx, uint8_t cy,
 __attribute__((noinline)) static uint8_t nnLibFam(uint8_t cpos, uint8_t toMove,
         uint8_t opp, uint8_t *deadMask, uint8_t *cells) {
     uint8_t nc;
+#ifdef NN_ATARI_EXIT
+    // gate invariant: no chain is in atari, so no candidate can capture --
+    // the capture flood is structurally dead and deadMask stays all-zero
+    // (callees take 0 = no dead map).
+    (void)deadMask;
+    const uint8_t cap = 0;
+    simBoard[cpos] = toMove;
+#else
     memset(deadMask, 0, 81);
     uint8_t cap = 0;
     simBoard[cpos] = toMove;
@@ -1931,16 +1939,28 @@ __attribute__((noinline)) static uint8_t nnLibFam(uint8_t cpos, uint8_t toMove,
             }
         }
     }
+#endif
+#ifdef NN_ATARI_EXIT
+    uint8_t rl = nnChain(cpos, 0, cells, nc);
+#else
     uint8_t rl = nnChain(cpos, deadMask, cells, nc);
+#endif
     uint8_t rlb = rl == 0 ? 0 : (nnSat(rl, 4)) - 1;
     uint8_t ela = 3;
     uint8_t nel;
     FOR_EACH_NEIGHBOR(nel, cpos) {
         if(simBoard[nel] == opp) {
+#ifndef NN_ATARI_EXIT
             if(deadMask[nel]) {
                 if(2 < ela) ela = 2;
-            } else {
+            } else
+#endif
+            {
+#ifdef NN_ATARI_EXIT
+                uint8_t l = nnChain(nel, 0, cells, nc);
+#else
                 uint8_t l = nnChain(nel, deadMask, cells, nc);
+#endif
                 uint8_t b2 = nnBucket(l, NN_TH_12, 2);
                 if(b2 < ela) ela = b2;
             }
@@ -1985,6 +2005,11 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
                 nnMapId[cells[i]] = cmId;
             }
             if(libs <= 2) temp++;
+#ifdef NN_ATARI_EXIT
+            // Jay 2026-08: any chain in atari = a capture is on the
+            // board -- tactics have started, hand over to MCTS.
+            if(libs == 1) return 0;
+#endif
 #ifndef NN_CORE_TIER
             if(simBoard[p] == game.turn) {          // weakMask: only nnStoneScan's
                 if(libs < wmin) {                    // wd reads it (core-dead)
