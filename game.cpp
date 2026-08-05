@@ -40,6 +40,13 @@ static uint8_t ffPush(Game *g, uint8_t p2, uint8_t color, uint8_t sp) {
     return sp;
 }
 
+// Clear visited[] then flood the region: the paired idiom the callers
+// below all share.
+uint8_t Game::floodClean(uint8_t x, uint8_t y, uint8_t color) {
+    memset(visited, 0, sizeof(visited));
+    return floodFill(x, y, color);
+}
+
 uint8_t Game::floodFill(uint8_t x, uint8_t y, uint8_t color) {
     // Marks the connected region of `color` containing (x,y) in visited[]
     // and returns its size. Iterative: recursion would overflow the AVR
@@ -95,8 +102,7 @@ uint8_t Game::hasLiberties(uint8_t x, uint8_t y) {
     uint8_t color = at(x, y);
     if(color == EMPTY) return 0;
 
-    memset(visited, 0, sizeof(visited));
-    floodFill(x, y, color); // group cells -> 1
+    floodClean(x, y, color); // group cells -> 1
 
     for(uint8_t i = 0; i < BOARD_CELLS; i++) {
         if(packedGet(visited, i) != 1) continue;
@@ -113,8 +119,7 @@ uint8_t Game::captureGroup(uint8_t x, uint8_t y) {
     uint8_t color = at(x, y);
     if(color == EMPTY) return 0;
 
-    memset(visited, 0, sizeof(visited));
-    uint8_t count = floodFill(x, y, color);
+    uint8_t count = floodClean(x, y, color);
 
     sweepVisited(this, board, EMPTY);
     return count;
@@ -143,8 +148,7 @@ uint8_t Game::isValidMove(uint8_t x, uint8_t y) {
             uint8_t nx = ni % BOARD_SIZE, ny = ni / BOARD_SIZE;
             if(!hasLiberties(nx, ny)) {
                 captures = 1;
-                memset(visited, 0, sizeof(visited));
-                floodFill(nx, ny, opponent);
+                floodClean(nx, ny, opponent);
                 sweepVisited(this, tempBoard, EMPTY);
             }
         }
@@ -207,8 +211,7 @@ void Game::computeScore() {
             continue;
 
         // Flood fill empty region
-        memset(visited, 0, sizeof(visited));
-        floodFill(i % BOARD_SIZE, i / BOARD_SIZE, EMPTY);
+        floodClean(i % BOARD_SIZE, i / BOARD_SIZE, EMPTY);
 
         // Determine owner: check all borders of this region
         uint8_t touchesBlack = 0, touchesWhite = 0;

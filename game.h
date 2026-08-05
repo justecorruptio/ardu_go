@@ -60,6 +60,7 @@ class Game {
     uint8_t hasLiberties(uint8_t x, uint8_t y);
     uint8_t captureGroup(uint8_t x, uint8_t y);
     uint8_t floodFill(uint8_t x, uint8_t y, uint8_t color);
+    uint8_t floodClean(uint8_t x, uint8_t y, uint8_t color);
 
     void computeScore();
     uint8_t isGameOver();
