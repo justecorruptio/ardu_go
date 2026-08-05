@@ -1,8 +1,8 @@
 #include "game.h"
 
 void Game::reset() {
-    memset(board, EMPTY, sizeof(board));
-    memset(prevBoard, EMPTY, sizeof(prevBoard));
+    // board and prevBoard are adjacent uint8_t[] members: one clear does both
+    memset(board, EMPTY, sizeof(board) + sizeof(prevBoard));
     turn = BLACK;
     captures[0] = captures[1] = 0;
     consecutivePasses = 0;

@@ -3754,10 +3754,10 @@ void AI::scoreDead(Game &game) {
         uint8_t s = packedGet(game.board, i);
         uint8_t blackOwned = own[i] >= SCORE_PLAYOUTS / 2;
         if(s == BLACK && !blackOwned) {
-            game.set(i % BOARD_SIZE, i / BOARD_SIZE, EMPTY);
+            packedSet(game.board, i, EMPTY);   // (i/9)*9 + i%9 == i
             game.captures[1]++;
         } else if(s == WHITE && blackOwned) {
-            game.set(i % BOARD_SIZE, i / BOARD_SIZE, EMPTY);
+            packedSet(game.board, i, EMPTY);   // (i/9)*9 + i%9 == i
             game.captures[0]++;
         }
     }
@@ -5519,8 +5519,7 @@ void AI::think(Game &game) {
 #endif
     loadRootBoard(game);
 
-    memset(raveV, 0, BOARD_CELLS);
-    memset(raveW, 0, BOARD_CELLS);
+    memset(raveV, 0, 2 * BOARD_CELLS);   // raveW == raveV + BOARD_CELLS, contiguous
 
 #ifndef TREUSE
     newNode(0xFF); // root
