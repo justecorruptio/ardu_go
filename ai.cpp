@@ -1682,6 +1682,11 @@ __attribute__((noinline)) static uint8_t nnCheby(uint8_t p, uint8_t cx, uint8_t 
     uint8_t dy = py > cy ? py - cy : cy - py;
     return dx > dy ? dx : dy;
 }
+
+// factored micro-idioms (NN opening; speed irrelevant, force one copy)
+__attribute__((noinline)) static uint8_t nnEdge(uint8_t v) { return v < (uint8_t)(8 - v) ? v : (uint8_t)(8 - v); }
+__attribute__((noinline)) static uint8_t nnAbs(int8_t v) { return v < 0 ? -v : v; }
+__attribute__((noinline)) static uint8_t nnSat(uint8_t v, uint8_t n) { return v > n ? n : v; }
 #ifndef NN_QUIET_MAXTEMP
 #define NN_QUIET_MAXTEMP 2  // ship gate: allow mild fights (measured +89/2000)
 #endif
@@ -1728,10 +1733,8 @@ __attribute__((noinline)) static uint8_t nnChain(uint8_t p, const uint8_t *deadM
     while(sp) {
         uint8_t q = st[--sp];
         cells[ncells++] = q;
-        uint8_t qx = q % 9, qy = q / 9;
-        for(uint8_t d = 0; d < 4; d++) {
-            uint8_t n = nnNb((uint8_t)(qy * 9 + qx), d);
-            if(n > 80) continue;
+        uint8_t n;
+        FOR_EACH_NEIGHBOR(n, q) {
             uint8_t empty = simBoard[n] == EMPTY || (deadMap && deadMap[n]);
             if(empty) {
                 if(!libSeen[n]) {
@@ -1758,9 +1761,9 @@ __attribute__((noinline)) static void nnDistMap(uint8_t col, uint8_t *dist) {
     for(uint8_t g = 0; g < 3; g++)
         for(uint8_t p = 0; p < 81; p++) {
             if(dist[p] != g) continue;
-            for(uint8_t d = 0; d < 4; d++) {
-                uint8_t n = nnNb(p, d);
-                if(n <= 80 && dist[n] > g + 1) dist[n] = g + 1;
+            uint8_t nd;
+            FOR_EACH_NEIGHBOR(nd, p) {
+                if(dist[nd] > g + 1) dist[nd] = g + 1;
             }
         }
 }
@@ -1813,7 +1816,7 @@ __attribute__((noinline)) static uint8_t nnDilFeats(uint8_t cx, uint8_t cy,
         uint8_t st2 = (ODS[cpos] <= r) + 2 * (EDS[cpos] <= r);
         uint8_t gain = 0;
         for(int8_t dx = -(int8_t)r; dx <= (int8_t)r; dx++) {
-        int8_t rem = r - (dx < 0 ? -dx : dx);
+        int8_t rem = r - (nnAbs(dx));
         for(int8_t dy = -rem; dy <= rem; dy++) {
             int8_t nx = cx + dx, ny = cy + dy;
             if((uint8_t)nx > 8 || (uint8_t)ny > 8) continue;
@@ -1888,11 +1891,10 @@ __attribute__((noinline)) static uint8_t nnLibFam(uint8_t cpos, uint8_t toMove,
     memset(deadMask, 0, 81);
     uint8_t cap = 0;
     simBoard[cpos] = toMove;
-    for(uint8_t d = 0; d < 4; d++) {
-        uint8_t n = nnNb(cpos, d);
-        if(n > 80) continue;
-        if(simBoard[n] == opp && !deadMask[n]) {
-            if(nnChain(n, 0, cells, nc) == 0) {
+    uint8_t nca;
+    FOR_EACH_NEIGHBOR(nca, cpos) {
+        if(simBoard[nca] == opp && !deadMask[nca]) {
+            if(nnChain(nca, 0, cells, nc) == 0) {
                 cap = 1;
                 for(uint8_t i = 0; i < nc; i++)
                     deadMask[cells[i]] = 1;
@@ -1900,16 +1902,15 @@ __attribute__((noinline)) static uint8_t nnLibFam(uint8_t cpos, uint8_t toMove,
         }
     }
     uint8_t rl = nnChain(cpos, deadMask, cells, nc);
-    uint8_t rlb = rl == 0 ? 0 : (rl > 4 ? 4 : rl) - 1;
+    uint8_t rlb = rl == 0 ? 0 : (nnSat(rl, 4)) - 1;
     uint8_t ela = 3;
-    for(uint8_t d = 0; d < 4; d++) {
-        uint8_t n = nnNb(cpos, d);
-        if(n > 80) continue;
-        if(simBoard[n] == opp) {
-            if(deadMask[n]) {
+    uint8_t nel;
+    FOR_EACH_NEIGHBOR(nel, cpos) {
+        if(simBoard[nel] == opp) {
+            if(deadMask[nel]) {
                 if(2 < ela) ela = 2;
             } else {
-                uint8_t l = nnChain(n, deadMask, cells, nc);
+                uint8_t l = nnChain(nel, deadMask, cells, nc);
                 uint8_t b2 = nnBucket(l, NN_TH_12, 2);
                 if(b2 < ela) ela = b2;
             }
@@ -1968,11 +1969,9 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
     uint8_t lx = nnLast % 9, ly = nnLast / 9;
     uint8_t lastContact = 0;                     // last (opp) touches our chain
     {
-        for(uint8_t d = 0; d < 4; d++) {
-            int8_t nx = lx + (d == 0) - (d == 1);
-            int8_t ny = ly + (d == 2) - (d == 3);
-            if((uint8_t)nx > 8 || (uint8_t)ny > 8) continue;
-            if(simBoard[ny * 9 + nx] == toMove) lastContact = 1;
+        uint8_t nlc;
+        FOR_EACH_NEIGHBOR(nlc, nnLast) {
+            if(simBoard[nlc] == toMove) lastContact = 1;
         }
     }
     int32_t bestScore = (int32_t)-2147483647;
@@ -1986,20 +1985,20 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
         for(uint8_t s = 0; s < 8; s++) {
             uint8_t tx, ty;
             nnSymPos(cx, cy, s, tx, ty);
-            uint8_t a = tx < 8 - tx ? tx : 8 - tx;
-            uint8_t bb = ty < 8 - ty ? ty : 8 - ty;
+            uint8_t a = nnEdge(tx);
+            uint8_t bb = nnEdge(ty);
             if(a <= bb) { bestSym = s; break; }   // first-min-sym (trainer rule)
         }
 #else
-        uint8_t a0 = cx < 8 - cx ? cx : 8 - cx;
-        uint8_t b0 = cy < 8 - cy ? cy : 8 - cy;
+        uint8_t a0 = nnEdge(cx);
+        uint8_t b0 = nnEdge(cy);
         if(a0 > b0) { uint8_t t = a0; a0 = b0; b0 = t; }
         uint8_t bestSym = 0xFF;
         for(uint8_t s = 0; s < 8; s++) {
             uint8_t tx, ty;
             nnSymPos(cx, cy, s, tx, ty);
-            uint8_t a = tx < 8 - tx ? tx : 8 - tx;
-            uint8_t bb = ty < 8 - ty ? ty : 8 - ty;
+            uint8_t a = nnEdge(tx);
+            uint8_t bb = nnEdge(ty);
             if(a > bb) continue;                 // not in triangle
             if(a != a0 || bb != b0) continue;    // not minimal (a0,b0 is min by construction)
             if(bestSym == 0xFF) { bestSym = s; continue; }
@@ -2023,8 +2022,8 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
 #endif
         uint8_t tcx, tcy;
         nnSymPos(cx, cy, bestSym, tcx, tcy);
-        uint8_t a = tcx < 8 - tcx ? tcx : 8 - tcx;
-        uint8_t bcl = tcy < 8 - tcy ? tcy : 8 - tcy;
+        uint8_t a = nnEdge(tcx);
+        uint8_t bcl = nnEdge(tcy);
         if(a > bcl) { uint8_t t = a; a = bcl; bcl = t; }
         uint8_t bcls = a * 5 + bcl - (a * (a + 1)) / 2;
         // ---- accumulators ----
@@ -2047,7 +2046,7 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
             uint8_t sx, sy;
             nnSymPos(p % 9, p / 9, bestSym, sx, sy);
             int8_t dx = (int8_t)sx - (int8_t)tcx, dy = (int8_t)sy - (int8_t)tcy;
-            uint8_t adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
+            uint8_t adx = nnAbs(dx), ady = nnAbs(dy);
             if(adx > 3) adx = 3;
             if(ady > 3) ady = 3;
             uint8_t col = simBoard[p] == toMove ? 0 : 1;
@@ -2082,15 +2081,15 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
         uint8_t ld = nnCheby((uint8_t)(ly * 9 + lx), cx, cy);
         fx[nf++] = lf & 0xF;            // resLibs, suicide-clamped in helper
         fx[nf++] = 4 + cap;
-        fx[nf++] = 6 + (no > 5 ? 5 : no) - 1;
+        fx[nf++] = 6 + (nnSat(no, 5)) - 1;
 #ifndef NN_CORE_TIER
-        fx[nf++] = 11 + (ne > 5 ? 5 : ne) - 1;
+        fx[nf++] = 11 + (nnSat(ne, 5)) - 1;
 #endif
 #ifndef NN_CORE_TIER
         fx[nf++] = 16 + ((dens4 / 2) > 3 ? 3 : dens4 / 2);
 #endif
 #ifndef NN_CORE_TIER
-        fx[nf++] = 20 + (ld > 5 ? 5 : ld) - 1;
+        fx[nf++] = 20 + (nnSat(ld, 5)) - 1;
 #endif
         (void)dens2;
 #ifndef MEAS_NODILF
@@ -2101,11 +2100,9 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
             uint8_t rel = 0;
             if(lastContact) {
                 uint8_t touchOwn = 0;
-                for(uint8_t d = 0; d < 4; d++) {
-                    int8_t nx = cx + (d == 0) - (d == 1);
-                    int8_t ny = cy + (d == 2) - (d == 3);
-                    if((uint8_t)nx > 8 || (uint8_t)ny > 8) continue;
-                    if(simBoard[ny * 9 + nx] == toMove) touchOwn = 1;
+                uint8_t nto;
+                FOR_EACH_NEIGHBOR(nto, cpos) {
+                    if(simBoard[nto] == toMove) touchOwn = 1;
                 }
                 if(ld == 1 && (lx == cx || ly == cy)) rel = 2;
                 else if(ld <= 1 && touchOwn) rel = 1;
@@ -2114,11 +2111,8 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
             }
             // distinct adjacent own / enemy chains (dedupe by chain min-cell)
             uint8_t ownIds[4], enmIds[4], nOwn = 0, nEnm = 0;
-            for(uint8_t d = 0; d < 4; d++) {
-                int8_t nx = cx + (d == 0) - (d == 1);
-                int8_t ny = cy + (d == 2) - (d == 3);
-                if((uint8_t)nx > 8 || (uint8_t)ny > 8) continue;
-                uint8_t n = ny * 9 + nx;
+            uint8_t n;
+            FOR_EACH_NEIGHBOR(n, cpos) {
                 if(simBoard[n] == EMPTY) continue;
                 nnChain(n, 0, cells, nc);
                 uint8_t mn = 81;
@@ -2148,8 +2142,8 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
             }
             fx[nf++] = 49 + ela;
             fx[nf++] = 53 + rel;
-            fx[nf++] = 58 + (nOwn > 2 ? 2 : nOwn);
-            fx[nf++] = 61 + (nEnm > 2 ? 2 : nEnm);
+            fx[nf++] = 58 + (nnSat(nOwn, 2));
+            fx[nf++] = 61 + (nnSat(nEnm, 2));
             (void)xcut;
             fx[nf++] = 64 + oo + 2 * oe;
         }
@@ -2199,7 +2193,7 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
             // r3: opponent dilation gain at r2 (manhattan ball vs enmD2)
             uint8_t og = 0;
             for(int8_t dxx = -2; dxx <= 2; dxx++) {
-                int8_t rem = 2 - (dxx < 0 ? -dxx : dxx);
+                int8_t rem = 2 - (nnAbs(dxx));
                 for(int8_t dyy = -rem; dyy <= rem; dyy++) {
                     int8_t qx = cx + dxx, qy = cy + dyy;
                     if((uint8_t)qx > 8 || (uint8_t)qy > 8) continue;
@@ -2238,13 +2232,13 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
 #endif
 #ifndef NN_CORE_TIER
             // r3: line-class x nearestOwn cross
-            uint8_t lc = cx < 8 - cx ? cx : 8 - cx;
-            uint8_t lc2 = cy < 8 - cy ? cy : 8 - cy;
+            uint8_t lc = nnEdge(cx);
+            uint8_t lc2 = nnEdge(cy);
             if(lc2 < lc) lc = lc2;
             uint8_t lcc = nnBucket(lc, NN_TH_12, 2);
-            uint8_t nod = no >= 1 ? (no > 4 ? 4 : no) - 1 : 0;
+            uint8_t nod = no >= 1 ? (nnSat(no, 4)) - 1 : 0;
             uint8_t cr = lcc * 4 + nod;
-            fx[nf++] = 127 + (cr > 11 ? 11 : cr);
+            fx[nf++] = 127 + (nnSat(cr, 11));
 #endif
         }
 #ifndef ARDUINO
