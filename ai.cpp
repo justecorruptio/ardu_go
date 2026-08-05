@@ -1964,18 +1964,16 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
     uint8_t *weakMask = nnMapA;   // passed but unread in core (wd guarded)
 #endif
     {
-        uint8_t *done = nnMapB; memset(done, 0, 81);
-        uint8_t cmId = 0;
+        uint8_t cmId = 0; memset(nnMapId, 0, 81);   // nnMapId != 0 marks visited
 #ifndef NN_CORE_TIER
         uint8_t wmin = 255;
 #endif
         for(uint8_t p = 0; p < 81; p++) {
-            if(simBoard[p] == EMPTY || done[p]) continue;
+            if(simBoard[p] == EMPTY || nnMapId[p]) continue;
             uint8_t libs = nnChain(p, 0, cells, nc);
             uint8_t lb = nnBucket(libs, NN_TH_LB, 3);
             ++cmId;
             for(uint8_t i = 0; i < nc; i++) {
-                done[cells[i]] = 1;
                 cellLb[cells[i]] = lb;
                 nnMapId[cells[i]] = cmId;
             }
