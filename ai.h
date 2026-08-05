@@ -1,5 +1,24 @@
 #pragma once
 
+// ==================== ship NN configuration ====================
+// Decision #3 (2026-08-05): opening net ON, core-18f tier (+DAgger
+// training data), quiet gate 2. Measured: tier 29.5% vs full 33.5%
+// on fresh paired games; buys ~2K flash toward the device target.
+// Host experiment builds: -D duplicates are value-1 safe; pass
+// -DNN_FULL_MODEL to build the untrimmed net instead.
+#ifndef NNOPEN
+#define NNOPEN 1
+#endif
+#ifndef NN_FULL_MODEL
+#ifndef NN_DEVICE_TIER
+#define NN_DEVICE_TIER 1
+#endif
+#ifndef NN_CORE_TIER
+#define NN_CORE_TIER 1
+#endif
+#endif
+
+
 #include "game.h"
 
 class AI {

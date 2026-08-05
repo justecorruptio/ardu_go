@@ -1683,7 +1683,7 @@ __attribute__((noinline)) static uint8_t nnCheby(uint8_t p, uint8_t cx, uint8_t 
     return dx > dy ? dx : dy;
 }
 #ifndef NN_QUIET_MAXTEMP
-#define NN_QUIET_MAXTEMP 0  // decline if any chain has <= 2 libs
+#define NN_QUIET_MAXTEMP 2  // ship gate: allow mild fights (measured +89/2000)
 #endif
 
 __attribute__((noinline)) static uint8_t nnSymPos(uint8_t x, uint8_t y, uint8_t s, uint8_t &ox, uint8_t &oy) {
