@@ -1829,6 +1829,13 @@ __attribute__((noinline)) static void nnStoneScan(uint8_t cx, uint8_t cy,
 
 
 // dilation state + area-gain classes for 3 radii (6 fx entries).
+// compile-time compact->dense feature-class remap (ship tier drops the
+// gaps 11-24, 74-82, 91-103); folds at each emission so no runtime shift.
+#if defined(NN_CORE_TIER) && defined(NN_DEVICE_TIER)
+#define FXD(c) ((c) >= 104 ? (c) - 36 : (c) >= 83 ? (c) - 23 : (c) >= 25 ? (c) - 14 : (c))
+#else
+#define FXD(c) (c)
+#endif
 __attribute__((noinline)) static uint8_t nnDilFeats(uint8_t cx, uint8_t cy,
         const uint8_t *ODS, const uint8_t *EDS,
         uint8_t *fx, uint8_t nf) {
@@ -1848,8 +1855,8 @@ __attribute__((noinline)) static uint8_t nnDilFeats(uint8_t cx, uint8_t cy,
         }
         }
         uint8_t gb = nnBucket(gain, NN_TH_GAIN, 3);
-        fx[nf++] = 25 + di * 8 + st2;
-        fx[nf++] = 25 + di * 8 + 4 + gb;
+        fx[nf++] = FXD(25) + di * 8 + st2;
+        fx[nf++] = FXD(25) + di * 8 + 4 + gb;
     }
     return nf;
 }
@@ -2157,22 +2164,22 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
                 if(c3 == toMove) oo = 1;
                 else if(c3 != EMPTY) oe = 1;
             }
-            fx[nf++] = 49 + ela;
-            fx[nf++] = 53 + rel;
-            fx[nf++] = 58 + (nnSat(nOwn, 2));
-            fx[nf++] = 61 + (nnSat(nEnm, 2));
+            fx[nf++] = FXD(49) + ela;
+            fx[nf++] = FXD(53) + rel;
+            fx[nf++] = FXD(58) + (nnSat(nOwn, 2));
+            fx[nf++] = FXD(61) + (nnSat(nEnm, 2));
             (void)xcut;
-            fx[nf++] = 64 + oo + 2 * oe;
+            fx[nf++] = FXD(64) + oo + 2 * oe;
         }
         // ---- 3e: pattern / corner / global diff / nearest-chain libs ----
         {
 #ifndef MEAS_NOPAT
             int8_t ps = patternBonus(cx, cy, toMove);
             uint8_t pb = nnBucket(ps, NN_TH_PAT, 5);
-            fx[nf++] = 68 + pb;
+            fx[nf++] = FXD(68) + pb;
             int8_t po = patternBonus(cx, cy, opp);       // r3: opponent swap
             uint8_t pb2 = nnBucket(po, NN_TH_PAT, 5);
-            uint8_t fxOppPat = 104 + pb2;
+            uint8_t fxOppPat = FXD(104) + pb2;
 #endif
             // nearest corner state at r2 (corners: 3-3 points)
             static const uint8_t CPTS[4] = { 2*9+2, 2*9+6, 6*9+2, 6*9+6 };
@@ -2200,8 +2207,8 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
             // nearest own / enemy chain lib-buckets (order-free: min dist,
             // then min bucket among equidistant) via per-cell cellLb
             uint8_t bro = ss[4], bre = ss[5];
-            fx[nf++] = 83 + bro;
-            fx[nf++] = 87 + bre;
+            fx[nf++] = FXD(83) + bro;
+            fx[nf++] = FXD(87) + bre;
 #ifndef NN_DEVICE_TIER
             nf = nnRelShapes(cx, cy, toMove, opp, fx, nf);
 #endif
@@ -2270,15 +2277,8 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
 #endif
         // ---- score ----
         for(uint8_t i = 0; i < nf; i++) {
-            uint16_t fi = fx[i];
-#if defined(NN_CORE_TIER) && defined(NN_DEVICE_TIER)
-            // dense F/LF: the ship tier never emits the dropped-feature
-            // class gaps 11-24 (ne/dens/ld), 74-82 (cst/db), 91-103 (shapes); shift
-            // survivors down to remove them from the tables.
-            if(fi >= 104) fi -= 36; else if(fi >= 83) fi -= 23; else if(fi >= 25) fi -= 14;
-#endif
-            lin += NNRD(NN_LF, fi);
-            nnAddRow(pre, (const uint8_t *)NN_F, fi);
+            lin += NNRD(NN_LF, fx[i]);
+            nnAddRow(pre, (const uint8_t *)NN_F, fx[i]);
         }
         int32_t score = (int32_t)lin * NN_KSCALE;
         for(uint8_t h = 0; h < NN_H; h++)
