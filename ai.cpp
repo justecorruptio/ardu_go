@@ -1789,16 +1789,24 @@ __attribute__((noinline)) static void nnStoneScan(uint8_t cx, uint8_t cy,
         if(v == toMove) {
             if(ch < no) no = ch;
             if(ch < blo || (ch == blo && cellLb[p] < bro)) { blo = ch; bro = cellLb[p]; }
+#ifndef NN_DEVICE_TIER
             if(ch == 2) ro = 1;
+#endif
         } else {
+#ifndef NN_CORE_TIER
             if(ch < ne) ne = ch;
+#endif
             if(ch < ble || (ch == ble && cellLb[p] < bre)) { ble = ch; bre = cellLb[p]; }
+#ifndef NN_DEVICE_TIER
             if(ch == 2) re = 1;
+#endif
         }
-        if(ch <= 2) dens2++;
+#ifndef NN_CORE_TIER
         if(ch <= 4) dens4++;
         if(weakMask[p] && ch < wd) wd = ch;
+#endif
     }
+    (void)dens2;
     out[0] = no; out[1] = ne; out[2] = dens2; out[3] = dens4;
     out[4] = bro; out[5] = bre; out[6] = wd; out[7] = ro | (re << 1);
 }
