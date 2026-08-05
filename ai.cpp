@@ -1733,6 +1733,7 @@ static uint8_t * const nnMapA = Arduboy2Base::sBuffer;        // weakMap
 static uint8_t * const nnMapB = Arduboy2Base::sBuffer + 81;   // doneMap / deadMap
 static uint8_t * const nnMapC = Arduboy2Base::sBuffer + 162;  // nnChain libSeen
 static uint8_t * const nnMapD = Arduboy2Base::sBuffer + 243;  // nnChain seen
+static uint8_t * const nnMapId = Arduboy2Base::sBuffer + 324; // census chain id
 
 // flood a chain on simBoard from p; returns liberty count treating
 // cells set in deadMap (byte map over 81) as EMPTY; chain cells -> cells[]
@@ -1964,6 +1965,7 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
 #endif
     {
         uint8_t *done = nnMapB; memset(done, 0, 81);
+        uint8_t cmId = 0;
 #ifndef NN_CORE_TIER
         uint8_t wmin = 255;
 #endif
@@ -1971,9 +1973,11 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
             if(simBoard[p] == EMPTY || done[p]) continue;
             uint8_t libs = nnChain(p, 0, cells, nc);
             uint8_t lb = nnBucket(libs, NN_TH_LB, 3);
+            ++cmId;
             for(uint8_t i = 0; i < nc; i++) {
                 done[cells[i]] = 1;
                 cellLb[cells[i]] = lb;
+                nnMapId[cells[i]] = cmId;
             }
             if(libs <= 2) temp++;
 #ifndef NN_CORE_TIER
@@ -2131,9 +2135,7 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
             uint8_t n;
             FOR_EACH_NEIGHBOR(n, cpos) {
                 if(simBoard[n] == EMPTY) continue;
-                nnChain(n, 0, cells, nc);
-                uint8_t mn = 81;
-                for(uint8_t i = 0; i < nc; i++) if(cells[i] < mn) mn = cells[i];
+                uint8_t mn = nnMapId[n];
                 uint8_t *ids = simBoard[n] == toMove ? ownIds : enmIds;
                 uint8_t *cnt = simBoard[n] == toMove ? &nOwn : &nEnm;
                 uint8_t dup = 0;
