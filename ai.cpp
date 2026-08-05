@@ -1955,7 +1955,7 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
     // unpack + census
     uint8_t nstones = 0;
     for(uint8_t p = 0; p < 81; p++) {
-        simBoard[p] = game.at(p % 9, p / 9);
+        simBoard[p] = packedGet(game.board, p);   // p == (p/9)*9 + p%9
         if(simBoard[p] != EMPTY) nstones++;
     }
     if(nstones == 0 || nstones > NN_MAX_STONES) return 0;
