@@ -5734,6 +5734,13 @@ static uint8_t pct100(uint16_t w, uint16_t n) {
     return n ? (uint8_t)((uint32_t)w * 100 / n) : 0;
 }
 
+// Root-move legality shared by the LCB and backup picks: on-board legal
+// and not a root self-atari.
+static bool rootMoveOK(Game &game, uint8_t m) {
+    return game.isValidMove(m % BOARD_SIZE, m / BOARD_SIZE) &&
+           !rootSelfAtari(m, game.turn);
+}
+
 uint8_t AI::bestMove(Game &game, uint8_t &x, uint8_t &y) {
     // Stats default to the whole-root eval; the chosen child's own
     // numbers overwrite them below once it is known
@@ -5767,9 +5774,7 @@ uint8_t AI::bestMove(Game &game, uint8_t &x, uint8_t &y) {
 
         // Fallback: most-visited, in case no child clears the LCB gate
         if(v > backV) {
-            if(m == MOVE_PASS ||
-               (game.isValidMove(m % BOARD_SIZE, m / BOARD_SIZE) &&
-                !rootSelfAtari(m, game.turn))) {
+            if(m == MOVE_PASS || rootMoveOK(game, m)) {
                 backV = v;
                 backup = m;
                 backC = c;
@@ -5799,9 +5804,7 @@ uint8_t AI::bestMove(Game &game, uint8_t &x, uint8_t &y) {
         if(v == maxV) lcb = (int16_t)q;
 #endif
         if(lcb <= bestL) continue;
-        if(m != MOVE_PASS &&
-           (!game.isValidMove(m % BOARD_SIZE, m / BOARD_SIZE) ||
-            rootSelfAtari(m, game.turn)))
+        if(m != MOVE_PASS && !rootMoveOK(game, m))
             continue;
         bestL = lcb;
         best = m;
