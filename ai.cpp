@@ -1688,43 +1688,23 @@ __attribute__((noinline)) static void nnAddRow(int16_t *pre, const uint8_t *t, u
 
 // ---- sparse CSR for all hidden-input tables (E/F/EB/B1) ----
 #ifdef NN_EF_SPARSE
-PROGMEM static const uint8_t NN_F_CN[37] = {19,19,18,1,33,34,0,1,17,17,16,18,18,32,18,33,17,16,16,49,17,17,16,17,32,17,1,1,17,2,18,33,17,34,32,32,1};
+PROGMEM static const uint8_t NN_F_RP[74] = {0,3,4,7,8,10,11,12,12,13,15,17,19,19,19,20,20,21,22,23,24,24,25,27,28,30,31,31,33,35,36,37,39,40,41,41,42,42,43,44,47,48,49,50,51,51,52,53,54,54,56,57,58,59,59,60,60,61,62,64,64,66,67,68,70,71,72,74,76,76,78,78,80,81};
 PROGMEM static const uint8_t NN_F_EN[81] = {6,27,69,34,11,17,66,33,2,66,35,66,9,2,71,34,50,3,65,11,65,45,65,43,33,1,65,42,8,18,33,2,65,37,49,67,34,2,76,35,1,2,65,33,11,68,81,42,65,76,33,3,34,74,2,65,65,33,2,11,10,33,1,66,47,49,4,34,47,49,1,33,3,67,69,81,1,65,72,82,36};
-PROGMEM static const uint8_t NN_E_CN[49] = {35,16,16,16,17,0,1,17,17,2,2,32,17,2,16,17,18,2,19,17,17,0,33,33,17,2,18,17,34,17,4,18,18,17,18,33,1,2,17,49,32,32,16,19,48,0,0,34,48};
+PROGMEM static const uint8_t NN_E_RP[99] = {0,3,5,5,6,6,7,7,8,9,10,10,10,11,11,12,13,14,15,17,17,19,19,19,21,22,23,25,25,25,26,27,28,30,31,33,33,36,37,38,39,40,41,41,41,42,44,45,47,48,49,51,51,53,54,55,56,58,60,61,62,66,66,68,69,71,72,73,74,76,77,78,80,81,81,83,83,84,85,86,89,89,91,91,93,93,94,97,98,98,101,101,101,101,101,103,105,105,108};
 PROGMEM static const uint8_t NN_E_EN[108] = {12,20,65,69,81,65,75,1,1,11,74,33,65,33,1,1,65,3,65,1,75,42,2,47,49,1,33,65,70,81,42,4,66,4,17,67,34,1,33,35,3,4,37,49,65,36,49,12,34,2,74,69,81,34,10,1,42,50,14,17,74,39,4,17,68,81,1,66,36,70,81,42,2,36,10,68,65,36,3,82,36,11,67,67,65,34,10,69,81,68,81,2,66,33,5,68,81,35,15,17,67,37,49,2,74,4,17,67};
-PROGMEM static const uint8_t NN_EB_CN[8] = {2,18,3,18,49,33,1,0};
+PROGMEM static const uint8_t NN_EB_RP[16] = {0,2,2,4,5,8,8,10,11,12,15,16,18,19,19,19};
 PROGMEM static const uint8_t NN_EB_EN[19] = {10,21,11,65,33,6,17,67,13,65,76,34,10,69,81,33,65,82,33};
-PROGMEM static const uint8_t NN_B1_CN[1] = {2};
-PROGMEM static const uint8_t NN_B1_EN[2] = {6,75};
-#define NN_LF_NZ 16
-PROGMEM static const uint8_t NN_LF_IX[16] = {0,1,4,8,9,12,16,26,30,34,35,46,47,58,66,67};
-PROGMEM static const uint8_t NN_LF_VL[8] = {74,97,33,33,65,129,49,44};__attribute__((noinline)) static void nnAddRowSp(int16_t *pre, const uint8_t *cn, const uint8_t *en, uint8_t row) {
-    uint16_t start = 0;
-    for(uint8_t r = 0; r < row; r++) {
-        uint8_t cb = pgm_read_byte(cn + (r >> 1));
-        start += (r & 1) ? (cb >> 4) : (cb & 0xF);
-    }
-    uint8_t cb = pgm_read_byte(cn + (row >> 1));
-    uint8_t cnt = (row & 1) ? (cb >> 4) : (cb & 0xF);
-    for(uint8_t k = 0; k < cnt; k++) {
-        uint8_t b = pgm_read_byte(en + start + k);
+PROGMEM static const uint8_t NN_B1_RP[2] = {0,2};
+PROGMEM static const uint8_t NN_B1_EN[2] = {6,75};__attribute__((noinline)) static void nnAddRowSp(int16_t *pre, const uint8_t *rp, const uint8_t *en, uint8_t row) {
+    uint8_t k = pgm_read_byte(rp + row), e = pgm_read_byte(rp + row + 1);
+    for(; k < e; k++) {
+        uint8_t b = pgm_read_byte(en + k);
         pre[b >> 4] += (int8_t)(((b & 0xF) ^ 8) - 8);
     }
 }
-__attribute__((noinline)) static int8_t nnLFsp(uint8_t feat) {
-    for(uint8_t k = 0; k < NN_LF_NZ; k++)
-        if(pgm_read_byte(NN_LF_IX + k) == feat) {
-            uint8_t vb = pgm_read_byte(NN_LF_VL + (k >> 1));
-            uint8_t v = (k & 1) ? (vb >> 4) : (vb & 0xF);
-            return (int8_t)((v ^ 8) - 8);
-        }
-    return 0;
-}
-#define NNADD(p, TAB, row) nnAddRowSp(p, TAB##_CN, TAB##_EN, (uint8_t)(row))
-#define NNLF(i) nnLFsp((uint8_t)(i))
+#define NNADD(p, TAB, row) nnAddRowSp(p, TAB##_RP, TAB##_EN, (uint8_t)(row))
 #else
 #define NNADD(p, TAB, row) nnAddRow(p, (const uint8_t *)TAB, (row))
-#define NNLF(i) NNRD(NN_LF, (i))
 #endif
 // 4-neighbor of p in direction d (0..3), 0xFF off-board
 __attribute__((noinline)) static uint8_t nnNb(uint8_t p, uint8_t d) {
@@ -2360,7 +2340,7 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
 #endif
         // ---- score ----
         for(uint8_t i = 0; i < nf; i++) {
-            lin += NNLF(fx[i]);
+            lin += NNRD(NN_LF, fx[i]);
             NNADD(pre, NN_F, fx[i]);
         }
         int32_t score = (int32_t)lin * NN_KSCALE;
