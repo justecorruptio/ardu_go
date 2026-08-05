@@ -2046,10 +2046,16 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
 #endif
         uint8_t tcx, tcy;
         nnSymPos(cx, cy, bestSym, tcx, tcy);
+#ifdef NN_SIMPLE_CANON
         uint8_t a = nnEdge(tcx);
         uint8_t bcl = nnEdge(tcy);
         if(a > bcl) { uint8_t t = a; a = bcl; bcl = t; }
         uint8_t bcls = a * 5 + bcl - (a * (a + 1)) / 2;
+#else
+        // the sym loop accepted only a==a0 && bb==b0, so nnEdge(tcx)==a0 and
+        // nnEdge(tcy)==b0 (already min-ordered): reuse them, skip recompute+swap
+        uint8_t bcls = a0 * 5 + b0 - (a0 * (a0 + 1)) / 2;
+#endif
         // ---- accumulators ----
         int16_t lin = NNRD(NN_B, bcls);
         int16_t pre[NN_H] = {0};
