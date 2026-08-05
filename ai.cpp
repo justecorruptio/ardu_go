@@ -1704,9 +1704,9 @@ __attribute__((noinline)) static uint8_t nnCanonBetter(uint8_t s, uint8_t bestSy
     uint8_t sI = (s & 4) ? (4 | ((s & 1) << 1) | ((s >> 1) & 1)) : s;
     uint8_t bI = (bestSym & 4) ? (4 | ((bestSym & 1) << 1) | ((bestSym >> 1) & 1)) : bestSym;
     for(uint8_t q = 0; q < 81; q++) {
-        uint8_t px, py;
-        uint8_t va = simBoard[nnSymPos(q / 9, q % 9, sI, px, py)];
-        uint8_t vb = simBoard[nnSymPos(q / 9, q % 9, bI, px, py)];
+        uint8_t px, py, qy = q / 9, qx = q % 9;
+        uint8_t va = simBoard[nnSymPos(qy, qx, sI, px, py)];
+        uint8_t vb = simBoard[nnSymPos(qy, qx, bI, px, py)];
         if(va == vb) continue;
         return vb == EMPTY || (va != EMPTY && va != WHITE);
     }
