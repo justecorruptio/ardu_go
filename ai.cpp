@@ -2052,8 +2052,7 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
         uint8_t bcls = a * 5 + bcl - (a * (a + 1)) / 2;
         // ---- accumulators ----
         int16_t lin = NNRD(NN_B, bcls);
-        int16_t pre[NN_H];
-        for(uint8_t h = 0; h < NN_H; h++) pre[h] = 0;
+        int16_t pre[NN_H] = {0};
         nnAddRow(pre, (const uint8_t *)NN_B1, 0);
         nnAddRow(pre, (const uint8_t *)NN_EB, bcls);
 #ifndef ARDUINO
