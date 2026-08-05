@@ -1943,10 +1943,16 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
     uint8_t cells[40], nc;
     uint8_t temp = 0;
     uint8_t *cellLb = simMark;        // borrow think scratch (free in chooseMove)
+#ifndef NN_CORE_TIER
     uint8_t *weakMask = nnMapA; memset(weakMask, 0, 81);
+#else
+    uint8_t *weakMask = nnMapA;   // passed but unread in core (wd guarded)
+#endif
     {
         uint8_t *done = nnMapB; memset(done, 0, 81);
+#ifndef NN_CORE_TIER
         uint8_t wmin = 255;
+#endif
         for(uint8_t p = 0; p < 81; p++) {
             if(simBoard[p] == EMPTY || done[p]) continue;
             uint8_t libs = nnChain(p, 0, cells, nc);
@@ -1956,14 +1962,16 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
                 cellLb[cells[i]] = lb;
             }
             if(libs <= 2) temp++;
-            if(simBoard[p] == game.turn) {
-                if(libs < wmin) {
+#ifndef NN_CORE_TIER
+            if(simBoard[p] == game.turn) {          // weakMask: only nnStoneScan's
+                if(libs < wmin) {                    // wd reads it (core-dead)
                     wmin = libs; memset(weakMask, 0, 81);
                 }
                 if(libs == wmin)
                     for(uint8_t i = 0; i < nc; i++)
                         weakMask[cells[i]] = 1;
             }
+#endif
         }
         if(temp > NN_QUIET_MAXTEMP) return 0;
     }
