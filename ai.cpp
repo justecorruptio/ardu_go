@@ -2123,19 +2123,7 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
 #endif
         // fight block
         {
-            uint8_t rel = 0;
-            if(lastContact) {
-                uint8_t touchOwn = 0;
-                uint8_t nto;
-                FOR_EACH_NEIGHBOR(nto, cpos) {
-                    if(simBoard[nto] == toMove) touchOwn = 1;
-                }
-                if(ld == 1 && (lx == cx || ly == cy)) rel = 2;
-                else if(ld <= 1 && touchOwn) rel = 1;
-                else if(ld <= 2) rel = 3;
-                else rel = 4;
-            }
-            // distinct adjacent own / enemy chains (dedupe by chain min-cell)
+            // distinct adjacent own / enemy chains (dedupe by census chain id)
             uint8_t ownIds[4], enmIds[4], nOwn = 0, nEnm = 0;
             uint8_t n;
             FOR_EACH_NEIGHBOR(n, cpos) {
@@ -2146,6 +2134,13 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
                 uint8_t dup = 0;
                 for(uint8_t i = 0; i < *cnt; i++) if(ids[i] == mn) dup = 1;
                 if(!dup && *cnt < 4) ids[(*cnt)++] = mn;
+            }
+            uint8_t rel = 0;
+            if(lastContact) {
+                if(ld == 1 && (lx == cx || ly == cy)) rel = 2;
+                else if(ld <= 1 && nOwn) rel = 1;   // nOwn != 0 == touchOwn
+                else if(ld <= 2) rel = 3;
+                else rel = 4;
             }
             uint8_t xcut = 0;
             for(int8_t dx = -1; dx <= 1; dx += 2) for(int8_t dy = -1; dy <= 1; dy += 2) {
