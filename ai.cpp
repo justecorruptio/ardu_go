@@ -2062,11 +2062,13 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
             uint8_t sx, sy;
             nnSymPos(p % 9, p / 9, bestSym, sx, sy);
             int8_t dx = (int8_t)sx - (int8_t)tcx, dy = (int8_t)sy - (int8_t)tcy;
-            uint8_t adx = nnAbs(dx), ady = nnAbs(dy);
-            if(adx > 3) adx = 3;
-            if(ady > 3) ady = 3;
+            // dense signed offset class: clamp(dx,+-3) preserves both
+            // min(|dx|,3) and sign, so each offset keeps its trained NN_E
+            // weight -- 49 offsets*2col = 98 rows vs the old sparse 128.
+            int8_t sdx = dx < -3 ? -3 : (dx > 3 ? 3 : dx);
+            int8_t sdy = dy < -3 ? -3 : (dy > 3 ? 3 : dy);
             uint8_t col = simBoard[p] == toMove ? 0 : 1;
-            uint16_t cls = ((((uint16_t)adx * 4 + ady) * 2 + (dx < 0)) * 2 + (dy < 0)) * 2 + col;
+            uint16_t cls = ((uint16_t)(sdx + 3) * 7 + (sdy + 3)) * 2 + col;
 #ifndef ARDUINO
             {
                 const char *dbg = getenv("NN_DBG3");
