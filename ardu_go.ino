@@ -136,6 +136,13 @@ void setup() {
 // game-over, and help stages.
 static bool anyAB() { return jay.justPressed(A_BUTTON) || jay.justPressed(B_BUTTON); }
 
+// Button-driven clamp step: dec if >0, inc if <hi. Shared by the menu
+// cursor and the board cursor (both axes).
+static void stepClamp(uint8_t decBtn, uint8_t incBtn, uint8_t &v, uint8_t hi) {
+    if(jay.justPressed(decBtn) && v > 0) v--;
+    if(jay.justPressed(incBtn) && v < hi) v++;
+}
+
 void loop() {
     if(!jay.nextFrame()) return;
 
@@ -144,8 +151,7 @@ void loop() {
 
     switch(stage) {
     case STAGE_TITLE:
-        if(jay.justPressed(UP_BUTTON) && menuCursor > 0) menuCursor--;
-        if(jay.justPressed(DOWN_BUTTON) && menuCursor < 3) menuCursor++;
+        stepClamp(UP_BUTTON, DOWN_BUTTON, menuCursor, 3);
         if(jay.justPressed(A_BUTTON)) {
             switch(menuCursor) {
             case 0: // VS AI
@@ -209,10 +215,8 @@ void loop() {
                 }
             }
         } else {
-            if(jay.justPressed(UP_BUTTON) && game.cursorY > 0) game.cursorY--;
-            if(jay.justPressed(DOWN_BUTTON) && game.cursorY < BOARD_SIZE - 1) game.cursorY++;
-            if(jay.justPressed(LEFT_BUTTON) && game.cursorX > 0) game.cursorX--;
-            if(jay.justPressed(RIGHT_BUTTON) && game.cursorX < BOARD_SIZE - 1) game.cursorX++;
+            stepClamp(UP_BUTTON, DOWN_BUTTON, game.cursorY, BOARD_SIZE - 1);
+            stepClamp(LEFT_BUTTON, RIGHT_BUTTON, game.cursorX, BOARD_SIZE - 1);
             if(jay.justPressed(A_BUTTON)) {
                 if(game.playMove(game.cursorX, game.cursorY)) {
                     ai.notifyMove(game.cursorX, game.cursorY);
