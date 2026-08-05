@@ -1663,23 +1663,6 @@ __attribute__((noinline)) static int8_t nnRd(const uint8_t *t, uint16_t i) {   /
 #define NNRD(t, i) ((int8_t)pgm_read_byte((const uint8_t *)(t) + (i)))
 #endif
 
-#ifdef NN_W_SPARSE
-#define NN_W_NZ 50
-PROGMEM static const uint16_t NN_W_IDX[50] = {0,1,28,32,36,92,96,104,108,148,156,160,161,164,168,172,176,180,234,242,246,288,292,346,350,351,354,362,370,378,416,420,424,428,442,450,478,482,486,487,490,494,502,510,546,550,554,558,562,570};
-PROGMEM static const uint8_t NN_W_VAL[25] = {66,26,17,17,17,75,17,17,17,26,27,17,20,171,161,17,26,17,42,20,194,171,27,186,52};__attribute__((noinline)) static int8_t nnWsp(uint16_t idx) {
-    for(uint8_t k = 0; k < NN_W_NZ; k++)
-        if(pgm_read_word(NN_W_IDX + k) == idx) {
-            uint8_t vb = pgm_read_byte(NN_W_VAL + (k >> 1));
-            uint8_t v = (k & 1) ? (vb >> 4) : (vb & 0xF);
-            return (int8_t)((v ^ 8) - 8);
-        }
-    return 0;
-}
-#define NNW(i) nnWsp((uint16_t)(i))
-#else
-#define NNW(i) NNRD(NN_W, (i))
-#endif
-
 // add one H-wide weight row (row*NN_H..+NN_H-1) into the pre[] accumulators
 __attribute__((noinline)) static void nnAddRow(int16_t *pre, const uint8_t *t, uint16_t row) {
     uint16_t i = row * NN_H;
@@ -2130,12 +2113,12 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
                 if(dbg && (uint8_t)atoi(dbg) == cpos)
                     fprintf(stderr, "  stone p=%d cls=%d woff=%d wv=%d\n", p, (int)cls,
                             (int)(((uint16_t)(dx + 8) * 17 + (dy + 8)) * 2 + col),
-                            (int)NNW(((uint16_t)(dx + 8) * 17 + (dy + 8)) * 2 + col));
+                            (int)NNRD(NN_W, ((uint16_t)(dx + 8) * 17 + (dy + 8)) * 2 + col));
             }
 #endif
             nnAddRow(pre, (const uint8_t *)NN_E, cls);
             // exact-pairwise linear path (uncapped offsets, output scale)
-            lin += NNW(((uint16_t)(dx + 8) * 17 + (dy + 8)) * 2 + col);
+            lin += NNRD(NN_W, ((uint16_t)(dx + 8) * 17 + (dy + 8)) * 2 + col);
         }
 #endif
         // ---- fx features (board coords), EXACT trainer layout ----
