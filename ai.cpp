@@ -2271,8 +2271,15 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
 #endif
         // ---- score ----
         for(uint8_t i = 0; i < nf; i++) {
-            lin += NNRD(NN_LF, fx[i]);
-            nnAddRow(pre, (const uint8_t *)NN_F, fx[i]);
+            uint16_t fi = fx[i];
+#if defined(NN_CORE_TIER) && defined(NN_DEVICE_TIER)
+            // dense F/LF: the ship tier never emits the dropped-feature
+            // class gaps 11-24 (ne/dens/ld) or 74-82 (cst/db); shift the
+            // survivors down to remove them from the tables.
+            if(fi >= 83) fi -= 23; else if(fi >= 25) fi -= 14;
+#endif
+            lin += NNRD(NN_LF, fi);
+            nnAddRow(pre, (const uint8_t *)NN_F, fi);
         }
         int32_t score = (int32_t)lin * NN_KSCALE;
         for(uint8_t h = 0; h < NN_H; h++)
