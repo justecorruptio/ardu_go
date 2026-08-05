@@ -132,6 +132,10 @@ void setup() {
 #endif
 }
 
+// A or B pressed: the confirm/dismiss idiom used by the scoring,
+// game-over, and help stages.
+static bool anyAB() { return jay.justPressed(A_BUTTON) || jay.justPressed(B_BUTTON); }
+
 void loop() {
     if(!jay.nextFrame()) return;
 
@@ -247,7 +251,7 @@ void loop() {
     case STAGE_SCORING:
         display.renderBoard();
         display.renderScoring();
-        if(jay.justPressed(A_BUTTON) || jay.justPressed(B_BUTTON)) {
+        if(anyAB()) {
             stage = STAGE_GAME_OVER;
         }
         break;
@@ -255,14 +259,14 @@ void loop() {
     case STAGE_GAME_OVER:
         display.renderBoard();
         display.renderGameOver();
-        if(jay.justPressed(A_BUTTON) || jay.justPressed(B_BUTTON)) {
+        if(anyAB()) {
             stage = STAGE_TITLE;
         }
         break;
 
     case STAGE_HELP:
         display.renderHelp();
-        if(jay.justPressed(A_BUTTON) || jay.justPressed(B_BUTTON))
+        if(anyAB())
             stage = STAGE_TITLE;
         break;
     }
