@@ -2776,7 +2776,10 @@ uint16_t wpCalls, wpAdded, wpEmpty, wpAllocFail;
 #endif
 // Random playout from current simBoard; returns winning color.
 // `last` = the previous move (0xFF/pass = none).
-__attribute__((optimize("O2")))
+// FLASH TRADE (2026-08-06): -O2 dropped here -- measured -470 B for +1.64%
+// think (287 B per 1% think, better than the RECIP trade). Strength-neutral
+// (fixed iteration count; slower playout = same rollouts). Re-add the
+// attribute to buy the 1.64% back if the flash is ever wanted for speed.
 static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
     uint8_t passes = 0;
     capArr[BLACK] = capArr[WHITE] = 0;
