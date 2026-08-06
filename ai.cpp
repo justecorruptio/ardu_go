@@ -1134,13 +1134,13 @@ static void buildChainMap() {
             uint8_t p = *rp++;
             uint8_t q;
             FOR_EACH_NEIGHBOR(q, p) {
-                if(simBoard[q] == EMPTY) {
+                if(boardAt(q) == EMPTY) {
                     if(count < 3 && q != lib1 && q != lib2) {
                         if(lib1 == 0xFF) lib1 = q;
                         else if(lib2 == 0xFF) lib2 = q;
                         count++;
                     }
-                } else if(simBoard[q] == color && !chainId[q]) {
+                } else if(boardAt(q) == color && !chainId[q]) {
                     chainId[q] = id;
                     *wp++ = q;
                 }
