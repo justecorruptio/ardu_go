@@ -100,7 +100,7 @@ void Jaylib::largePrint(uint8_t x, uint8_t y, const uint8_t * str, uint8_t kern,
     }
 }
 
-void Jaylib::largePrintPgm(uint8_t x, uint8_t y, const __FlashStringHelper * str, uint8_t kern, uint8_t color) {
+__attribute__((noinline)) void Jaylib::largePrintPgm(uint8_t x, uint8_t y, const __FlashStringHelper * str, uint8_t kern, uint8_t color) {
     char c;
     uint8_t * ptr = (uint8_t *) str;
     for(;c = pgm_read_byte(ptr ++);) {
@@ -109,7 +109,7 @@ void Jaylib::largePrintPgm(uint8_t x, uint8_t y, const __FlashStringHelper * str
     }
 }
 
-void Jaylib::drawFastVLine(uint8_t x, uint8_t y, uint8_t h, uint8_t color) {
+__attribute__((noinline)) void Jaylib::drawFastVLine(uint8_t x, uint8_t y, uint8_t h, uint8_t color) {
     uint8_t i;
     for(i = h; i --;)
         drawPixel(x, y + i, color);
