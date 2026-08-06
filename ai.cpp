@@ -598,7 +598,11 @@ static inline void nSetStats(uint8_t i, uint16_t v, uint16_t w) {
 }
 
 static inline void nBump(uint8_t i, uint8_t win) {
-    nSetStats(i, nVisits(i) + 1, nWins(i) + win);
+    Node &n = node(i);                 // resolve pool split once, not 3x
+    uint16_t v = nRefVisits(n) + 1, w = nRefWins(n) + win;
+    n.s[0] = v;
+    n.s[1] = ((v >> 8) & 0x0F) | ((w & 0x0F) << 4);
+    n.s[2] = w >> 4;
 }
 static uint8_t poolUsed;
 static uint8_t freeHead;   // recycled nodes, threaded via nextSibling
@@ -4751,17 +4755,16 @@ static void mctsIterate(Game &game) {
                 raveW[i] >>= 1;
             }
             raveV[i]++;
-            if(rootWin) raveW[i]++;
+            raveW[i] += rootWin;   // rootWin is 0/1: branchless
         }
     }
 
     // Backprop. path[1] was played by rootTurn, path[2] by the opponent, ...
+    // win-by-parity is loop-invariant; precompute both flags once.
+    uint8_t winOdd = (rootTurn == winner);
+    uint8_t winEven = ((uint8_t)(3 - rootTurn) == winner);
     for(uint8_t i = 0; i < pathDepth; i++) {
-        uint8_t win = 0;
-        if(i > 0) {
-            uint8_t mover = (i & 1) ? rootTurn : 3 - rootTurn;
-            win = (mover == winner);
-        }
+        uint8_t win = i ? ((i & 1) ? winOdd : winEven) : 0;
         nBump(path[i], win);
     }
 }
