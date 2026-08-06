@@ -5238,7 +5238,6 @@ void AI::think(Game &game) {
 // and the LCB race falls through to the next-best. Cost: the rare
 // legitimate throw-in tesuji, which this engine never follows up
 // anyway. Reads the root position from simBoard.
-__attribute__((noinline))
 static uint8_t rootSelfAtari(uint8_t pos, uint8_t toMove) {
     simBoard[pos] = toMove;
     uint8_t r = 0;
@@ -5257,7 +5256,6 @@ static uint8_t rootSelfAtari(uint8_t pos, uint8_t toMove) {
     return r;
 }
 
-__attribute__((noinline))
 static uint8_t pct100(uint16_t w, uint16_t n) {
     return n ? (uint8_t)((uint32_t)w * 100 / n) : 0;
 }
