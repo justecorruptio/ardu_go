@@ -760,7 +760,7 @@ uint8_t resignStreak = RESIGN_STREAK;
 #endif
 // flood work stack: shared floodScratch[] from game.cpp
 
-static uint16_t rnd16() {
+__attribute__((noinline)) static uint16_t rnd16() {
     rngState ^= rngState << 7;
     rngState ^= rngState >> 9;
     rngState ^= rngState << 8;
