@@ -1633,7 +1633,7 @@ __attribute__((noinline)) static uint8_t nnNb(uint8_t p, uint8_t d) {
     if((uint8_t)nx > 8 || (uint8_t)ny > 8) return 0xFF;
     return (uint8_t)(ny * 9 + nx);
 }
-__attribute__((noinline)) static uint8_t nnCheby(uint8_t p, uint8_t cx, uint8_t cy) {
+static uint8_t nnCheby(uint8_t p, uint8_t cx, uint8_t cy) {
     uint8_t px = p % 9, py = p / 9;
     uint8_t dx = px > cx ? px - cx : cx - px;
     uint8_t dy = py > cy ? py - cy : cy - py;
@@ -1641,7 +1641,7 @@ __attribute__((noinline)) static uint8_t nnCheby(uint8_t p, uint8_t cx, uint8_t 
 }
 
 // factored micro-idioms (NN opening; speed irrelevant, force one copy)
-__attribute__((noinline)) static uint8_t nnEdge(uint8_t v) { return v < (uint8_t)(8 - v) ? v : (uint8_t)(8 - v); }
+static uint8_t nnEdge(uint8_t v) { return v < (uint8_t)(8 - v) ? v : (uint8_t)(8 - v); }
 static uint8_t nnAbs(int8_t v) { return v < 0 ? -v : v; }
 static uint8_t nnSat(uint8_t v, uint8_t n) { return v > n ? n : v; }
 #ifndef NN_QUIET_MAXTEMP
@@ -1657,7 +1657,7 @@ __attribute__((noinline)) static uint8_t nnSymPos(uint8_t x, uint8_t y, uint8_t 
 }
 
 // canon tie-break: is sym s lexicographically better than bestSym?
-__attribute__((noinline)) static uint8_t nnCanonBetter(uint8_t s, uint8_t bestSym) {
+static uint8_t nnCanonBetter(uint8_t s, uint8_t bestSym) {
     uint8_t sI = (s & 4) ? (4 | ((s & 1) << 1) | ((s >> 1) & 1)) : s;
     uint8_t bI = (bestSym & 4) ? (4 | ((bestSym & 1) << 1) | ((bestSym >> 1) & 1)) : bestSym;
     for(uint8_t q = 0; q < 81; q++) {
@@ -1927,7 +1927,7 @@ static uint8_t nnLibFam(uint8_t cpos, uint8_t toMove,
     return rlb | (ela << 4) | (cap << 7);
 }
 
-__attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uint8_t &oy) {
+uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uint8_t &oy) {
     if(nnLast > 80) return 0;                    // need a last move
     // unpack + census
     uint8_t nstones = 0;
