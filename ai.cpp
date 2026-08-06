@@ -2737,7 +2737,7 @@ __attribute__((optimize("O2")))
 static uint16_t playoutTryOpen(uint8_t pos, uint8_t toMove, uint8_t ko,
                                uint8_t m);
 
-static uint16_t playoutTry(uint8_t pos, uint8_t toMove, uint8_t ko,
+static inline __attribute__((always_inline)) uint16_t playoutTry(uint8_t pos, uint8_t toMove, uint8_t ko,
                            uint8_t m) {
     if(pos >= BOARD_CELLS || pos == ko || boardAt(pos) != EMPTY)
         return 0;
