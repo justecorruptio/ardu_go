@@ -2073,7 +2073,7 @@ uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uint8_t &oy) {
         uint8_t ss[8];
         nnStoneScan(cx, cy, toMove, cellLb, weakMask, ss);
         uint8_t no = ss[0], ne = ss[1], dens2 = ss[2], dens4 = ss[3];
-        uint8_t ld = nnCheby((uint8_t)(ly * 9 + lx), cx, cy);
+        uint8_t ld = nnCheby(nnLast, cx, cy);   // ly*9+lx == nnLast
         fx[nf++] = lf & 0xF;            // resLibs, suicide-clamped in helper
         fx[nf++] = 4 + cap;
         fx[nf++] = 6 + (nnSat(no, 5)) - 1;
