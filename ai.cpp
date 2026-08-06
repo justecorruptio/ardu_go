@@ -4475,8 +4475,8 @@ static inline uint16_t winRate6(uint16_t w, uint16_t v) {
 // Gelly-Silver RAVE ratio (RAVE_K<<12)/(3nv+RAVE_K). Factor exactly to
 // 409600/(nv+100) -- 1228800 = 3*409600, so the floors match -- whose
 // quotient is <=4055 (12-bit). A 12-step restoring divide then replaces
-// libgcc's full 32-bit __udivmodsi4. -O2 so the loop unrolls.
-__attribute__((optimize("O2")))
+// libgcc's full 32-bit __udivmodsi4. (O2-unroll dropped: measured -36 B,
+// think-neutral -- raveRatio is root-only so the unroll's speed is noise.)
 static inline uint16_t raveRatio(uint16_t nv) {
     uint32_t num = 409600UL, dd = (uint32_t)(nv + 100) << 11;
     uint16_t ratio = 0;
