@@ -16,11 +16,16 @@ void Display::renderBoard() {
     for(uint8_t i = 0; i < 5; i++) {
         uint8_t x = GRID_LEFT + pgm_read_byte(&hoshi[i][0]) * CELL_SIZE;
         uint8_t y = GRID_TOP + pgm_read_byte(&hoshi[i][1]) * CELL_SIZE;
-        for(int8_t dy = -1; dy <= 1; dy++)
-            jay.drawFastHLine(x - 1, y + dy, 3);
+        static const uint8_t PROGMEM HOSHI3[3] = {0x07, 0x07, 0x07};
+        jay.drawBand(x - 1, y - 1, HOSHI3, 3);   // 3x3 filled square
     }
 
-    // Draw stones
+    // Draw stones, folding in the last-move "v" on the newest stone
+    // (present now, empty in prevBoard) in the same pass -- inverted so
+    // it reads on either color. Only the last move has prevBoard EMPTY
+    // (captures leave the cell EMPTY -> skipped); lastDrawn keeps the
+    // old first-match-only semantics.
+    uint8_t lastDrawn = 0;
     for(uint8_t gy = 0; gy < BOARD_SIZE; gy++) {
         for(uint8_t gx = 0; gx < BOARD_SIZE; gx++) {
             uint8_t cell = game.at(gx, gy);
@@ -33,20 +38,11 @@ void Display::renderBoard() {
                 jay.drawBand(x, y, GLYPH_STONE_FILLED, 7, 0); // clear interior
                 jay.drawBand(x, y, GLYPH_STONE_OUTLINE, 7);
             }
+            if(!lastDrawn && packedGet(game.prevBoard, gy * BOARD_SIZE + gx) == EMPTY) {
+                lastDrawn = 1;
+                jay.drawBand(x + 2, y + 3, GLYPH_LASTMOVE, 3, cell == BLACK ? 0 : 1);
+            }
         }
-    }
-
-    // Last-move indicator: tiny "v" centered on the newest stone, in
-    // inverted color so it reads on both stone colors. The newest stone
-    // is the one present now but not in prevBoard (none after a pass).
-    for(uint8_t i = 0; i < BOARD_CELLS; i++) {
-        if(packedGet(game.board, i) == EMPTY ||
-           packedGet(game.prevBoard, i) != EMPTY) continue;
-        uint8_t x = GRID_LEFT + (i % BOARD_SIZE) * CELL_SIZE;
-        uint8_t y = GRID_TOP + (i / BOARD_SIZE) * CELL_SIZE;
-        uint8_t c = packedGet(game.board, i) == BLACK ? 0 : 1;
-        jay.drawBand(x - 1, y, GLYPH_LASTMOVE, 3, c);
-        break;
     }
 }
 
@@ -78,9 +74,9 @@ static const char SC_S7[] PROGMEM = "6.5";
 static const char SC_S8[] PROGMEM = ".5";
 static const char IN_S0[] PROGMEM = "CAPTURES\nB:\nW:";
 static const char IN_S1[] PROGMEM = "A:PLACE  B:PASS";
-static const char TT_S0[] PROGMEM = "ARDUGO";
+static const char TT_S0[] PROGMEM = {4, 17, 7, 20, 9, 15, 0};  // "ARDUGO" (large-font glyph numbers)
 static const char TT_S1[] PROGMEM = "PLAY VS AI\nPLAY VS HUMAN\nSHOW RULES\nINVERT SCREEN";
-static const char HL_S0[] PROGMEM = "RULES";
+static const char HL_S0[] PROGMEM = {17, 20, 13, 8, 18, 0};  // "RULES" (large-font glyph numbers)
 static const char HL_S1[] PROGMEM =
     "SURROUND TERRITORY WITH STONES.\n"
     "CAPTURE BY REMOVING LIBERTIES.\n"
@@ -178,12 +174,31 @@ void Display::renderScoring() {
                  pgm_read_byte(&SC_CELLS[i][1]), vals[i]);
 }
 
+// Large-font prompts, pre-encoded as 1-based glyph numbers (space=1, !=2,
+// then the letters per PRINTABLE_CHARS_LARGE). Trailing 0 terminates.
+static const char GO_WRES[] PROGMEM = {21,10,11,19,8, 1, 17,8,18,11,9,14,18, 2, 0};  // "WHITE RESIGNS!"
+static const char GO_BRES[] PROGMEM = { 5,13, 4,6,12, 1, 17,8,18,11,9,14,18, 2, 0};  // "BLACK RESIGNS!"
+static const char GO_BWIN[] PROGMEM = { 5,13, 4,6,12, 1, 21,11,14,18, 2, 0};         // "BLACK WINS!"
+static const char GO_WWIN[] PROGMEM = {21,10,11,19,8, 1, 21,11,14,18, 2, 0};         // "WHITE WINS!"
+// The blocking MCTS search overwrites sBuffer with its node pool while
+// the OLED keeps showing THIS frame, so it must be clean. chooseMove()/
+// nnOpeningMove leaves opening scratch in the borrowed buffer, and prior
+// tree wreckage may linger, so clear first. Encapsulated (not inline in
+// the .ino) so scrprobe can assert it is dirty-buffer-independent.
+void Display::renderThinkFrame() {
+    memset(Arduboy2Base::sBuffer, 0, 1024);   // = jay.clear() on device
+    renderBoard();
+    renderInfo();
+    jay.smallPrintPgm(66, 35, F("AI THINKING..."), 1);
+}
+
 void Display::renderGameOver() {
     if(game.resignedBy) {
-        jay.drawPromptPgm(22, game.resignedBy == WHITE ? F("WHITE RESIGNS!")
-                                                       : F("BLACK RESIGNS!"), 0);
+        jay.drawPromptPgm(22, (const __FlashStringHelper *)
+            (game.resignedBy == WHITE ? GO_WRES : GO_BRES), 0);
         return;
     }
     uint8_t w = game.winner();
-    jay.drawPromptPgm(22, w == BLACK ? F("BLACK WINS!") : F("WHITE WINS!"), 0);
+    jay.drawPromptPgm(22, (const __FlashStringHelper *)
+        (w == BLACK ? GO_BWIN : GO_WWIN), 0);
 }

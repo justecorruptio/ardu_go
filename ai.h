@@ -61,4 +61,9 @@ class AI {
     uint8_t resignCount; // consecutive hopeless searches (strict tier)
     uint8_t resignCount2; // consecutive bad searches (mild tier)
 
+  public:
+    // Runtime RAM-layout guard (halts in setup() if violated): 0 = ok,
+    // 1 = node pool reaches the 0x800 magic key, 2 = boardAt carry-free
+    // bound broken. Re-added after checkmagic.sh silently went stale.
+    uint8_t layoutHazard();
 };

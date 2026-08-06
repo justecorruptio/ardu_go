@@ -118,6 +118,18 @@ void setup() {
     //jay.display();
     //while(1) {};
 
+    // RAM-layout guard: halt loud if a layout drift put the node pool on
+    // the 0x800 magic key or broke boardAt's carry-free bound. The old
+    // startup check was cut as "redundant with checkmagic.sh" -- but that
+    // silently went stale and the layout drifted anyway, so it's back.
+    if(uint8_t hz = ai.layoutHazard()) {
+        jay.clear();
+        jay.smallPrintPgm(14, 26, F("RAM LAYOUT ERR"), 1);
+        jay.smallPrint(58, 36, itoa(hz, 10), 1);
+        jay.display();
+        while(1) { }
+    }
+
 #ifdef BOOT_SCORE_DEMO
     game.reset();
     for(uint8_t i = 0; i < sizeof(DEMO_GAME); i++) {
@@ -183,12 +195,11 @@ void loop() {
                     aiThinkMs = 0; // book move: no search, no stats
                 } else {
                     // Blocking search borrows the screen buffer as its
-                    // node pool; the OLED keeps showing this frame.
-                    // No cursor: it would sit frozen mid-blink.
-                    display.renderBoard();
-                    display.renderInfo();
-                    // Top of the middle info section (HRs at y=31/52)
-                    jay.smallPrintPgm(66, 35, F("AI THINKING..."), 1);
+                    // node pool; the OLED keeps showing this frame (no
+                    // cursor -- it would sit frozen mid-blink). The frame
+                    // is cleared inside renderThinkFrame so the borrowed
+                    // opening scratch / tree wreckage never shows.
+                    display.renderThinkFrame();
                     jay.display();
                     uint16_t t0 = (uint16_t)millis();
                     ai.think(game);
@@ -232,7 +243,9 @@ void loop() {
 
     case STAGE_PASS_CONFIRM:
         renderGameView();
-        jay.drawPromptPgm(22, F("PASS?"), 0);
+        // "PASS?" as 1-based large-font glyph numbers (P A S S ?)
+        static const char PASS_STR[] PROGMEM = {16, 4, 18, 18, 3, 0};
+        jay.drawPromptPgm(22, (const __FlashStringHelper *)PASS_STR, 0);
         // Key hint under the prompt (box ends y=38), on a cleared
         // band so it reads over the board; prompt interior is 1,
         // prompt text 0 — match.

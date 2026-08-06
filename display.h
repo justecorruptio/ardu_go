@@ -22,4 +22,5 @@ class Display {
     void renderHelp();
     void renderScoring();
     void renderGameOver();
+    void renderThinkFrame();   // clean board+info held on the OLED during think()
 };

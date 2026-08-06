@@ -47,5 +47,20 @@ int main() {
     game.territory[0] = 1; game.territory[1] = 0;
     disp.renderScoring(); dump("scoring2");
     disp.renderInfo();    dump("info2");
+
+    // Regression (2026-08): the AI-think frame is held on the OLED while
+    // think() overwrites sBuffer, so it must be identical whether the
+    // buffer started clean or full of the borrowed opening scratch /
+    // prior tree wreckage. renderThinkFrame clears internally; if that
+    // clear is ever dropped, this FAILs.
+    memset(Arduboy2Base::sBuffer, 0xEE, 1024);   // simulate borrowed-scratch garbage
+    disp.renderThinkFrame();
+    static uint8_t dirtyStart[1024];
+    memcpy(dirtyStart, Arduboy2Base::sBuffer, 1024);
+    dump("thinkframe");                          // (dumps, then clears to 0)
+    disp.renderThinkFrame();                      // now from a clean buffer
+    printf("thinkframe dirty-independent: %s\n",
+           memcmp(dirtyStart, Arduboy2Base::sBuffer, 1024) == 0
+               ? "PASS" : "*** FAIL: held frame leaks buffer trash ***");
     return 0;
 }

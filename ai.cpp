@@ -157,7 +157,9 @@ uint8_t AI::chooseMove(Game &game) {
 
 // ==================== MCTS + UCB1 ====================
 
-#define NODE_POOL_SB 143    // nodes in the borrowed screen buffer
+#define NODE_POOL_SB 137    // nodes in the borrowed screen buffer (137*6=822 keeps
+                            // the node region below RAM 0x800; the magic key then
+                            // lands in the tolerant raveV table, not a live node)
 // Extension nodes in ordinary statics. RAM here trades directly
 // against stack headroom: at EXT 33 with UI strings in RAM the
 // globals reached 2,383 bytes and think()'s call chain smashed the
@@ -657,7 +659,7 @@ static inline __attribute__((always_inline)) uint8_t boardAt(uint8_t q) {
     const uint8_t *p;
     asm("mov %A0,%1\n\t"
         "subi %A0,lo8(-(%2))\n\t"
-        "ldi %B0,hi8(%2)"
+        "ldi %B0,hi8(%2)"   // carry-free: simBoard lo8<=0xAF (checkmagic-gated)
         : "=&d"(p) : "r"(q), "i"(simBoard));
     return *p;
 }
@@ -673,7 +675,8 @@ static inline __attribute__((always_inline)) uint8_t *markPtr(uint8_t q) {
     uint8_t *p;
     asm("mov %A0,%1\n\t"
         "subi %A0,lo8(-(%2))\n\t"
-        "ldi %B0,hi8(%2)"
+        "ldi %B0,0\n\t"
+        "sbci %B0,hi8(-(%2))"
         : "=&d"(p) : "r"(q), "i"(simMark));
     return p;
 }
@@ -699,13 +702,27 @@ static inline __attribute__((always_inline)) uint8_t *chainPtr(uint8_t q) {
     uint8_t *p;
     asm("mov %A0,%1\n\t"
         "subi %A0,lo8(-(%2))\n\t"
-        "ldi %B0,hi8(%2)"
+        "ldi %B0,0\n\t"
+        "sbci %B0,hi8(-(%2))"
         : "=&d"(p) : "r"(q), "i"(chainId));
     return p;
 }
 #else
 static inline __attribute__((always_inline)) uint8_t *chainPtr(uint8_t q) { return &chainId[q]; }
 #endif
+// Runtime RAM-layout guard (see ai.h). The node region must clear the
+// 0x800 magic key; simBoard's low byte must stay <= 0xAF for boardAt's
+// carry-free trick. checkmagic.sh is the build-time twin, but it can go
+// unrun/stale (it did) -- so this halts loud on-device too.
+uint8_t AI::layoutHazard() {
+#ifdef ARDUINO   // AVR pointers are 16-bit; host has no 0x800 magic key
+    if((uint16_t)Arduboy2Base::sBuffer + NODE_POOL_SB * sizeof(Node) > 0x800u)
+        return 1;
+    if(((uint16_t)&simBoard[0] & 0xFF) > 0xAFu)
+        return 2;
+#endif
+    return 0;
+}
 // Which empty cells' eyespace code (chainId bits 6-7) is cached this
 // widen (see buildChainMap / regionVital's lazy stamp). 81 bits.
 static uint8_t regionDone[11];
@@ -1922,7 +1939,7 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
     uint8_t toMove = game.turn;
     uint8_t opp = 3 - toMove;
     // quiet gate + fight temperature: chains at <= 2 libs
-    uint8_t cells[40], nc;
+    uint8_t *cells = nnMapId + 81; uint8_t nc;   // borrow sBuffer+405..445 (frame<64 win)
     uint8_t temp = 0;
     uint8_t *cellLb = simMark;        // borrow think scratch (free in chooseMove)
 #ifndef NN_CORE_TIER
@@ -2044,7 +2061,7 @@ __attribute__((noinline)) uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uin
         }
 #endif
         // ---- fx features (board coords), EXACT trainer layout ----
-        uint8_t fx[32]; uint8_t nf = 0;
+        uint8_t *fx = nnMapId + 121; uint8_t nf = 0;   // borrow sBuffer+445..477
 #ifndef MEAS_NOLIB
         uint8_t *deadMask = nnMapB;   // census done-map is dead by now
         uint8_t lf = nnLibFam(cpos, toMove, opp, deadMask, cells);
@@ -2685,7 +2702,7 @@ static uint8_t vKomiWinner() {
 
 // Playout capture tallies (statics so the shared move helper can
 // update them; reset at each playout start)
-static uint8_t capB, capW;
+static uint8_t capArr[3];   // captures by color: [_, BLACK, WHITE] (mercy rule)
 
 // Attempt one playout move at pos (0xFF = none): the legality gate,
 // gated play, and bookkeeping shared by every playout heuristic.
@@ -2724,8 +2741,7 @@ static uint16_t playoutTryOpen(uint8_t pos, uint8_t toMove, uint8_t ko,
     asm volatile("" : "+r"(pos));
     if(toMove == rootTurn && m < RAVE_HORIZON) raveMark(pos);
     if(simCaptured) {
-        if(toMove == BLACK) capB += simCaptured;
-        else capW += simCaptured;
+        capArr[toMove] += simCaptured;
     }
     return 0x100 | nk;
 }
@@ -2742,8 +2758,7 @@ static uint16_t playoutTryPat(uint8_t pos, uint8_t toMove, uint8_t ko,
     asm volatile("" : "+r"(pos));   // same barrier as playoutTryOpen
     if(toMove == rootTurn && m < RAVE_HORIZON) raveMark(pos);
     if(simCaptured) {
-        if(toMove == BLACK) capB += simCaptured;
-        else capW += simCaptured;
+        capArr[toMove] += simCaptured;
     }
     return 0x100 | nk;
 }
@@ -2764,7 +2779,7 @@ uint16_t wpCalls, wpAdded, wpEmpty, wpAllocFail;
 __attribute__((optimize("O2")))
 static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
     uint8_t passes = 0;
-    capB = capW = 0;
+    capArr[BLACK] = capArr[WHITE] = 0;
 #ifdef PLAYOUT_STATS
     uint8_t psM = 0, psMercy = 0;
 #define PS_TICK psM = m + 1;
@@ -2775,7 +2790,7 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
         PS_TICK
         // Mercy rule: a lopsided capture balance has decided the game;
         // the area score already reflects it, skip the remaining fill
-        if(capB > capW + MERCY_MARGIN || capW > capB + MERCY_MARGIN) {
+        if(capArr[BLACK] > capArr[WHITE] + MERCY_MARGIN || capArr[WHITE] > capArr[BLACK] + MERCY_MARGIN) {
 #ifdef PLAYOUT_STATS
             psMercy = 1;
 #endif
@@ -2849,8 +2864,7 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                 if(nk != ILLEGAL) {
                     if(toMove == rootTurn && m < RAVE_HORIZON) raveMark(tac);
                     if(simCaptured) {
-                        if(toMove == BLACK) capB += simCaptured;
-                        else capW += simCaptured;
+                        capArr[toMove] += simCaptured;
                     }
                     ko = nk;
                     last = tac;
@@ -3887,14 +3901,22 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
         }
     }
 
+    // pos coords (x,y) and |offset| to last (adx,ady): decoded once here
+    // and reused by the urgent-defense / contact-push / locality blocks.
+    uint8_t xy = posXY(pos);
+    uint8_t x = xy & 0x0F, y = xyHi(xy);
+    uint8_t adx = 0, ady = 0;
+    if(last < BOARD_CELLS) {
+        uint8_t lxy = posXY(last);
+        uint8_t lx = lxy & 0x0F, ly = xyHi(lxy);
+        adx = x > lx ? x - lx : lx - x;
+        ady = y > ly ? y - ly : ly - y;
+    }
+
     // Urgent defense: reinforcing an own 2-liberty group in the zone
     // of the opponent's last move — don't tenuki from a live fight
-    if(sawWeakFriend && last < BOARD_CELLS) {
-        uint8_t px = pos % BOARD_SIZE, py = pos / BOARD_SIZE;
-        int8_t ux = px - last % BOARD_SIZE; if(ux < 0) ux = -ux;
-        int8_t uy = py - last / BOARD_SIZE; if(uy < 0) uy = -uy;
-        if(ux <= 2 && uy <= 2) bonus += PRIOR_URGENT;
-    }
+    if(sawWeakFriend && last < BOARD_CELLS && adx <= 2 && ady <= 2)
+        bonus += PRIOR_URGENT;
 
     // Thin-stretch penalty: tentatively place the stone and count the
     // merged group's liberties. Tactical moves are exempt (a capture
@@ -3925,8 +3947,6 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     }
 
     // Center preference: the edge is worth less than the third line
-    uint8_t xy = posXY(pos);
-    uint8_t x = xy & 0x0F, y = xyHi(xy);
     uint8_t ex = x < BOARD_SIZE - 1 - x ? x : BOARD_SIZE - 1 - x;
     uint8_t ey = y < BOARD_SIZE - 1 - y ? y : BOARD_SIZE - 1 - y;
     uint8_t ed = ex < ey ? ex : ey;
@@ -4053,11 +4073,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     // failure mode).
     uint8_t blockHere = 0;
     if(last < BOARD_CELLS) {
-        int8_t bdx = (int8_t)x - (int8_t)(last % BOARD_SIZE);
-        int8_t bdy = (int8_t)y - (int8_t)(last / BOARD_SIZE);
-        if(bdx < 0) bdx = -bdx;
-        if(bdy < 0) bdy = -bdy;
-        if(bdx + bdy == 1) {
+        if(adx + ady == 1) {
             uint8_t q;
             FOR_EACH_NEIGHBOR(q, last)
                 if(simBoard[q] == toMove) { blockHere = 1; break; }
@@ -4138,9 +4154,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
 
     // Locality: adjacent or diagonal to the previous move.
     if(!lowLineBad && last < BOARD_CELLS) {
-        int8_t dx = x - last % BOARD_SIZE; if(dx < 0) dx = -dx;
-        int8_t dy = y - last / BOARD_SIZE; if(dy < 0) dy = -dy;
-        if(dx <= 1 && dy <= 1) {
+        if(adx <= 1 && ady <= 1) {
             bonus += PRIOR_LOCAL;
             // Contact-push block (see PRIOR_BLOCK): their stone
             // touches us, this candidate touches the pusher
@@ -4495,15 +4509,18 @@ PROGMEM const uint16_t RECIP_TAB[64] = {
      1170,  1149,  1129,  1110,  1092,  1074,  1057,  1040
 };
 
-PROGMEM const uint16_t BETA_TAB[64] = {
+// Root RAVE beta for the hot visit range: beta(nv) = isqrt32(raveRatio(nv)<<12)
+// is a pure function of nv, and the blend recomputed a raveRatio (shift loop)
+// plus an isqrt for every rave-eligible root child on every root selection.
+// At 400 iters those children cluster at 16-31 visits, so a 32-entry table
+// (nv<32; nv>=32 falls back to computing) catches ~all of them. Dropping this
+// table cost +7.9% mid think (measured on the emulator) for 164 B flash -- a
+// bad trade; kept. 64 B PROGMEM. host-verified against the integer pipeline.
+PROGMEM const uint16_t BETA_TAB[32] = {
      4096,  4075,  4055,  4035,  4016,  3996,  3978,  3959,
      3941,  3922,  3905,  3887,  3870,  3852,  3835,  3819,
      3803,  3786,  3770,  3754,  3738,  3723,  3708,  3693,
-     3678,  3663,  3648,  3634,  3620,  3606,  3591,  3578,
-     3565,  3551,  3537,  3525,  3511,  3498,  3486,  3473,
-     3461,  3448,  3436,  3425,  3413,  3401,  3389,  3378,
-     3366,  3354,  3343,  3332,  3321,  3311,  3300,  3289,
-     3279,  3268,  3258,  3248,  3238,  3228,  3217,  3207
+     3678,  3663,  3648,  3634,  3620,  3606,  3591,  3578
 };
 
 static uint8_t selectChild(uint8_t nodeIdx) {
@@ -4577,7 +4594,7 @@ static uint8_t selectChild(uint8_t nodeIdx) {
         if(atRoot && nv < POISONED &&
            n.move < BOARD_CELLS && raveV[n.move]
            ) {
-            uint16_t beta = (nv < 64)
+            uint16_t beta = (nv < 32)
                 ? pgm_read_word(BETA_TAB + nv)
                 : isqrt32((uint32_t)raveRatio(nv) << 12);
             uint16_t qr = winRate6(raveW[n.move], raveV[n.move]) << 6;

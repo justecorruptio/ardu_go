@@ -15,8 +15,12 @@
 # deletes that file silently and the sketch then overflows flash.
 B=${1:-/tmp/ardugo_magic_build}
 CLI="/Applications/Arduino IDE.app/Contents/Resources/app/lib/backend/resources/arduino-cli"
-"$CLI" compile --fqbn arduino:avr:leonardo --build-path "$B" \
+"$CLI" compile --clean --fqbn arduino:avr:leonardo --build-path "$B" \
     "$(dirname "$0")/.." > /dev/null 2>&1
+# node region = NODE_POOL_SB * sizeof(Node); read from source so this check
+# can never go stale when the pool size changes.
+NPSB=$(grep -oE '#define[[:space:]]+NODE_POOL_SB[[:space:]]+[0-9]+' "$(dirname "$0")/../ai.cpp" | grep -oE '[0-9]+$')
+NODEREGION=$(( NPSB * 6 ))
 if ! grep -aq -- "-mrelax" "$B/ardu_go.ino.elf"; then
     echo "*** SIZE FLAGS MISSING: restore platform.local.txt with"
     echo "*** '-mcall-prologues -mrelax' in the AVR core dir"
@@ -24,7 +28,7 @@ if ! grep -aq -- "-mrelax" "$B/ardu_go.ino.elf"; then
 fi
 NM=~/Library/Arduino15/packages/arduino/tools/avr-gcc/7.3.0-atmel3.6.1-arduino7/bin/avr-nm
 # Node = 6 bytes, NODE_POOL_SB = 143 -> node region = 858 bytes.
-$NM -S -td "$B/ardu_go.ino.elf" | awk '
+$NM -S -td "$B/ardu_go.ino.elf" | awk -v nr="$NODEREGION" '
   function check(name, addr, size,   last) {
     last = addr + size - 1
     printf "%-16s 0x%X..0x%X", name, addr, last
@@ -37,9 +41,8 @@ $NM -S -td "$B/ardu_go.ino.elf" | awk '
   # wrong page. Assert lo8 <= 0xAF.
   / [bBdD] _ZL7simMark$/ {
     lo = ($1 % 8388608) % 256
-    printf "%-16s lo8=0x%X", "simMark", lo
-    if (lo > 175) { print "  *** markPtr CARRY: lo8(simMark)+80 > 0xFF ***"; bad = 1 }
-    else print "  ok (markPtr carry-free)"
+    # markPtr is now carry-CORRECT (ldi 0 / subi / sbci), layout-independent.
+    printf "%-16s lo8=0x%X  ok (markPtr carry-correct)\n", "simMark", lo
     seen_simmark = 1
   }
   / [bBdD] _ZL8simBoard$/ {
@@ -51,14 +54,13 @@ $NM -S -td "$B/ardu_go.ino.elf" | awk '
   }
   / [bBdD] _ZL7chainId$/ {
     lo = ($1 % 8388608) % 256
-    printf "%-16s lo8=0x%X", "chainId", lo
-    if (lo > 175) { print "  *** chainPtr CARRY: lo8(chainId)+80 > 0xFF ***"; bad = 1 }
-    else print "  ok (chainPtr carry-free)"
+    # chainPtr is now carry-CORRECT (ldi 0 / subi / sbci), layout-independent.
+    printf "%-16s lo8=0x%X  ok (chainPtr carry-correct)\n", "chainId", lo
     seen_chainid = 1
   }
   / [bBdD] _ZL7poolExt$/           { check("poolExt", $1 % 8388608, $2 + 0) }
   / [bBdD] _ZN12Arduboy2Base7sBufferE$/ {
-    check("pool(nodes)", $1 % 8388608, 858)   # RAVE tables above 858B may own 0x800
+    check("pool(nodes)", $1 % 8388608, nr+0)   # node region NODE_POOL_SB*6; RAVE above owns 0x800
     seen_sbuf = 1
   }
   END {
