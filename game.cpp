@@ -42,17 +42,16 @@ static uint8_t ffPush(Game *g, uint8_t p2, uint8_t color, uint8_t sp) {
 
 // Clear visited[] then flood the region: the paired idiom the callers
 // below all share.
-uint8_t Game::floodClean(uint8_t x, uint8_t y, uint8_t color) {
+uint8_t Game::floodClean(uint8_t start, uint8_t color) {
     memset(visited, 0, sizeof(visited));
-    return floodFill(x, y, color);
+    return floodFill(start, color);
 }
 
-uint8_t Game::floodFill(uint8_t x, uint8_t y, uint8_t color) {
-    // Marks the connected region of `color` containing (x,y) in visited[]
-    // and returns its size. Iterative: recursion would overflow the AVR
-    // stack on large groups.
-    if(x >= BOARD_SIZE || y >= BOARD_SIZE) return 0;
-    uint8_t start = y * BOARD_SIZE + x;
+uint8_t Game::floodFill(uint8_t start, uint8_t color) {
+    // Marks the connected region of `color` containing packed cell `start`
+    // in visited[] and returns its size. Iterative: recursion would overflow
+    // the AVR stack on large groups.
+    if(start >= BOARD_CELLS) return 0;
     if(packedGet(visited, start) || packedGet(board, start) != color) return 0;
 
     uint8_t count = 0;
@@ -62,12 +61,13 @@ uint8_t Game::floodFill(uint8_t x, uint8_t y, uint8_t color) {
     while(sp) {
         uint8_t p = floodSlot(--sp);
         count++;
+        // py = p/BOARD_SIZE only fed the vertical edge tests; p>=SIZE and
+        // p<CELLS-SIZE are the same predicates without the /9 divide.
         uint8_t px = p % BOARD_SIZE;
-        uint8_t py = p / BOARD_SIZE;
-        if(px > 0)              sp = ffPush(this, p - 1, color, sp);
-        if(px < BOARD_SIZE - 1) sp = ffPush(this, p + 1, color, sp);
-        if(py > 0)              sp = ffPush(this, p - BOARD_SIZE, color, sp);
-        if(py < BOARD_SIZE - 1) sp = ffPush(this, p + BOARD_SIZE, color, sp);
+        if(px > 0)                       sp = ffPush(this, p - 1, color, sp);
+        if(px < BOARD_SIZE - 1)          sp = ffPush(this, p + 1, color, sp);
+        if(p >= BOARD_SIZE)              sp = ffPush(this, p - BOARD_SIZE, color, sp);
+        if(p < BOARD_CELLS - BOARD_SIZE) sp = ffPush(this, p + BOARD_SIZE, color, sp);
     }
     return count;
 }
@@ -94,15 +94,15 @@ static uint8_t nbIndex(uint8_t j, uint8_t d) {
     return nbIndexXY(j % BOARD_SIZE, j / BOARD_SIZE, d);
 }
 
-uint8_t Game::hasLiberties(uint8_t x, uint8_t y) {
+uint8_t Game::hasLiberties(uint8_t start) {
     // Every caller of the old countLiberties only ever tested == 0, so
     // the exact count (and its mark-2 dedupe machinery) was dead
     // weight: flood the group, return 1 at the FIRST empty neighbour.
     // EMPTY input keeps the old contract (count 0 -> "no liberties").
-    uint8_t color = at(x, y);
+    uint8_t color = packedGet(board, start);
     if(color == EMPTY) return 0;
 
-    floodClean(x, y, color); // group cells -> 1
+    floodClean(start, color); // group cells -> 1
 
     for(uint8_t i = 0; i < BOARD_CELLS; i++) {
         if(packedGet(visited, i) != 1) continue;
@@ -115,11 +115,11 @@ uint8_t Game::hasLiberties(uint8_t x, uint8_t y) {
     return 0;
 }
 
-uint8_t Game::captureGroup(uint8_t x, uint8_t y) {
-    uint8_t color = at(x, y);
+uint8_t Game::captureGroup(uint8_t start) {
+    uint8_t color = packedGet(board, start);
     if(color == EMPTY) return 0;
 
-    uint8_t count = floodClean(x, y, color);
+    uint8_t count = floodClean(start, color);
 
     sweepVisited(this, board, EMPTY);
     return count;
@@ -145,17 +145,16 @@ uint8_t Game::isValidMove(uint8_t x, uint8_t y) {
         uint8_t ni = nbIndexXY(x, y, d);
         if(ni == 0xFF) continue;
         if(packedGet(board, ni) == opponent) {
-            uint8_t nx = ni % BOARD_SIZE, ny = ni / BOARD_SIZE;
-            if(!hasLiberties(nx, ny)) {
+            if(!hasLiberties(ni)) {
                 captures = 1;
-                floodClean(nx, ny, opponent);
+                floodClean(ni, opponent);
                 sweepVisited(this, tempBoard, EMPTY);
             }
         }
     }
 
     // Check suicide: if no captures and own group has no liberties
-    if(!captures && !hasLiberties(x, y)) {
+    if(!captures && !hasLiberties(y * BOARD_SIZE + x)) {
         set(x, y, EMPTY);
         return 0;
     }
@@ -179,9 +178,8 @@ uint8_t Game::playMove(uint8_t x, uint8_t y) {
     for(uint8_t d = 0; d < 4; d++) {
         uint8_t ni = nbIndexXY(x, y, d);
         if(ni == 0xFF) continue;
-        uint8_t nx = ni % BOARD_SIZE, ny = ni / BOARD_SIZE;
-        if(at(nx, ny) == opponent && !hasLiberties(nx, ny)) {
-            captures[captureIdx] += captureGroup(nx, ny);
+        if(packedGet(board, ni) == opponent && !hasLiberties(ni)) {
+            captures[captureIdx] += captureGroup(ni);
         }
     }
 
@@ -211,7 +209,7 @@ void Game::computeScore() {
             continue;
 
         // Flood fill empty region
-        floodClean(i % BOARD_SIZE, i / BOARD_SIZE, EMPTY);
+        floodClean(i, EMPTY);
 
         // Determine owner: check all borders of this region
         uint8_t touchesBlack = 0, touchesWhite = 0;
@@ -245,7 +243,7 @@ uint8_t Game::winner() {
     // Black score = territory[0] + captures[0]
     // White score = territory[1] + captures[1] + komi
     // kpieces is komi in half-points (13 = 6.5)
-    uint16_t blackScore = territory[0] * 2 + captures[0] * 2;
-    uint16_t whiteScore = territory[1] * 2 + captures[1] * 2 + kpieces;
+    uint16_t blackScore = (territory[0] + captures[0]) * 2;
+    uint16_t whiteScore = (territory[1] + captures[1]) * 2 + kpieces;
     return (blackScore > whiteScore) ? BLACK : WHITE;
 }
