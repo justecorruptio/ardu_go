@@ -1,11 +1,9 @@
-// Opening-net parity probe: replay an SGF to move N, invoke the
-// NNOPEN picker directly, print its move (or "-" if it declines).
-// Build with -DNNOPEN -Dprivate=public. Compare against the Python
-// integer emulation (scratchpad nn_parity.py) for exact agreement.
+// NN-opening probe: replay an SGF to move N, call chooseMove (the NN
+// opening path) and report whether it fires + (with -DNN_DEBUG) the
+// nstones/temp it computed. For tuning the quiet-and-deep handoff gate.
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
-#define private public
 #include "../game.cpp"
 #include "../ai.cpp"
 uint8_t Arduboy2Base::sBuffer[1024];
@@ -31,10 +29,15 @@ int main(int argc, char **argv) {
         if(mp[i]) { game.pass(); ai.notifyPass(); }
         else { game.playMove(mx[i], my[i]); ai.notifyMove(mx[i], my[i]); }
     }
-    uint8_t x, y;
-    if(ai.nnOpeningMove(game, x, y)) {
-        const char *cols = "ABCDEFGHJ";
-        printf("%c%d\n", cols[x], 9 - y);
-    } else printf("-\n");
+    uint8_t before[PACKED_BOARD_BYTES];
+    memcpy(before, game.board, sizeof before);
+    uint8_t fired = ai.chooseMove(game);
+    const char *cols = "ABCDEFGHJ";
+    if(fired) {
+        int mv = -1;
+        for(uint8_t i = 0; i < BOARD_CELLS; i++)
+            if(packedGet(game.board, i) != EMPTY && packedGet(before, i) == EMPTY) mv = i;
+        printf("upto=%d fired=1 move=%c%d\n", upto, cols[mv % 9], 9 - mv / 9);
+    } else printf("upto=%d fired=0 (handed to search)\n", upto);
     return 0;
 }

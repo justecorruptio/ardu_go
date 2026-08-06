@@ -1978,6 +1978,9 @@ uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uint8_t &oy) {
             }
 #endif
         }
+#ifdef NN_DEBUG
+        fprintf(stderr, "NNDBG nstones=%u temp=%u\n", (unsigned)nstones, (unsigned)temp);
+#endif
         if(temp > NN_QUIET_MAXTEMP) return 0;
     }
     if(temp > 3) temp = 3;
@@ -2263,6 +2266,11 @@ uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uint8_t &oy) {
     if(bestPos > 80) return 0;
     ox = bestPos % 9;
     oy = bestPos / 9;
+    // NB (2026-08): an anti-crawl handoff here -- past ~10 stones, defer a
+    // 1st/2nd-line NN pick to MCTS search -- LOST -8.0% vs L0 (paired 1547
+    // games, 351 vs 474 wins). KataGo flags those low moves as -5..-7 pt,
+    // but the NN's deep edge play still beats handing off to our own search
+    // vs L0. Reverted. See memory ardu-go-nn-crawl-probe.
     return 1;
 }
 #endif // NNOPEN
