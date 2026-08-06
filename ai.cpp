@@ -4475,11 +4475,16 @@ static uint16_t lnQ12(uint16_t x) {
 // shipped 400-iteration budget, and POISONED children have w==0 -> 0.
 __attribute__((optimize("O2")))
 static inline uint16_t winRate6(uint16_t w, uint16_t v) {
+    // 7-step restoring divide floor(w*64/v), quotient in [0,64]. Hand-
+    // unrolled: no bit counter / loop branch (out-of-line, one copy).
     uint16_t num = w << 6, d = v << 6, q = 0;
-    for(uint8_t bit = 64; bit; bit >>= 1) {
-        if(num >= d) { num -= d; q |= bit; }
-        d >>= 1;
-    }
+    if(num >= d) { num -= d; q |= 64; } d >>= 1;
+    if(num >= d) { num -= d; q |= 32; } d >>= 1;
+    if(num >= d) { num -= d; q |= 16; } d >>= 1;
+    if(num >= d) { num -= d; q |= 8;  } d >>= 1;
+    if(num >= d) { num -= d; q |= 4;  } d >>= 1;
+    if(num >= d) { num -= d; q |= 2;  } d >>= 1;
+    if(num >= d) { num -= d; q |= 1;  }
     return q;
 }
 
