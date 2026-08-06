@@ -553,7 +553,7 @@ static inline __attribute__((always_inline)) uint8_t bitMask(uint8_t i) {
 // Which points the root player touched in the current simulation
 static uint8_t raveMask[11];
 
-static inline void raveMark(uint8_t pos) {
+__attribute__((noinline)) static inline void raveMark(uint8_t pos) {
     raveMask[pos >> 3] |= bitMask(pos);
 }
 
@@ -767,7 +767,7 @@ __attribute__((noinline)) static uint16_t rnd16() {
     return rngState;
 }
 
-static uint8_t rnd(uint8_t n) {
+__attribute__((noinline)) static uint8_t rnd(uint8_t n) {
     // Lemire multiplicative reduction: map rnd16()'s [0,2^16) uniformly into
     // [0,n) with a 16x8 multiply + high-word take, instead of a ~180-cycle
     // variable __udivmodhi4. NOT bit-identical to %n (a different draw->index
@@ -1280,7 +1280,7 @@ static uint16_t regionVitalT(uint8_t seed) {
 }
 // Stamped variant = the historical regionVital; the playout call site
 // uses regionVitalT<0> directly.
-static inline uint16_t regionVital(uint8_t seed) { return regionVitalT<1>(seed); }
+__attribute__((noinline)) static inline uint16_t regionVital(uint8_t seed) { return regionVitalT<1>(seed); }
 
 #ifdef NAKADE
 // Nakade vitals (GNU Go optics borrow, 2026-08): an eyespace's
@@ -1418,7 +1418,7 @@ static uint8_t nakadeVital(uint8_t seed, uint8_t *seen) {
 // its bordering group is alive and non-vital fills there are pure own-fill
 // losses. Runs once per move (post-search) so a full flood into the free
 // floodScratch is fine.
-static uint8_t settledRegionColor(uint8_t seed) {
+__attribute__((noinline)) static uint8_t settledRegionColor(uint8_t seed) {
     newMark();
     uint8_t cnt = 1, head = 0, owner = 0;
     floodSlot(0) = seed;
@@ -2575,7 +2575,7 @@ static const uint8_t PROGMEM EDGE_OFFS[9 * 6] = {
     0xF6, 0xF7, 0xF8, 0xFF, 0x01, 0x00,  // cls 7: S edge
     0xF6, 0xF7, 0xFF, 0x00, 0x00, 0x00,  // cls 8: SE corner
 };
-static uint32_t pattern3Edge(int8_t cx, int8_t cy, uint8_t color) {
+__attribute__((noinline)) static uint32_t pattern3Edge(int8_t cx, int8_t cy, uint8_t color) {
     uint8_t clsx = (cx == 0) ? 0 : (cx == BOARD_SIZE - 1) ? 2 : 1;
     uint8_t clsy = (cy == 0) ? 0 : (cy == BOARD_SIZE - 1) ? 2 : 1;
     uint8_t cls = (uint8_t)(clsy * 3 + clsx);
