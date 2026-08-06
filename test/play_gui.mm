@@ -217,10 +217,10 @@ static void aiMoveIfNeeded() {
             for(uint8_t i = 0; i < BOARD_CELLS; i++)
                 if(packedGet(game.board, i) != EMPTY &&
                    packedGet(before, i) == EMPTY) lastPos = i;
-            sgfLog.push_back({(uint8_t)(3 - humanColor), lastPos, "book move"});
-            info = [NSString stringWithFormat:@"AI: %@ (book)", vertexName(lastPos)];
+            sgfLog.push_back({(uint8_t)(3 - humanColor), lastPos, "NN move"});
+            info = [NSString stringWithFormat:@"AI: %@ (NN)", vertexName(lastPos)];
             dispatch_async(dispatch_get_main_queue(), ^{
-                gTree.string = @"(book move — no search)";
+                gTree.string = @"(NN opening — no search)";
             });
         } else {
             clock_t t0 = clock();
