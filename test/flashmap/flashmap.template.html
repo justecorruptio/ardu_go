@@ -1,0 +1,199 @@
+<title>ArduGo · Flash Budget</title>
+<style>
+  :root{
+    --bg:#0d1211; --panel:#131a19; --panel2:#0f1615; --line:#26302e;
+    --ink:#e7ede9; --ink2:#9fb0aa; --ink3:#6d7d78;
+    --used:#e8a13c; --free:#2e8f6e; --freeln:#3fb98f; --redline:#e05a4a;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  @media (prefers-color-scheme: light){
+    :root{ --bg:#f4f2ec; --panel:#fbfaf6; --panel2:#efece4; --line:#e0dccf;
+      --ink:#1c211f; --ink2:#5a635f; --ink3:#8a938e; --used:#c9791b; --free:#2e8f6e; --freeln:#279169; }
+  }
+  :root[data-theme="dark"]{ --bg:#0d1211; --panel:#131a19; --panel2:#0f1615; --line:#26302e;
+    --ink:#e7ede9; --ink2:#9fb0aa; --ink3:#6d7d78; --used:#e8a13c; --free:#2e8f6e; --freeln:#3fb98f; }
+  :root[data-theme="light"]{ --bg:#f4f2ec; --panel:#fbfaf6; --panel2:#efece4; --line:#e0dccf;
+    --ink:#1c211f; --ink2:#5a635f; --ink3:#8a938e; --used:#c9791b; --free:#2e8f6e; --freeln:#279169; }
+
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+    font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:960px;margin:0 auto;padding:34px 22px 80px;}
+  .eyebrow{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink3);font-weight:600;}
+  h1{font-size:27px;margin:.15em 0 .1em;letter-spacing:-.01em;font-weight:680;}
+  .sub{color:var(--ink2);font-size:13.5px;}
+  .num{font-family:var(--mono);font-variant-numeric:tabular-nums;}
+  header{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;
+    border-bottom:1px solid var(--line);padding-bottom:20px;margin-bottom:26px;}
+  header .meta{text-align:right;color:var(--ink3);font-size:12px;line-height:1.7;}
+  header .meta b{color:var(--ink2);font-weight:600;}
+
+  /* hero gauge */
+  .gauge{margin:6px 0 4px;}
+  .gauge .readout{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:12px;}
+  .gauge .big{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:34px;font-weight:600;letter-spacing:-.02em;}
+  .gauge .big .lim{color:var(--ink3);font-size:22px;}
+  .gauge .pct{font-family:var(--mono);font-size:15px;color:var(--used);font-weight:600;
+    border:1px solid color-mix(in srgb,var(--used) 45%,transparent);border-radius:20px;padding:2px 11px;}
+  .gauge .gfree{margin-left:auto;color:var(--ink2);font-size:13px;}
+  .bar{position:relative;height:34px;border-radius:7px;overflow:hidden;display:flex;
+    background:var(--panel2);border:1px solid var(--line);}
+  .bar .seg{height:100%;position:relative;}
+  .bar .freeseg{height:100%;background:
+    repeating-linear-gradient(135deg,transparent 0 7px,color-mix(in srgb,var(--freeln) 22%,transparent) 7px 8px);
+    border-left:1px dashed color-mix(in srgb,var(--freeln) 60%,transparent);}
+  .redline{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--redline);opacity:.7;}
+  .redline::after{content:"limit";position:absolute;top:-15px;right:-3px;font-size:9px;letter-spacing:.08em;
+    color:var(--redline);font-family:var(--mono);}
+
+  section{margin-top:34px;}
+  .h{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:3px;}
+  .h h2{font-size:14px;letter-spacing:.03em;margin:0;font-weight:640;}
+  .h .cap{font-size:11.5px;color:var(--ink3);}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:26px;}
+  @media (max-width:720px){.grid2{grid-template-columns:1fr}}
+
+  .rows{margin-top:12px;display:flex;flex-direction:column;gap:7px;}
+  .row{display:grid;grid-template-columns:150px 1fr 96px;align-items:center;gap:11px;}
+  .row .lab{font-size:12.5px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    display:flex;align-items:center;gap:7px;}
+  .row .lab .sw{width:9px;height:9px;border-radius:2px;flex:none;}
+  .row .track{height:15px;background:var(--panel2);border-radius:4px;overflow:hidden;border:1px solid var(--line);}
+  .row .fill{height:100%;border-radius:3px;}
+  .row .val{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:12px;text-align:right;color:var(--ink2);}
+  .row .val b{color:var(--ink);font-weight:600;}
+  .row.small{grid-template-columns:150px 1fr 78px;}
+  .row.small .lab{font-family:var(--mono);font-size:11.5px;}
+
+  .foot{margin-top:44px;border-top:1px solid var(--line);padding-top:16px;color:var(--ink3);font-size:12px;line-height:1.7;}
+  .foot code{font-family:var(--mono);color:var(--ink2);background:var(--panel2);padding:1px 5px;border-radius:4px;}
+  .chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;}
+  .chip{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:9px 13px;}
+  .chip .k{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);}
+  .chip .v{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:16px;font-weight:600;margin-top:1px;}
+</style>
+
+<div class="wrap">
+  <header>
+    <div>
+      <div class="eyebrow">ATmega32U4 · 9×9 Go · device build</div>
+      <h1>ArduGo — Flash Budget</h1>
+      <div class="sub">Every byte of program flash, attributed to its source (LTO-aware).</div>
+    </div>
+    <div class="meta" id="meta"></div>
+  </header>
+
+  <div class="gauge">
+    <div class="readout">
+      <div class="big"><span id="g-used"></span> <span class="lim">/ <span id="g-lim"></span> B</span></div>
+      <div class="pct" id="g-pct"></div>
+      <div class="gfree" id="g-free"></div>
+    </div>
+    <div class="bar" id="g-bar"></div>
+  </div>
+
+  <div class="chips" id="chips"></div>
+
+  <section>
+    <div class="h"><h2>Where it lives — by source module</h2><div class="cap">DWARF file attribution · exact</div></div>
+    <div class="rows" id="modules"></div>
+  </section>
+
+  <div class="grid2">
+    <section>
+      <div class="h"><h2>Engine code by subsystem</h2><div class="cap">ai.cpp · code only</div></div>
+      <div class="rows" id="subsystems"></div>
+    </section>
+    <section>
+      <div class="h"><h2>PROGMEM data tables</h2><div class="cap" id="tables-cap"></div></div>
+      <div class="rows" id="tables"></div>
+    </section>
+  </div>
+
+  <div class="grid2">
+    <section>
+      <div class="h"><h2>Largest functions</h2><div class="cap">inlined code re-attributed</div></div>
+      <div class="rows" id="functions"></div>
+    </section>
+    <section>
+      <div class="h"><h2>Runtime · software math</h2><div class="cap">AVR has no HW divide</div></div>
+      <div class="rows" id="runtime"></div>
+    </section>
+  </div>
+
+  <div class="foot" id="foot"></div>
+</div>
+
+<script>
+/*__FLASHMAP_DATA__*/
+
+const PAL=["#e8a13c","#3fb98f","#5b8def","#b07bd6","#e06c8b","#45b6c4","#8fc44a",
+  "#e0784a","#6f7fd6","#d98cc4","#57ad6a","#c9a13c","#7bc0b0","#cf6f6f"];
+const $=id=>document.getElementById(id);
+const fmt=n=>n.toLocaleString("en-US");
+const pctOf=(n,d)=>(n*100/d).toFixed(n*100/d<10?2:1)+"%";
+
+function render(el,arr,opt){
+  opt=opt||{}; const box=$(el); box.innerHTML="";
+  const max=Math.max.apply(null,arr.map(x=>x[1]));
+  arr.forEach((x,i)=>{
+    const [name,bytes]=x;
+    const r=document.createElement("div"); r.className="row"+(opt.mono?" small":"");
+    const col=opt.colors?PAL[i%PAL.length]:"var(--used)";
+    const sw=opt.colors?`<span class="sw" style="background:${col}"></span>`:"";
+    r.innerHTML=
+      `<div class="lab" title="${name}">${sw}${name}</div>`+
+      `<div class="track"><div class="fill" style="width:${(bytes/max*100).toFixed(1)}%;background:${col}"></div></div>`+
+      `<div class="val"><b>${fmt(bytes)}</b> · ${pctOf(bytes,DATA.flash)}</div>`;
+    box.appendChild(r);
+  });
+}
+
+// meta
+$("meta").innerHTML=`<b>${DATA.commit}</b> · ${DATA.date}<br>limit ${fmt(DATA.limit)} B · text ${fmt(DATA.text)} + data ${fmt(DATA.data)}`;
+
+// gauge readout
+$("g-used").textContent=fmt(DATA.flash);
+$("g-lim").textContent=fmt(DATA.limit);
+$("g-pct").textContent=pctOf(DATA.flash,DATA.limit)+" full";
+$("g-free").innerHTML=`<span class="num">${fmt(DATA.free)}</span> B free`;
+
+// gauge stacked bar — module segments proportional to LIMIT, then free
+(function(){
+  const bar=$("g-bar"); const L=DATA.limit;
+  DATA.modules.forEach((m,i)=>{
+    const s=document.createElement("div"); s.className="seg";
+    s.style.width=(m[1]/L*100)+"%"; s.style.background=PAL[i%PAL.length];
+    s.title=`${m[0]} — ${fmt(m[1])} B (${pctOf(m[1],DATA.flash)})`;
+    bar.appendChild(s);
+  });
+  const f=document.createElement("div"); f.className="freeseg";
+  f.style.width=(DATA.free/L*100)+"%"; f.title=`free — ${fmt(DATA.free)} B`;
+  bar.appendChild(f);
+  const rl=document.createElement("div"); rl.className="redline"; rl.style.right="0"; bar.appendChild(rl);
+})();
+
+// chips
+const bssPct=(DATA.bss/2560*100).toFixed(0);
+$("chips").innerHTML=[
+  ["flash used",fmt(DATA.flash)+" B"],["headroom",fmt(DATA.free)+" B"],
+  [".text (code+PROGMEM)",fmt(DATA.text)+" B"],[".data init",fmt(DATA.data)+" B"],
+  ["RAM .bss",fmt(DATA.bss)+" / 2560 B"],
+].map(c=>`<div class="chip"><div class="k">${c[0]}</div><div class="v">${c[1]}</div></div>`).join("");
+
+// sections
+render("modules",DATA.modules,{colors:true});
+render("subsystems",DATA.subsystems,{colors:true});
+const tblTotal=DATA.tables.reduce((a,x)=>a+x[1],0);
+$("tables-cap").textContent=fmt(tblTotal)+" B · "+DATA.tables.length+" tables";
+render("tables",DATA.tables.slice(0,14),{mono:true});
+render("functions",DATA.functions.slice(0,16),{mono:true});
+render("runtime",DATA.runtime,{mono:true});
+
+$("foot").innerHTML=
+  `Method — every 2-byte word of <code>.text</code> is attributed to its innermost inlined function and source file via `+
+  `<code>avr-addr2line</code> on the linked ELF, so LTO-merged code (Arduino AVR builds with <code>-flto</code>) is `+
+  `charged to its real owner rather than to <code>main</code>. PROGMEM tables come from <code>avr-nm</code>. `+
+  `Percentages are of flash used (${fmt(DATA.flash)} B). &nbsp;Regenerate: <code>test/flashmap/flashmap.sh</code>.`;
+</script>
