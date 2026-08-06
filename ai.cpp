@@ -1496,7 +1496,7 @@ static uint8_t isOwnEye(uint8_t pos, uint8_t color) {
 // placed group at one liberty (the playout policy). Cheap by
 // construction: when nothing was captured the only mutation is the
 // placed stone, so rejection is a one-byte undo — no snapshot needed.
-static uint8_t simPlay(uint8_t pos, uint8_t color, uint8_t ko,
+__attribute__((noinline)) static uint8_t simPlay(uint8_t pos, uint8_t color, uint8_t ko,
                        uint8_t noSelfAtari = 0) {
     if(pos == MOVE_PASS) return NO_KO;
     if(pos == ko || simBoard[pos] != EMPTY) return ILLEGAL;
