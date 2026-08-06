@@ -553,7 +553,7 @@ static inline __attribute__((always_inline)) uint8_t bitMask(uint8_t i) {
 // Which points the root player touched in the current simulation
 static uint8_t raveMask[11];
 
-__attribute__((noinline)) static inline void raveMark(uint8_t pos) {
+static inline void raveMark(uint8_t pos) {
     raveMask[pos >> 3] |= bitMask(pos);
 }
 
@@ -766,14 +766,14 @@ uint8_t resignStreak = RESIGN_STREAK;
 #endif
 // flood work stack: shared floodScratch[] from game.cpp
 
-__attribute__((noinline)) static uint16_t rnd16() {
+static uint16_t rnd16() {
     rngState ^= rngState << 7;
     rngState ^= rngState >> 9;
     rngState ^= rngState << 8;
     return rngState;
 }
 
-__attribute__((noinline)) static uint8_t rnd(uint8_t n) {
+static uint8_t rnd(uint8_t n) {
     // Lemire multiplicative reduction: map rnd16()'s [0,2^16) uniformly into
     // [0,n) with a 16x8 multiply + high-word take, instead of a ~180-cycle
     // variable __udivmodhi4. NOT bit-identical to %n (a different draw->index
