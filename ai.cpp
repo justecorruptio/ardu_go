@@ -4609,7 +4609,11 @@ static uint8_t selectChild(uint8_t nodeIdx) {
                 ? pgm_read_word(BETA_TAB + nv)
                 : isqrt32((uint32_t)raveRatio(nv) << 12);
             uint16_t qr = winRate6(raveW[n.move], raveV[n.move]) << 6;
-            q = ((uint32_t)(4096 - beta) * q + (uint32_t)beta * qr) >> 12;
+            // ((4096-beta)*q + beta*qr)>>12 == q + (beta*(qr-q)>>12): one
+            // signed 16x16->32 multiply instead of two 32-bit multiplies,
+            // value-identical (4096*q>>12 == q; arith shift floors the rest).
+            int16_t d = (int16_t)qr - (int16_t)q;
+            q = (uint16_t)((int32_t)q + (((int32_t)beta * d) >> 12));
         }
 
         uint16_t u = q + (isqrt32((uint32_t)lnOverN * v) >> UCB_EXPLORE_SHIFT);
