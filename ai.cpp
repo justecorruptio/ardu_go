@@ -1642,8 +1642,8 @@ __attribute__((noinline)) static uint8_t nnCheby(uint8_t p, uint8_t cx, uint8_t 
 
 // factored micro-idioms (NN opening; speed irrelevant, force one copy)
 __attribute__((noinline)) static uint8_t nnEdge(uint8_t v) { return v < (uint8_t)(8 - v) ? v : (uint8_t)(8 - v); }
-__attribute__((noinline)) static uint8_t nnAbs(int8_t v) { return v < 0 ? -v : v; }
-__attribute__((noinline)) static uint8_t nnSat(uint8_t v, uint8_t n) { return v > n ? n : v; }
+static uint8_t nnAbs(int8_t v) { return v < 0 ? -v : v; }
+static uint8_t nnSat(uint8_t v, uint8_t n) { return v > n ? n : v; }
 #ifndef NN_QUIET_MAXTEMP
 #define NN_QUIET_MAXTEMP 2  // ship gate: allow mild fights (measured +89/2000)
 #endif
@@ -1747,7 +1747,7 @@ static const int8_t OD4[4][2] = {{1,0},{-1,0},{0,1},{0,-1}};
 // One 81-cell pass gathering every per-stone statistic the features
 // need: out[0]=no out[1]=ne out[2]=dens2 out[3]=dens4 out[4]=bro
 // out[5]=bre out[6]=wd out[7]=ring(ro|re<<1)
-__attribute__((noinline)) static void nnStoneScan(uint8_t cx, uint8_t cy,
+static void nnStoneScan(uint8_t cx, uint8_t cy,
         uint8_t toMove, const uint8_t *cellLb, const uint8_t *weakMask,
         uint8_t *out) {
     uint8_t no = 9, ne = 9, dens2 = 0, dens4 = 0;
@@ -1793,7 +1793,7 @@ __attribute__((noinline)) static void nnStoneScan(uint8_t cx, uint8_t cy,
 #else
 #define FXD(c) (c)
 #endif
-__attribute__((noinline)) static uint8_t nnDilFeats(uint8_t cx, uint8_t cy,
+static uint8_t nnDilFeats(uint8_t cx, uint8_t cy,
         const uint8_t *ODS, const uint8_t *EDS,
         uint8_t *fx, uint8_t nf) {
     uint8_t cpos = cy * 9 + cx;
@@ -1872,7 +1872,7 @@ __attribute__((noinline)) static uint8_t nnRelShapes(uint8_t cx, uint8_t cy,
     return nf;
 }
 
-__attribute__((noinline)) static uint8_t nnLibFam(uint8_t cpos, uint8_t toMove,
+static uint8_t nnLibFam(uint8_t cpos, uint8_t toMove,
         uint8_t opp, uint8_t *deadMask, uint8_t *cells) {
     uint8_t nc;
 #ifdef NN_ATARI_EXIT
