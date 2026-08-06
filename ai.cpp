@@ -1078,7 +1078,7 @@ glcSeedTally:;
 
 // Find a group's distinct liberties, early-exiting at 3. Fills l1/l2
 // with the first two (0xFF if fewer). Returns the count, 0-3.
-static uint8_t groupLibsFind(uint8_t start) {
+static inline __attribute__((always_inline)) uint8_t groupLibsFind(uint8_t start) {
     return groupLibsCore(start, 0, 3);
 }
 
