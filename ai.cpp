@@ -590,11 +590,13 @@ static inline uint16_t nWins(uint8_t i) {
     return (n.s[1] >> 4) | ((uint16_t)n.s[2] << 4);
 }
 
-static inline void nSetStats(uint8_t i, uint16_t v, uint16_t w) {
-    Node &n = node(i);
+static inline void nSetStatsN(Node &n, uint16_t v, uint16_t w) {
     n.s[0] = v;
     n.s[1] = ((v >> 8) & 0x0F) | ((w & 0x0F) << 4);
     n.s[2] = w >> 4;
+}
+static inline void nSetStats(uint8_t i, uint16_t v, uint16_t w) {
+    nSetStatsN(node(i), v, w);
 }
 
 static inline void nBump(uint8_t i, uint8_t win) {
@@ -4229,12 +4231,14 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
 static uint8_t addChild(uint8_t nodeIdx, uint8_t move, int8_t bonus) {
     uint8_t c = newNode(move);
     if(c == 0xFF) return 0xFF;
+    Node &nc = node(c);                // resolve once (was 2x: setstats + sibling)
     if(bonus >= 0)
-        nSetStats(c, PRIOR_BASE_V + bonus, PRIOR_BASE_W + bonus);
+        nSetStatsN(nc, PRIOR_BASE_V + bonus, PRIOR_BASE_W + bonus);
     else
-        nSetStats(c, PRIOR_BASE_V - bonus, PRIOR_BASE_W);
-    node(c).nextSibling = node(nodeIdx).firstChild;
-    node(nodeIdx).firstChild = c;
+        nSetStatsN(nc, PRIOR_BASE_V - bonus, PRIOR_BASE_W);
+    Node &np = node(nodeIdx);          // resolve once (was 2x: read + write)
+    nc.nextSibling = np.firstChild;
+    np.firstChild = c;
     return c;
 }
 
