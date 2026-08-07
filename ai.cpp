@@ -1651,7 +1651,11 @@ static uint8_t nnEdge(uint8_t v) { return v < (uint8_t)(8 - v) ? v : (uint8_t)(8
 static uint8_t nnAbs(int8_t v) { return v < 0 ? -v : v; }
 static uint8_t nnSat(uint8_t v, uint8_t n) { return v > n ? n : v; }
 #ifndef NN_QUIET_MAXTEMP
-#define NN_QUIET_MAXTEMP 2  // ship gate: allow mild fights (measured +89/2000)
+#define NN_QUIET_MAXTEMP 3  // ship gate: let the NN (which beats search vs L0)
+                            // handle more 2-lib-chain positions. 2->3 measured
+                            // +76/2000 (33.0->36.8% vs L0); "looser is better"
+                            // since the NN out-plays MCTS in its range. Ataris
+                            // (1-lib) still hand off to search unconditionally.
 #endif
 
 __attribute__((noinline)) static uint8_t nnSymPos(uint8_t x, uint8_t y, uint8_t s, uint8_t &ox, uint8_t &oy) {
