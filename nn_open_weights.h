@@ -7,7 +7,9 @@
 #define NN_H 6
 #define NN_BITS 4
 #define NN_KSCALE 1
+#ifndef NN_MAX_STONES
 #define NN_MAX_STONES 24
+#endif
 PROGMEM const uint8_t NN_B[8] = { // 16 nibbles
     0xEF, 0xEE, 0xDE, 0x1C, 0x24, 0x34, 0x13, 0x0F,
 };

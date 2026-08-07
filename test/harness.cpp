@@ -43,7 +43,7 @@ static void gtpStart(int level, int seed) {
                 "humanSLCpuctExploration=0.50,chosenMoveTemperature=0.70,"
                 "chosenMoveTemperatureEarly=0.85,chosenMoveTemperatureHalflife=80,"
                 "chosenMoveTemperatureOnlyBelowProb=0.01,rules=chinese,"
-                "allowResignation=false,searchRandSeed=%d", rank, seed);
+                "allowResignation=false,numSearchThreads=1,searchRandSeed=%d", rank, seed);
             execlp("katago", "katago", "gtp",
                    "-model", "/tmp/kata9x9.bin.gz",
                    "-human-model", "/tmp/kata_human.bin.gz",
