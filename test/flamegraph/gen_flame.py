@@ -149,9 +149,9 @@ ol.changelog b{color:var(--ink);font-weight:600} .dlt{color:var(--accent);font:6
 # ================= per-tab build =================
 TABS = [
   # (tag, label, cycles_M, secs, iters, desc, prev_folded_for_delta)
-  ("open", "Opening fight", 248.14, 15.5, 600,
-   "8-stone opening (game_002 to move 8, Black to play). The QUIET opening is played instantly by the NN policy &mdash; no search &mdash; so MCTS runs this early only when the NN <b>hands off</b>: an early contact fight (<code>temp &gt; NN_QUIET_MAXTEMP</code>) or a nearby atari, at &le;24 stones. Then the opening boost gives it <b>600 iterations</b>. So this is the <b>worst-case search wait</b>, not the typical (instant) opening.",
-   None),
+  # Opening tab removed: the quiet opening is played instantly by the NN
+  # policy (no search), so MCTS only runs that early on an NN handoff (rare
+  # fight) -- not worth a tab. Midgame is the representative think() profile.
   ("mid", "Midgame", 196.95, 12.3, 400,
    "26-stone midgame (the long-standing bench position, White to play) at the shipped <b>400 iterations</b>.",
    None),  # profile_prev.folded lost to a /tmp cleanup; no b394ae5 delta column
@@ -323,7 +323,7 @@ HTML = CSS + TAB_CSS + f"""
 <h1>ArduGo Search — On-Device Profile</h1>
 <div class="gstats"><span><b>&minus;53.4%</b><i>midgame vs b394ae5</i></span><span><b>&minus;56.7%</b><i>all-time think</i></span><span><b>27.8K</b><i>flash &middot; 912&nbsp;B free</i></span><span><b>2,147</b><i>RAM &middot; think stack 200&nbsp;B</i></span></div>
 {''.join(tab_radios)}
-<div class="tabbar">{''.join(tab_bar)}</div>
+{('<div class="tabbar">'+''.join(tab_bar)+'</div>') if len(TABS)>1 else ''}
 {''.join(tab_contents)}
 {CHANGELOG}
 {NETNOTE}

@@ -11,8 +11,7 @@ cp "$DIR"/frag_*.html "$SCR"/            # static text fragments (changelog etc.
 if [ "${SKIP_DATA:-0}" != 1 ]; then
   echo "== profiling midgame (400 iters) =="
   TAG=mid  bash "$DIR/gen_profile.sh"; TAG=mid  bash "$DIR/gen_inside.sh"
-  echo "== profiling opening (-DBENCH_OPENING) =="
-  EXTRA=-DBENCH_OPENING TAG=open bash "$DIR/gen_profile.sh"; TAG=open bash "$DIR/gen_inside.sh"
+  # opening tab removed (NN handles the quiet opening; MCTS-opening is a rare handoff)
 fi
 echo "== assembling profile_artifact.html =="
 python3 "$DIR/gen_flame.py"

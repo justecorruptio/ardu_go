@@ -4,7 +4,7 @@ Regenerates the **"ArduGo Search — On-Device Profile"** artifact
 (claude.ai id `0ad79891-a0f1-497c-9640-abb295f5af27` — publish with that id as the
 `url` param to update in place, favicon 🔥).
 
-A two-tab (Opening / Midgame) cycle-accurate flamegraph of `think()`: flame widths =
+A single-tab (Midgame) cycle-accurate flamegraph of `think()`: flame widths =
 share of think cycles, a self-time table, per-line hot spots, and the "inside the
 composite blocks" inlined-origin breakdown. Everything is derived from `avrprof.js`
 simulating the real AVR firmware.
@@ -22,7 +22,7 @@ Output lands in `work/`. `SKIP_DATA=1 ./run.sh` reuses `work/*.folded` and just 
 
 Depends on the durable JS profilers in `../emu/`: `avrprof.js` (call-stack cycle
 profiler), `lineprof2.js` (per-line), `avrbench.js` (absolute cyc/move). Tabs:
-midgame = default bench position; opening = `-DBENCH_OPENING` (8-stone, 600-iter boost).
+midgame = default bench position. (The opening tab was removed: the quiet opening is played instantly by the NN policy, so MCTS only runs that early on a rare NN handoff.)
 
 ## The absolute numbers are hand-set (measured separately)
 `gen_profile.sh` forces `-DMCTS_ITERATIONS=400` for **both** tabs so the flame
