@@ -4420,40 +4420,7 @@ static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t la
     return any;
 }
 
-// Bitwise integer sqrt: isqrt32(x*2^24)/4096 approximates sqrt(x)
-__attribute__((optimize("O2")))
-static uint16_t isqrt32(uint32_t x) {
-    uint32_t res = 0;
-    // Start `bit` at the top power-of-4 of x's highest non-zero byte, so
-    // the refine loop below only shifts within that byte (<=3 steps) rather
-    // than walking down from 2^30. Each start is a power of 4 >= the largest
-    // 4^k <= x, so the loop lands on the identical bit -- result unchanged.
-    // Byte extraction (x >> 24 etc. are register renames on AVR) makes the
-    // span tests single-byte tst instead of the 32-bit mask+or chains gcc
-    // emits for `x & 0xFF000000UL`. `n` counts the remaining refine steps:
-    // log4(bit)+1 at each start, decremented with the pre-loop lowering, so
-    // the refine loop terminates on a dec/brne instead of a 4-byte bit!=0
-    // compare. Same arithmetic in the same order -- bit-identical results.
-    uint32_t bit;
-    uint8_t n;
-    if     ((uint8_t)(x >> 24)) { bit = 1UL << 30; n = 16; }
-    else if((uint8_t)(x >> 16)) { bit = 1UL << 22; n = 12; }
-    else if((uint8_t)(x >>  8)) { bit = 1UL << 14; n = 8;  }
-    else                        { bit = 1UL << 6;  n = 4;  }
-    while(bit > x) { bit >>= 2; n--; }
-    uint8_t skip = n > 8 ? n - 8 : 0;   // COARSE-TAIL (see gauntlet)
-    for(; n > skip; n--) {
-        if(x >= res + bit) {
-            x -= res + bit;
-            res = (res >> 1) + bit;
-        } else {
-            res >>= 1;
-        }
-        bit >>= 2;
-    }
-    res >>= skip;
-    return res;
-}
+
 
 // Q12 natural-log fractional part: log2(1 + i/16) already scaled by
 // ln2 (2839 in Q12). Folding ln2 into the table lets lnQ12 avoid a
@@ -4549,6 +4516,16 @@ PROGMEM const uint16_t BETA_TAB[32] = {
      3678,  3663,  3648,  3634,  3620,  3606,  3591,  3578
 };
 
+PROGMEM const uint8_t SQRT_LUT[192] = {128,129,130,131,132,133,134,135,136,137,138,139,139,140,141,142,143,144,145,146,147,148,148,149,150,151,152,153,153,154,155,156,157,158,158,159,160,161,162,162,163,164,165,166,166,167,168,169,169,170,171,172,172,173,174,175,175,176,177,177,178,179,180,180,181,182,182,183,184,185,185,186,187,187,188,189,189,190,191,191,192,193,193,194,195,195,196,197,197,198,199,199,200,200,201,202,202,203,204,204,205,206,206,207,207,208,209,209,210,210,211,212,212,213,213,214,215,215,216,216,217,218,218,219,219,220,221,221,222,222,223,223,224,225,225,226,226,227,227,228,229,229,230,230,231,231,232,232,233,234,234,235,235,236,236,237,237,238,238,239,239,240,241,241,242,242,243,243,244,244,245,245,246,246,247,247,248,248,249,249,250,250,251,251,252,252,253,253,254,254,255,255};
+__attribute__((optimize("O2")))
+static uint16_t isqrtLUT(uint32_t x) {
+    if(x < 2) return x;
+    int8_t sh = 0;
+    while(x >= (1UL << 16)) { x >>= 2; sh += 2; }
+    while(x <  (1UL << 14)) { x <<= 2; sh -= 2; }   // x in [2^14, 2^16)
+    uint16_t r = pgm_read_byte(SQRT_LUT + (((uint16_t)x >> 8) - 64));
+    return sh >= 0 ? (uint16_t)(r << (sh >> 1)) : (uint16_t)(r >> ((-sh) >> 1));
+}
 static uint8_t selectChild(uint8_t nodeIdx) {
     // UCB1-Tuned in Q12 fixed point — software floats cost several ms
     // per root scan, so everything here is integer.
@@ -4608,7 +4585,7 @@ static uint8_t selectChild(uint8_t nodeIdx) {
             v = 1024;
         } else {
             v = (uint16_t)(q6 * (64 - q6));
-            v += isqrt32((uint32_t)(2 * lnOverN) << 12);
+            v += isqrtLUT((uint32_t)(2 * lnOverN) << 12);
             if(v > 1024) v = 1024; // min(1/4, ...)
         }
 
@@ -4622,7 +4599,7 @@ static uint8_t selectChild(uint8_t nodeIdx) {
            ) {
             uint16_t beta = (nv < 32)
                 ? pgm_read_word(BETA_TAB + nv)
-                : isqrt32((uint32_t)raveRatio(nv) << 12);
+                : isqrtLUT((uint32_t)raveRatio(nv) << 12);
             uint16_t qr = winRate6(raveW[n.move], raveV[n.move]) << 6;
             // ((4096-beta)*q + beta*qr)>>12 == q + (beta*(qr-q)>>12): one
             // signed 16x16->32 multiply instead of two 32-bit multiplies,
@@ -4631,7 +4608,7 @@ static uint8_t selectChild(uint8_t nodeIdx) {
             q = (uint16_t)((int32_t)q + (((int32_t)beta * d) >> 12));
         }
 
-        uint16_t u = q + (isqrt32((uint32_t)lnOverN * v) >> UCB_EXPLORE_SHIFT);
+        uint16_t u = q + (isqrtLUT((uint32_t)lnOverN * v) >> UCB_EXPLORE_SHIFT);
         if(u > best) {
             best = u;
             bestC = cur;
@@ -5342,7 +5319,7 @@ uint8_t AI::bestMove(Game &game, uint8_t &x, uint8_t &y) {
         uint16_t q = q6 << 6;                 // Q12 (Q6 precision)
         uint32_t var = (uint16_t)(q6 * (64 - q6)); // q(1-q), Q12, 16-bit mul
         // (var<<12)/v is Q24 of q(1-q)/n, so isqrt lands in Q12
-        uint16_t term = isqrt32(((uint32_t)var << 12) / v);
+        uint16_t term = isqrtLUT(((uint32_t)var << 12) / v);
         int16_t lcb = (int16_t)q - (int16_t)(((uint32_t)term * LCB_Z) >> 8);
         if(lcb <= bestL) continue;
         if(m != MOVE_PASS && !rootMoveOK(game, m))
