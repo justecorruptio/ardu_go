@@ -4441,7 +4441,8 @@ static uint16_t isqrt32(uint32_t x) {
     else if((uint8_t)(x >>  8)) { bit = 1UL << 14; n = 8;  }
     else                        { bit = 1UL << 6;  n = 4;  }
     while(bit > x) { bit >>= 2; n--; }
-    for(; n; n--) {
+    uint8_t skip = n > 8 ? n - 8 : 0;   // COARSE-TAIL (see gauntlet)
+    for(; n > skip; n--) {
         if(x >= res + bit) {
             x -= res + bit;
             res = (res >> 1) + bit;
@@ -4450,6 +4451,7 @@ static uint16_t isqrt32(uint32_t x) {
         }
         bit >>= 2;
     }
+    res >>= skip;
     return res;
 }
 
