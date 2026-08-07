@@ -31,8 +31,7 @@ midgame = default bench position; opening = `-DBENCH_OPENING` (8-stone, 600-iter
 (`../emu/run.sh`, 400 iters mid / 600 iters open) and live as literals in `gen_flame.py`:
 `TABS[...]` (`cycles_M`, `secs`), the `gstats` `<div>`, and the closing figures inside
 `frag_changelog.html`. **Re-measure with `../emu/run.sh` and update those by hand when
-the engine speed changes.** Current: mid 209.31M/13.1 s, open 251.44M/15.7 s, flash
-27,426 (1,246 B free) — commit `935f8c2` (after the flash-reclaim hunt).
+the engine speed changes.** Current: mid 196.95M/12.3 s, open 248.14M/15.5 s, flash 27,760 (912 B free) -- commit `fae9794` (after the -5.9% MCTS speed grind; the Opening tab is the NN-handoff worst case, not the typical instant NN opening).
 
 ## Fragments
 `frag_changelog.html` holds the entire post-tabs region (intro note + the numbered
