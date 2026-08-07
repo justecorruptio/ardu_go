@@ -31,6 +31,26 @@ static void gtpStart(int level, int seed) {
         char lvl[16], sd[16];
         snprintf(lvl, sizeof lvl, "%d", level);
         snprintf(sd, sizeof sd, "%d", seed);
+        // KATAGO_HUMAN: use the KataGo human-SL net as the opponent (rank via
+        // KATAGO_RANK, default preaz_10k). 1 visit + temperature = truest rank
+        // match. Chinese/area rules + komi 6.5 to match everything else.
+        if(getenv("KATAGO_HUMAN")) {
+            const char *rank = getenv("KATAGO_RANK");
+            if(!rank) rank = "preaz_10k";
+            char ovr[640];
+            snprintf(ovr, sizeof ovr,
+                "maxVisits=1,humanSLProfile=%s,humanSLChosenMoveProp=1.0,"
+                "humanSLCpuctExploration=0.50,chosenMoveTemperature=0.70,"
+                "chosenMoveTemperatureEarly=0.85,chosenMoveTemperatureHalflife=80,"
+                "chosenMoveTemperatureOnlyBelowProb=0.01,rules=chinese,"
+                "allowResignation=false,searchRandSeed=%d", rank, seed);
+            execlp("katago", "katago", "gtp",
+                   "-model", "/tmp/kata9x9.bin.gz",
+                   "-human-model", "/tmp/kata_human.bin.gz",
+                   "-config", "/Users/jay/.katago/gtp.cfg",
+                   "-override-config", ovr, (char *)NULL);
+            _exit(127);
+        }
         execlp("gnugo", "gnugo", "--mode", "gtp", "--boardsize", "9",
                "--komi", "6.5", "--level", lvl, "--seed", sd,
                "--chinese-rules", (char *)NULL);
@@ -297,6 +317,9 @@ static bool recordFirst = false;
 static int playGame(int gameNo, int level, uint8_t aiColor, bool verbose) {
     bool useGnugo = level >= 0;
     if(useGnugo) gtpStart(level, gameNo + 1);
+    if(useGnugo && getenv("KATAGO_HUMAN")) {   // KataGo needs board/komi via GTP
+        std::string r; gtpCmd("boardsize 9", r); gtpCmd("komi 6.5", r);
+    }
     game.reset();
     ai.reset();
     // Per-game engine RNG seed (2026-08): previously rngState free-ran
