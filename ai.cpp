@@ -5358,7 +5358,11 @@ uint8_t AI::bestMove(Game &game, uint8_t &x, uint8_t &y) {
     // killable region's vital point, which is a real life-and-death move.
     // simBoard still holds the root position from above
     uint16_t rv;
-    if(rootStones >= 45 &&
+    if(game.consecutivePasses >= 1 &&   // only pass in RESPONSE to the opponent's
+                                        // pass -- a unilateral settle-pass while
+                                        // they keep playing gives away free moves
+                                        // (measured 49% of such fires lost the game)
+       rootStones >= 45 &&
        (uint32_t)thinkSimWins * 20 >= (uint32_t)thinkSims * 11 &&
        settledRegionColor(best) &&
        !((uint8_t)(rv = regionVital(best)) && (rv >> 8) == best)) {
