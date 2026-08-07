@@ -237,6 +237,20 @@ void Game::computeScore() {
     }
 }
 
+uint8_t Game::areaWinner() {
+    if(resignedBy) return 3 - resignedBy;
+    // Chinese/area: stones on board + territory (matches gnugo/KataGo/scoreWinner).
+    computeScore();
+    uint16_t bs = 0, ws = 0;
+    for(uint8_t i = 0; i < BOARD_CELLS; i++) {
+        uint8_t c = packedGet(board, i);
+        if(c == BLACK) bs++;
+        else if(c == WHITE) ws++;
+    }
+    uint16_t blackScore = (territory[0] + bs) * 2;
+    uint16_t whiteScore = (territory[1] + ws) * 2 + kpieces;
+    return (blackScore > whiteScore) ? BLACK : WHITE;
+}
 uint8_t Game::winner() {
     if(resignedBy) return 3 - resignedBy;
     // Japanese scoring: territory + captures

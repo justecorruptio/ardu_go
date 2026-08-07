@@ -67,4 +67,7 @@ class Game {
 
     // Returns 1=black wins, 2=white wins
     uint8_t winner();
+    // Same, but Chinese/AREA scoring (stones+territory, not prisoners) to match
+    // gnugo, KataGo, and the engine's own playout scoreWinner.
+    uint8_t areaWinner();
 };

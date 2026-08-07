@@ -5050,8 +5050,7 @@ void AI::think(Game &game) {
         uint8_t evalOK = !thinkSims ||
             (uint32_t)thinkSimWins * 20 >= (uint32_t)thinkSims * 11;
         if(evalOK) {
-            game.computeScore();
-            if(game.winner() == game.turn) {
+            if(game.areaWinner() == game.turn) {   // area (was territory)
                 passToWin = 1;
                 resignCount = 0;
                 return;
@@ -5370,8 +5369,7 @@ uint8_t AI::bestMove(Game &game, uint8_t &x, uint8_t &y) {
        (uint32_t)thinkSimWins * 20 >= (uint32_t)thinkSims * 11 &&
        settledRegionColor(best) &&
        !((uint8_t)(rv = regionVital(best)) && (rv >> 8) == best)) {
-        game.computeScore();
-        if(game.winner() == game.turn) return 0;
+        if(game.areaWinner() == game.turn) return 0;   // area (was territory)
     }
 
     x = best % BOARD_SIZE;
