@@ -1939,13 +1939,22 @@ static uint8_t nnLibFam(uint8_t cpos, uint8_t toMove,
 
 uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uint8_t &oy) {
     if(nnLast > 80) return 0;                    // need a last move
+#ifndef ARDUINO
+    // Feature-dump tooling (host-only): FORCE_NN bypasses the handoff gate so
+    // the NN computes features for ANY position (incl. midgame); NN_DUMP prints
+    // the exact per-candidate features for whole-game-net training. Neither
+    // compiles on device (ARDUINO); engine behavior is unchanged.
+    const uint8_t forceNN = getenv("FORCE_NN") != 0;
+#else
+    const uint8_t forceNN = 0;
+#endif
     // unpack + census
     uint8_t nstones = 0;
     for(uint8_t p = 0; p < 81; p++) {
         simBoard[p] = packedGet(game.board, p);   // p == (p/9)*9 + p%9
         if(simBoard[p] != EMPTY) nstones++;
     }
-    if(nstones == 0 || nstones > NN_MAX_STONES) return 0;
+    if(nstones == 0 || (nstones > NN_MAX_STONES && !forceNN)) return 0;
     uint8_t toMove = game.turn;
     uint8_t opp = 3 - toMove;
     // quiet gate + fight temperature: chains at <= 2 libs
@@ -1991,7 +2000,7 @@ uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uint8_t &oy) {
 #ifdef NN_DEBUG
         fprintf(stderr, "NNDBG nstones=%u temp=%u\n", (unsigned)nstones, (unsigned)temp);
 #endif
-        if(temp > NN_QUIET_MAXTEMP) return 0;
+        if(temp > NN_QUIET_MAXTEMP && !forceNN) return 0;
     }
     if(temp > 3) temp = 3;
     // dilations (board coords): ladderBoard hosts 6 bitsets of 11B
@@ -2250,6 +2259,26 @@ uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uint8_t &oy) {
                 for(uint8_t i = 0; i < nf; i++) fprintf(stderr, " %d", fx[i]);
                 fprintf(stderr, "\n");
             }
+        }
+        // NN_DUMP: exact per-candidate features for whole-game-net training.
+        // "CAND <cpos> B <bcls> E <cls:woff> ... F <fx> ..." — cls/woff recomputed
+        // host-side (cheap) to match the coarse-offset loop above bit-for-bit.
+        if(getenv("NN_DUMP")) {
+            printf("CAND %d B %d E", cpos, (int)bcls);
+            for(uint8_t p = 0; p < 81; p++) {
+                if(simBoard[p] == EMPTY) continue;
+                uint8_t sx, sy; nnSymPos(p % 9, p / 9, bestSym, sx, sy);
+                int8_t dx = (int8_t)sx - (int8_t)tcx, dy = (int8_t)sy - (int8_t)tcy;
+                int8_t sdx = dx < -3 ? -3 : (dx > 3 ? 3 : dx);
+                int8_t sdy = dy < -3 ? -3 : (dy > 3 ? 3 : dy);
+                uint8_t col = simBoard[p] == toMove ? 0 : 1;
+                uint16_t cls = ((uint16_t)(sdx + 3) * 7 + (sdy + 3)) * 2 + col;
+                uint16_t woff = ((uint16_t)(dx + 8) * 17 + (dy + 8)) * 2 + col;
+                printf(" %d:%d", (int)cls, (int)woff);
+            }
+            printf(" F");
+            for(uint8_t i = 0; i < nf; i++) printf(" %d", fx[i]);
+            printf("\n");
         }
 #endif
         // ---- score ----
