@@ -1937,8 +1937,19 @@ static uint8_t nnLibFam(uint8_t cpos, uint8_t toMove,
     return rlb | (ela << 4) | (cap << 7);
 }
 
+// Net-priored MCTS: with nnPriorMode set, nnOpeningMove runs UNGATED, fills
+// nnTop[] with the net's top-3 root candidates, returns 0. candidatePrior gives
+// those a tiered bonus so the net guides while MCTS decides + stays grounded.
+static uint8_t nnPriorMode = 0;
+static uint8_t nnTop[3] = {0xFF, 0xFF, 0xFF};
+static int32_t nnTopSc[3];
+#ifndef NN_PRIOR_TOP
+#define NN_PRIOR_TOP 0
+#endif
+
 uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uint8_t &oy) {
     if(nnLast > 80) return 0;                    // need a last move
+    if(nnPriorMode) { nnTop[0]=nnTop[1]=nnTop[2]=0xFF; }
 #ifndef ARDUINO
     // Feature-dump tooling (host-only): FORCE_NN bypasses the handoff gate so
     // the NN computes features for ANY position (incl. midgame); NN_DUMP prints
@@ -1954,7 +1965,7 @@ uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uint8_t &oy) {
         simBoard[p] = packedGet(game.board, p);   // p == (p/9)*9 + p%9
         if(simBoard[p] != EMPTY) nstones++;
     }
-    if(nstones == 0 || (nstones > NN_MAX_STONES && !forceNN)) return 0;
+    if(nstones == 0 || (nstones > NN_MAX_STONES && !forceNN && !nnPriorMode)) return 0;
     uint8_t toMove = game.turn;
     uint8_t opp = 3 - toMove;
     // quiet gate + fight temperature: chains at <= 2 libs
@@ -2000,7 +2011,7 @@ uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uint8_t &oy) {
 #ifdef NN_DEBUG
         fprintf(stderr, "NNDBG nstones=%u temp=%u\n", (unsigned)nstones, (unsigned)temp);
 #endif
-        if(temp > NN_QUIET_MAXTEMP && !forceNN) return 0;
+        if(temp > NN_QUIET_MAXTEMP && !forceNN && !nnPriorMode) return 0;
     }
     if(temp > 3) temp = 3;
     // dilations (board coords): ladderBoard hosts 6 bitsets of 11B
@@ -2297,11 +2308,28 @@ uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uint8_t &oy) {
                 fprintf(stderr, "SC %d %ld %d\n", cpos, (long)score, (int)bcls);
         }
 #endif
+#if NN_PRIOR_TOP
+        uint8_t validc = game.isValidMove(cx, cy);
+        if(score > bestScore && validc) { bestScore = score; bestPos = cpos; }
+        if(nnPriorMode && validc) {          // maintain descending top-3
+            for(uint8_t r = 0; r < 3; r++) {
+                if(nnTop[r] == 0xFF || score > nnTopSc[r]) {
+                    for(uint8_t s = 2; s > r; s--) { nnTop[s] = nnTop[s-1]; nnTopSc[s] = nnTopSc[s-1]; }
+                    nnTop[r] = cpos; nnTopSc[r] = score;
+                    break;
+                }
+            }
+        }
+#else
         if(score > bestScore && game.isValidMove(cx, cy)) {
             bestScore = score;
             bestPos = cpos;
         }
+#endif
     }
+#if NN_PRIOR_TOP
+    if(nnPriorMode) return 0;
+#endif
     if(bestPos > 80) return 0;
     ox = bestPos % 9;
     oy = bestPos / 9;
@@ -4254,6 +4282,12 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     // Big open point: the territory-staking move
     if(isFar) bonus += PRIOR_BIG;
 
+#if NN_PRIOR_TOP
+    // Net-priored MCTS: tiered bonus for the whole-game net's top-3 root moves.
+    if(pos == nnTop[0]) bonus += NN_PRIOR_TOP;
+    else if(pos == nnTop[1]) bonus += NN_PRIOR_TOP - 2;
+    else if(pos == nnTop[2]) bonus += NN_PRIOR_TOP - 4;
+#endif
 
     return bonus;
 }
@@ -5152,6 +5186,12 @@ void AI::think(Game &game) {
             rootLast = i;
     }
     if(caps == 1) rootKo = capPos;
+
+#if NN_PRIOR_TOP
+    // Net-priored MCTS: fill the net's top-3 root candidates while sBuffer is
+    // still free (nnOpeningMove borrows it; the pool/loadRootBoard reuse it).
+    { uint8_t na, nb; nnPriorMode = 1; nnOpeningMove(game, na, nb); nnPriorMode = 0; }
+#endif
 
 #ifdef TREUSE
     // Root created early: adoption must read the stash (simBoard/
