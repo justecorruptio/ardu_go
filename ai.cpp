@@ -5306,7 +5306,7 @@ void AI::think(Game &game) {
         // remaining budget. With LCB move selection this is an
         // approximation rather than exact: a dominant visit lead
         // almost always implies a dominant LCB, but not provably.
-        if((i & 31) == 31) {
+        if((i & 15) == 15) {
             uint16_t top1 = 0, top2 = 0;
             for(uint8_t c = node(0).firstChild; c != 0xFF; c = node(c).nextSibling) {
                 uint16_t v = nVisits(c);
