@@ -321,7 +321,7 @@ TAB_CSS = ('<style>.gstats{display:flex;gap:34px;flex-wrap:wrap;margin:6px 0 18p
 HTML = CSS + TAB_CSS + f"""
 <div class="wrap">
 <h1>ArduGo Search — On-Device Profile</h1>
-<div class="gstats"><span><b>&minus;53.4%</b><i>midgame vs b394ae5</i></span><span><b>&minus;56.7%</b><i>all-time think</i></span><span><b>27.8K</b><i>flash &middot; 912&nbsp;B free</i></span><span><b>2,147</b><i>RAM &middot; think stack 200&nbsp;B</i></span></div>
+<div class="gstats"><span><b>&minus;53.4%</b><i>midgame vs b394ae5</i></span><span><b>&minus;56.7%</b><i>all-time think</i></span><span><b>27.8K</b><i>flash &middot; 824&nbsp;B free</i></span><span><b>2,147</b><i>RAM &middot; think stack 200&nbsp;B</i></span></div>
 {''.join(tab_radios)}
 {('<div class="tabbar">'+''.join(tab_bar)+'</div>') if len(TABS)>1 else ''}
 {''.join(tab_contents)}
