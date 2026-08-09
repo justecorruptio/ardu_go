@@ -5316,7 +5316,13 @@ void AI::think(Game &game) {
                 }
                 else if(v > top2) top2 = v;
             }
-            if(top1 - top2 > total - 1 - i) break;
+            // Probabilistic early-stop (was: exact `lead > remaining`).
+            // 2nd overtaking the leader needs it to win most of the
+            // remaining budget, but UCB keeps feeding the leader -- so a
+            // lead over HALF the remaining is practically safe. Banks
+            // iterations on decided positions (device latency / budget for
+            // the hard ones). value-changing -> gauntlet-gated.
+            if(2u * (uint16_t)(top1 - top2) > total - 1 - i) break;
         }
     }
 
