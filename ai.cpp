@@ -1614,6 +1614,44 @@ static uint8_t ladderBoard[BOARD_CELLS];
 // scratchpad nn_export.py). Feature layout MUST mirror nn_train3d.py;
 // parity-checked by test/nnprobe.cpp against the Python int emulation.
 #include "nn_open_weights.h"
+// ---- two-net selection (opening net + DAGGER cost-net prior) --------------
+// NN_TWONET adds a SECOND weight set (nn_prior_weights.h, NN_P_*) used ONLY for
+// the net-priored root scores (nnPriorMode); the shipped opening net still
+// drives opening-direct (NN_MAX_STONES). Without NN_TWONET everything below
+// resolves to the single shipped net (NN_*) and is byte-identical to the ship
+// build. A_* pick the active weight set; A_H/A_KS the active shape+scale.
+#ifdef NN_TWONET
+#include "nn_prior_weights.h"
+static const uint8_t *nnA_B  = (const uint8_t *)NN_B,  *nnA_W  = (const uint8_t *)NN_W,
+                     *nnA_E  = (const uint8_t *)NN_E,  *nnA_EB = (const uint8_t *)NN_EB,
+                     *nnA_B1 = (const uint8_t *)NN_B1, *nnA_V  = (const uint8_t *)NN_V,
+                     *nnA_F  = (const uint8_t *)NN_F,  *nnA_LF = (const uint8_t *)NN_LF;
+static uint8_t nnA_H  = NN_H;
+static int32_t nnA_KS = NN_KSCALE;
+#define A_B  nnA_B
+#define A_W  nnA_W
+#define A_E  nnA_E
+#define A_EB nnA_EB
+#define A_B1 nnA_B1
+#define A_V  nnA_V
+#define A_F  nnA_F
+#define A_LF nnA_LF
+#define A_H  nnA_H
+#define A_KS nnA_KS
+#define NNA_MAXH ((NN_H) > (NN_P_H) ? (NN_H) : (NN_P_H))
+#else
+#define A_B  ((const uint8_t *)NN_B)
+#define A_W  ((const uint8_t *)NN_W)
+#define A_E  ((const uint8_t *)NN_E)
+#define A_EB ((const uint8_t *)NN_EB)
+#define A_B1 ((const uint8_t *)NN_B1)
+#define A_V  ((const uint8_t *)NN_V)
+#define A_F  ((const uint8_t *)NN_F)
+#define A_LF ((const uint8_t *)NN_LF)
+#define A_H  NN_H
+#define A_KS NN_KSCALE
+#define NNA_MAXH NN_H
+#endif
 static int8_t patternBonus(int8_t cx, int8_t cy, uint8_t color); // defined below
 #if NN_BITS <= 4
 __attribute__((noinline)) static int8_t nnRd(const uint8_t *t, uint16_t i) {   // signed nibble unpack
@@ -1628,8 +1666,8 @@ __attribute__((noinline)) static int8_t nnRd(const uint8_t *t, uint16_t i) {   /
 
 // add one H-wide weight row (row*NN_H..+NN_H-1) into the pre[] accumulators
 __attribute__((noinline)) static void nnAddRow(int16_t *pre, const uint8_t *t, uint16_t row) {
-    uint16_t i = row * NN_H;
-    for(uint8_t h = 0; h < NN_H; h++) pre[h] += NNRD(t, i + h);
+    uint16_t i = row * A_H;
+    for(uint8_t h = 0; h < A_H; h++) pre[h] += NNRD(t, i + h);
 }
 // 4-neighbor of p in direction d (0..3), 0xFF off-board
 __attribute__((noinline)) static uint8_t nnNb(uint8_t p, uint8_t d) {
@@ -1950,6 +1988,18 @@ static int32_t nnTopSc[3];
 uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uint8_t &oy) {
     if(nnLast > 80) return 0;                    // need a last move
     if(nnPriorMode) { nnTop[0]=nnTop[1]=nnTop[2]=0xFF; }
+#ifdef NN_TWONET
+    // select the active weight set: prior net for root priors, opening net otherwise
+    if(nnPriorMode) {
+        nnA_B=(const uint8_t*)NN_P_B; nnA_W=(const uint8_t*)NN_P_W; nnA_E=(const uint8_t*)NN_P_E;
+        nnA_EB=(const uint8_t*)NN_P_EB; nnA_B1=(const uint8_t*)NN_P_B1; nnA_V=(const uint8_t*)NN_P_V;
+        nnA_F=(const uint8_t*)NN_P_F; nnA_LF=(const uint8_t*)NN_P_LF; nnA_H=NN_P_H; nnA_KS=NN_P_KSCALE;
+    } else {
+        nnA_B=(const uint8_t*)NN_B; nnA_W=(const uint8_t*)NN_W; nnA_E=(const uint8_t*)NN_E;
+        nnA_EB=(const uint8_t*)NN_EB; nnA_B1=(const uint8_t*)NN_B1; nnA_V=(const uint8_t*)NN_V;
+        nnA_F=(const uint8_t*)NN_F; nnA_LF=(const uint8_t*)NN_LF; nnA_H=NN_H; nnA_KS=NN_KSCALE;
+    }
+#endif
 #ifndef ARDUINO
     // Feature-dump tooling (host-only): FORCE_NN bypasses the handoff gate so
     // the NN computes features for ANY position (incl. midgame); NN_DUMP prints
@@ -2054,10 +2104,10 @@ uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uint8_t &oy) {
         // nnEdge(tcy)==b0 (already min-ordered): reuse them, skip recompute+swap
         uint8_t bcls = a0 * 5 + b0 - (a0 * (a0 + 1)) / 2;
         // ---- accumulators ----
-        int16_t lin = NNRD(NN_B, bcls);
-        int16_t pre[NN_H] = {0};
-        nnAddRow(pre, (const uint8_t *)NN_B1, 0);
-        nnAddRow(pre, (const uint8_t *)NN_EB, bcls);
+        int16_t lin = NNRD(A_B, bcls);
+        int16_t pre[NNA_MAXH] = {0};
+        nnAddRow(pre, A_B1, 0);
+        nnAddRow(pre, A_EB, bcls);
 #ifndef ARDUINO
         {
             const char *dbg = getenv("NN_DBG3");
@@ -2085,12 +2135,12 @@ uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uint8_t &oy) {
                 if(dbg && (uint8_t)atoi(dbg) == cpos)
                     fprintf(stderr, "  stone p=%d cls=%d woff=%d wv=%d\n", p, (int)cls,
                             (int)(((uint16_t)(dx + 8) * 17 + (dy + 8)) * 2 + col),
-                            (int)NNRD(NN_W, ((uint16_t)(dx + 8) * 17 + (dy + 8)) * 2 + col));
+                            (int)NNRD(A_W, ((uint16_t)(dx + 8) * 17 + (dy + 8)) * 2 + col));
             }
 #endif
-            nnAddRow(pre, (const uint8_t *)NN_E, cls);
+            nnAddRow(pre, A_E, cls);
             // exact-pairwise linear path (uncapped offsets, output scale)
-            lin += NNRD(NN_W, ((uint16_t)(dx + 8) * 17 + (dy + 8)) * 2 + col);
+            lin += NNRD(A_W, ((uint16_t)(dx + 8) * 17 + (dy + 8)) * 2 + col);
         }
 #endif
         // ---- fx features (board coords), EXACT trainer layout ----
@@ -2294,13 +2344,13 @@ uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uint8_t &oy) {
 #endif
         // ---- score ----
         for(uint8_t i = 0; i < nf; i++) {
-            lin += NNRD(NN_LF, fx[i]);
-            nnAddRow(pre, (const uint8_t *)NN_F, fx[i]);
+            lin += NNRD(A_LF, fx[i]);
+            nnAddRow(pre, A_F, fx[i]);
         }
-        int32_t score = (int32_t)lin * NN_KSCALE;
-        for(uint8_t h = 0; h < NN_H; h++)
+        int32_t score = (int32_t)lin * A_KS;
+        for(uint8_t h = 0; h < A_H; h++)
             if(pre[h] > 0)
-                score += (int32_t)NNRD(NN_V, h) * pre[h];
+                score += (int32_t)NNRD(A_V, h) * pre[h];
 #ifndef ARDUINO
         {
             const char *dbg = getenv("NN_DBG");
