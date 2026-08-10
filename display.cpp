@@ -66,8 +66,7 @@ struct ScLabel { uint8_t x, y; const char *s; };
 static const char SC_S0[] PROGMEM = "SCORING";
 static const char SC_S1[] PROGMEM = "WHT";
 static const char SC_S2[] PROGMEM = "BLK";
-static const char SC_S3[] PROGMEM = "TERR";
-static const char SC_S4[] PROGMEM = "CAPT";
+static const char SC_S3[] PROGMEM = "AREA";
 static const char SC_S5[] PROGMEM = "KOMI";
 static const char SC_S6[] PROGMEM = "TOTAL";
 static const char SC_S7[] PROGMEM = "6.5";
@@ -83,25 +82,25 @@ static const char HL_S1[] PROGMEM =
     "NO SUICIDE. KO RULE APPLIES.\n"
     "PASS WHEN NO GOOD MOVES.\n"
     "TWO PASSES ENDS THE GAME.\n"
-    "SCORE = TERRITORY + CAPTURES.\n"
+    "SCORE = TERRITORY + STONES.\n"
     "WHITE GETS 6.5 KOMI.";
 static const ScLabel UI_LBLS[] PROGMEM = {
-    // renderScoring [0,9)
+    // renderScoring [0,8)
     {66, 1, SC_S0}, {96, 11, SC_S1}, {116, 11, SC_S2},
-    {66, 19, SC_S3}, {66, 25, SC_S4}, {66, 31, SC_S5},
+    {66, 19, SC_S3}, {66, 31, SC_S5},
     {66, 39, SC_S6}, {96, 31, SC_S7},  // "6.5" at EW-10 = 96
     {100, 39, SC_S8},                  // ".5" at EW-6 = 100
-    // renderInfo statics [9,11)
+    // renderInfo statics [8,10)
     {66, 12, IN_S0}, {66, 56, IN_S1},
-    // renderTitle [11,13): ARDUGO is large print (bit 7)
+    // renderTitle [10,12): ARDUGO is large print (bit 7)
     {46 | 0x80, 10, TT_S0}, {39, 28, TT_S1},
-    // renderHelp [13,15)
+    // renderHelp [12,14)
     {49 | 0x80, 1, HL_S0}, {1, 15, HL_S1},
 };
-#define LBL_SCORING 0, 9
-#define LBL_INFO    9, 11
-#define LBL_TITLE  11, 13
-#define LBL_HELP   13, 15
+#define LBL_SCORING 0, 8
+#define LBL_INFO    8, 10
+#define LBL_TITLE  10, 12
+#define LBL_HELP   12, 14
 static void drawLabels(Jaylib &jay, uint8_t from, uint8_t to) {
     for(uint8_t i = from; i < to; i++) {
         uint8_t x = pgm_read_byte(&UI_LBLS[i].x);
@@ -156,20 +155,25 @@ static void scoreNum(Jaylib &jay, uint8_t edge, uint8_t y, uint16_t v) {
 // Right-aligned cells: {edge, y}; values filled from the game at
 // matching indices below.
 static const uint8_t SC_CELLS[][2] PROGMEM = {
-    {106, 19}, {126, 19}, {106, 25}, {126, 25}, {99, 39}, {126, 39},
+    {106, 19}, {126, 19}, {99, 39}, {126, 39},
 };
 void Display::renderScoring() {
-    // Komi (and the .5 in white's total) lives only in the white column.
+    // Chinese/AREA: each side's living stones on the board + surrounded
+    // territory (dead stones already removed by scoreDead). Komi (and the
+    // .5 in white's total) lives only in the white column.
     drawLabels(jay, LBL_SCORING);
     jay.drawFastHLine(66, 37, 61);      // rule above the totals
-    // white total is always x.5 (integer points + 6.5 komi)
-    uint16_t vals[6] = {
-        (uint16_t)game.territory[1], (uint16_t)game.territory[0],
-        (uint16_t)game.captures[1], (uint16_t)game.captures[0],
-        (uint16_t)(game.territory[1] + game.captures[1] + 6),
-        (uint16_t)(game.territory[0] + game.captures[0]),
-    };
-    for(uint8_t i = 0; i < 6; i++)
+    uint16_t bs = 0, ws = 0;
+    for(uint8_t i = 0; i < BOARD_CELLS; i++) {
+        uint8_t c = packedGet(game.board, i);
+        if(c == BLACK) bs++;
+        else if(c == WHITE) ws++;
+    }
+    uint16_t areaW = ws + game.territory[1];
+    uint16_t areaB = bs + game.territory[0];
+    // white total is always x.5 (area + 6.5 komi; integer 6 here, .5 via SC_S8)
+    uint16_t vals[4] = { areaW, areaB, (uint16_t)(areaW + 6), areaB };
+    for(uint8_t i = 0; i < 4; i++)
         scoreNum(jay, pgm_read_byte(&SC_CELLS[i][0]),
                  pgm_read_byte(&SC_CELLS[i][1]), vals[i]);
 }
@@ -198,7 +202,7 @@ void Display::renderGameOver() {
             (game.resignedBy == WHITE ? GO_WRES : GO_BRES), 0);
         return;
     }
-    uint8_t w = game.winner();
+    uint8_t w = game.areaWinner();
     jay.drawPromptPgm(22, (const __FlashStringHelper *)
         (w == BLACK ? GO_BWIN : GO_WWIN), 0);
 }

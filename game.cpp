@@ -251,13 +251,3 @@ uint8_t Game::areaWinner() {
     uint16_t whiteScore = (territory[1] + ws) * 2 + kpieces;
     return (blackScore > whiteScore) ? BLACK : WHITE;
 }
-uint8_t Game::winner() {
-    if(resignedBy) return 3 - resignedBy;
-    // Japanese scoring: territory + captures
-    // Black score = territory[0] + captures[0]
-    // White score = territory[1] + captures[1] + komi
-    // kpieces is komi in half-points (13 = 6.5)
-    uint16_t blackScore = (territory[0] + captures[0]) * 2;
-    uint16_t whiteScore = (territory[1] + captures[1]) * 2 + kpieces;
-    return (blackScore > whiteScore) ? BLACK : WHITE;
-}
