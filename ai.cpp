@@ -201,7 +201,9 @@ uint8_t AI::chooseMove(Game &game) {
 #define NODE_POOL_EXT 69
 #define NODE_POOL (NODE_POOL_SB + NODE_POOL_EXT) // must stay < 255 (8-bit links)
 #ifndef MCTS_ITERATIONS
+#ifndef MCTS_ITERATIONS
 #define MCTS_ITERATIONS 400 // must stay under ~3400: 12-bit visit counters
+#endif
 #endif
 #ifndef RAVE_K
 #define RAVE_K 300          // Gelly-Silver beta schedule constant
@@ -650,6 +652,12 @@ static uint8_t simKomi;
 // (not max-biased) evaluation of the root position. Read by the host
 // test tools; costs two counters on-device.
 static uint16_t thinkSims, thinkSimWins;
+#ifdef STABLE_STOP
+#ifndef STABLE_K
+#define STABLE_K 128
+#endif
+static uint16_t ssSince; static uint8_t ssPrev;
+#endif
 #if !defined(ARDUINO) || defined(VKOMI_WIN)
 // Device carries this int32 only with VKOMI_WIN (v2 margin-engage signal).
 // NOTE the bias caveat in the host-diagnostic comment below applies here
@@ -5785,6 +5793,9 @@ void AI::think(Game &game) {
     poolUsed = 0;
     freeHead = 0xFF;
     thinkSims = thinkSimWins = 0;
+#ifdef STABLE_STOP
+    ssSince = 0; ssPrev = 0xFF;
+#endif
 #ifdef VKOMI_WIN
     thinkVirtWins = 0;
 #ifdef VKW_FORCE
@@ -5870,7 +5881,12 @@ void AI::think(Game &game) {
                 uint16_t v = nVisits(c);
                 if(v < POISONED && v > bv) { bv = v; bc = c; }
             }
-            if(bc != dpPrevBest) { dpPrevBest = bc; dpLastChange = i; }
+            if(bc != dpPrevBest) {
+                dpPrevBest = bc; dpLastChange = i;
+#if !defined(ARDUINO)
+                fprintf(stderr, "DPCHG %u\n", i);
+#endif
+            }
         }
 #endif
         // Flat-root check at budget end (see UNCERTAIN_MIN)
@@ -5923,14 +5939,29 @@ void AI::think(Game &game) {
         // almost always implies a dominant LCB, but not provably.
         if((i & 15) == 15) {
             uint16_t top1 = 0, top2 = 0;
+#ifdef STABLE_STOP
+            uint8_t argmax = 0xFF;
+#endif
             for(uint8_t c = node(0).firstChild; c != 0xFF; c = node(c).nextSibling) {
                 uint16_t v = nVisits(c);
                 if(v >= POISONED) continue;
                 if(v > top1) {
                     top2 = top1; top1 = v;
+#ifdef STABLE_STOP
+                    argmax = node(c).move;
+#endif
                 }
                 else if(v > top2) top2 = v;
             }
+#ifdef STABLE_STOP
+            // Stable-leader stop (iterations-arc A2): if the visit-argmax
+            // hasn't changed for STABLE_K iterations past the floor, the
+            // pick almost never changes -- bank the remainder. K is priced
+            // offline from the freeze-point change-timeline data.
+            if(argmax != ssPrev) { ssPrev = argmax; ssSince = 0; }
+            else if((uint16_t)(ssSince += 16) >= STABLE_K && i >= total / 4)
+                break;
+#endif
             // Probabilistic early-stop (was: exact `lead > remaining`).
             // 2nd overtaking the leader needs it to win most of the
             // remaining budget, but UCB keeps feeding the leader -- so a
@@ -5945,6 +5976,10 @@ void AI::think(Game &game) {
     thinkItersBudget += total;
     thinkAvgMargin2 = thinkSims
         ? (int16_t)(thinkMargin2Sum / (int32_t)thinkSims) : 0;
+#ifdef DECIDE_PROBE
+    fprintf(stderr, "DPEND total=%u run=%u stones=%u lastchg=%u\n",
+            total, (unsigned)thinkSims, rootStones, dpLastChange);
+#endif
 #endif
 
     // Resignation check (see RESIGN_* above), two tiers
