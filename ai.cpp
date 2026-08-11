@@ -686,6 +686,26 @@ static uint8_t nRootVitals;
 static uint8_t nakVitals[2];
 static uint8_t nNakVitals;
 #endif
+#ifdef CONTESTED_VITAL
+// Contested-eyespace KILL CAMPAIGN (endgame-arc P4) — MEASURED DEAD, all 3
+// iterations, on the 32-event death census (belief = ownVote on the dying
+// stones vs KataGo ownership ground truth; census loop = minutes, no
+// gauntlets spent): (1) symmetric gate probes: belief +3.8 WRONG WAY
+// (sealing is one move, killing is many -> helps the defender); (2)
+// killer-only gate probes: +4.4 (throw-ins into small eyespaces get
+// captured by the random defender -> feed prisoners, clean the eye);
+// (3) THIS outside-in liberty campaign: +6.7, worst (approach moves
+// shorten the killer's own liberties -> random play initiates capturing
+// races it cannot finish; a lost initiated race reads "victim alive").
+// VERDICT: directed aggression in random playouts makes victims look MORE
+// alive at every probe-expressible complexity; ordered kills need a real
+// bounded race solver (the priced tier-up). Kept for the census harness
+// (test/deathcensus.cpp + /tmp/death_events.h regenerate the loop).
+#define CV_MAXLIBS 6
+static uint8_t cvLibs[CV_MAXLIBS]; // victim wall's outside libs, then gate
+static uint8_t nCvLibs;
+static uint8_t cvKiller2;          // the invading color (probes killer-only)
+#endif
 // Liberty carryover: a gated simPlay floods the placed group anyway;
 // the next playout move classifies that same group on an unchanged
 // board, so the result is cached instead of re-flooded.
@@ -3086,6 +3106,9 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
 #ifdef NAKADE
             || nNakVitals
 #endif
+#ifdef CONTESTED_VITAL
+            || nCvLibs
+#endif
            ) && !((rb >> 7) & 7)) {
             uint8_t vp = 0xFF;
             for(uint8_t i = 0; i < nRootVitals; i++)
@@ -3098,6 +3121,14 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                 for(uint8_t i = 0; i < nNakVitals; i++)
                     if(simBoard[nakVitals[i]] == EMPTY) {
                         vp = nakVitals[i];
+                        break;
+                    }
+#endif
+#ifdef CONTESTED_VITAL
+            if(vp == 0xFF && toMove == cvKiller2)
+                for(uint8_t i = 0; i < nCvLibs; i++)
+                    if(simBoard[cvLibs[i]] == EMPTY) {
+                        vp = cvLibs[i];
                         break;
                     }
 #endif
@@ -3564,6 +3595,60 @@ static void ldClassify() {
 }
 #endif
 
+#ifdef CONTESTED_VITAL
+// Contested-eyespace vitals (endgame-arc P4, 2026-08-11). The death census
+// (32 stone-death events from human close losses, ownership-verified) showed
+// the biggest bleeds are groups reduced to one small BOTH-color eyespace —
+// regionVital's designed blind spot — and the retired ALMOST_VITAL window
+// (size 3-6, poke 1-2, unique gate; e8816f3) catches only 1/11: real fights
+// have 2-3 gates, 1-3 invaders, eyespaces down to 1-2 cells. This window is
+// FITTED TO THE CENSUS (catches 10/11): size <= 6; wall >= 3 stones (>= 2
+// for 1-2 cell remnants); 1-3 poke stones; gate = the region cell touching
+// the most poke stones. Feeds the playout probe list only (cvVitals),
+// regionVital and its tuned consumers never see contested regions.
+static uint16_t contestedVital(uint8_t seed) {
+    uint8_t region[SETTLED_REGION_MAX];
+    uint8_t cnt = 0, head = 0;
+    uint8_t nB = 0, nW = 0;
+    newMark();
+    region[cnt++] = seed;
+    simMark[seed] = markEpoch;
+    while(head < cnt) {
+        uint8_t q;
+        FOR_EACH_NEIGHBOR(q, region[head++]) {
+            uint8_t st = simBoard[q];
+            if(st != EMPTY) {
+                if(simMark[q] != markEpoch) {  // count each stone once
+                    simMark[q] = markEpoch;
+                    if(st == BLACK) nB++; else nW++;
+                }
+                continue;
+            }
+            if(simMark[q] == markEpoch) continue;
+            if(cnt >= SETTLED_REGION_MAX) return 0xFFFF; // big = not eyespace
+            simMark[q] = markEpoch;
+            region[cnt++] = q;
+        }
+    }
+    if(cnt > 6) return 0xFFFF;
+    uint8_t minority = nB < nW ? nB : nW;
+    uint8_t majority = nB < nW ? nW : nB;
+    if(minority < 1 || minority > 3) return 0xFFFF;
+    if(majority < ((cnt <= 2) ? 2 : 3)) return 0xFFFF;
+    uint8_t pokeColor = nB < nW ? BLACK : WHITE;
+    // gate = busiest entry (most poke contacts); no contact = not poked here
+    uint8_t gate = 0xFF, best = 0;
+    for(uint8_t j = 0; j < cnt; j++) {
+        uint8_t q, np = 0;
+        FOR_EACH_NEIGHBOR(q, region[j])
+            if(simBoard[q] == pokeColor) np++;
+        if(np > best) { best = np; gate = region[j]; }
+    }
+    if(gate == 0xFF) return 0xFFFF;
+    return (uint16_t)gate | ((uint16_t)pokeColor << 8);
+}
+#endif
+
 // Fill simBoard from the game and collect the eyespace vital points.
 // Shared by think() and scoreDead().
 static void unpackBoard(Game &game);
@@ -3576,6 +3661,74 @@ static void loadRootBoard(Game &game) {
         if((uint8_t)rv && (rv >> 8) == i)
             rootVitals[nRootVitals++] = i;
     }
+#ifdef CONTESTED_VITAL
+    // Contested-eyespace pass: pick the SMALLEST admitted region (most
+    // lethal), then build the campaign target list: the victim wall's
+    // outside liberties (BFS over the wall chains bordering the region),
+    // gate LAST. Playouts walk the list killer-only, outside-in.
+    nCvLibs = 0; cvKiller2 = 0;
+    {
+        uint8_t cvSeen[11];
+        memset(cvSeen, 0, sizeof(cvSeen));
+        uint8_t bestGate = 0xFF, bestKiller = 0, bestSize = 0xFF;
+        uint8_t bestSeed = 0xFF;
+        for(uint8_t i = 0; i < BOARD_CELLS; i++) {
+            if(simBoard[i] != EMPTY) continue;
+            if(cvSeen[i >> 3] & bitMask(i)) continue;
+            uint16_t g = contestedVital(i);
+            uint8_t rsz = 0;
+            for(uint8_t j = 0; j < BOARD_CELLS; j++)
+                if(simBoard[j] == EMPTY && simMark[j] == markEpoch) {
+                    cvSeen[j >> 3] |= bitMask(j);
+                    rsz++;
+                }
+            if(g != 0xFFFF && rsz < bestSize) {
+                bestSize = rsz; bestGate = (uint8_t)g;
+                bestKiller = (uint8_t)(g >> 8); bestSeed = i;
+            }
+        }
+        if(bestGate != 0xFF) {
+            cvKiller2 = bestKiller;
+            uint8_t victim = 3 - bestKiller;
+            // re-flood the winning region to re-establish its marks
+            (void)contestedVital(bestSeed);
+            // BFS the victim wall chains adjacent to the region; collect
+            // their liberties OUTSIDE the region (region cells carry the
+            // current markEpoch)
+            uint8_t stack[BOARD_CELLS]; uint8_t sp = 0;
+            uint8_t wseen[11]; memset(wseen, 0, sizeof(wseen));
+            for(uint8_t j = 0; j < BOARD_CELLS; j++) {
+                if(simBoard[j] != EMPTY || simMark[j] != markEpoch) continue;
+                uint8_t q;
+                FOR_EACH_NEIGHBOR(q, j)
+                    if(simBoard[q] == victim && !(wseen[q >> 3] & bitMask(q))) {
+                        wseen[q >> 3] |= bitMask(q);
+                        stack[sp++] = q;
+                    }
+            }
+            uint8_t libseen[11]; memset(libseen, 0, sizeof(libseen));
+            while(sp && nCvLibs < CV_MAXLIBS - 1) {
+                uint8_t u = stack[--sp];
+                uint8_t q;
+                FOR_EACH_NEIGHBOR(q, u) {
+                    if(simBoard[q] == victim) {
+                        if(!(wseen[q >> 3] & bitMask(q))) {
+                            wseen[q >> 3] |= bitMask(q);
+                            stack[sp++] = q;
+                        }
+                    } else if(simBoard[q] == EMPTY &&
+                              simMark[q] != markEpoch &&      // outside the eyespace
+                              !(libseen[q >> 3] & bitMask(q))) {
+                        libseen[q >> 3] |= bitMask(q);
+                        if(nCvLibs < CV_MAXLIBS - 1)
+                            cvLibs[nCvLibs++] = q;
+                    }
+                }
+            }
+            cvLibs[nCvLibs++] = bestGate;   // the eyespace gate goes LAST
+        }
+    }
+#endif
 #ifdef NAKADE
     // Second pass: eyespaces containing enclosed prey (nakadeVital).
     // Disjoint from the pass above by construction -- these regions
