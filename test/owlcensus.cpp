@@ -23,6 +23,7 @@ int main() {
             else { game.playMove(m % 9, m / 9); ai.notifyMove(m % 9, m / 9); }
         }
         loadRootBoard(game);
+        unpackBoard(game);   // pristine simBoard (bypass scan side-effects)
         uint8_t seed = (uint8_t)E_CELLS[e][0];
         if(simBoard[seed] != E_ARDU[e]) { skipped++; continue; }
         clock_t t0 = clock();

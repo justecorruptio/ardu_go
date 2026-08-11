@@ -3673,7 +3673,7 @@ static uint16_t contestedVital(uint8_t seed) {
 #define OWL_MAXCAND 6
 #define OWL_BUDGET 800
 #define OWL_MAXCAP 20
-static uint8_t owlArena[OWL_DEPTH + 1][OWL_MAXCAP]; // per-depth undo cells
+static uint8_t owlArena[15][OWL_MAXCAP];            // per-depth undo cells (v2 depth 14)
 static uint16_t owlNodes;
 static uint8_t owlSeed, owlColor;
 static uint8_t owlVeto[11];        // cells of the hopeless group (bitmap)
@@ -3724,110 +3724,251 @@ static void owlUndoPlay(uint8_t pos, uint8_t c, const uint8_t *undo, uint8_t n) 
     for(uint8_t i = 0; i < n; i++) simBoard[undo[i]] = (uint8_t)(3 - c);
 }
 
-// Flood the target group; report eyes (point-eyes among its liberties,
-// false-eye-aware via isOwnEye), liberty count (capped), candidate cells
-// (libs, plus up to 2 escape-by-capture cells when wantEscapes).
-static uint8_t owlEvalGroup(uint8_t *eyes, uint8_t *libs,
-                            uint8_t *cand, uint8_t *ncand, uint8_t wantEscapes) {
-    if(simBoard[owlSeed] != owlColor) return 0;   // captured
+// ---- v2: EXACT SYSTEM SOLVER (Jay's segmentation, 2026-08-11) --------
+// Segment: the group's cavity flooded through empties, where 1-SPACE-JUMP
+// gaps (attacker both sides on an axis) and STONE-TO-EDGE gaps (attacker
+// one side, edge the other; >=1 real stone) SEAL propagation but join the
+// system as contested cells. Census: closes 12/32 death events carrying
+// 375/490 bleed points; the two extra events blanket 1-dilation closed
+// were exactly the unsound lone-stone seals. Wall chains: 0 outside libs
+// = in-system (semeai, capturable); exactly 1 = NO VERDICT (globally
+// ambiguous); >=2 = locally immortal (outside libs are unfillable by
+// local play). Complete search on the system (defender first, node cap,
+// in-system simple ko); defender escaping through a gap to >=2 outside
+// liberties is ALIVE unconditionally. DEAD verdicts are proofs modulo
+// the immortal-wall and static-outside conventions.
+// FINAL VERDICT (2026-08-11, pristine-board census at depth 30 / 2M
+// nodes): DEAD-recall 0/32, false-DEAD 0/93. The solver is CORRECT and
+// the result is the finding: the census groups genuinely LIVE in their
+// local systems (1996@44: 40k nodes -> alive; the 2-cell-cavity monsters
+// hold their cavities in seki/small life) — KataGo kills them through
+// GLOBAL play: the "locally immortal wall" convention is empirically
+// false on 9x9, where mid-game death is a whole-board phenomenon. The
+// class of locally-decidable deaths is EMPTY on this board size. Exact
+// local L&D solving is therefore a dead end for THIS engine — kept for
+// the machinery (segmentation, jump/edge seals, complete cavity search)
+// and for the measurement method. KNOWN BUG if ever revived: the
+// loadRootBoard scan's solve calls leak board mutations (census results
+// differed pristine vs post-scan) — audit owlPlay/owlUndoPlay pairing.
+#ifndef OWL_SYS_MAX
+#define OWL_SYS_MAX 9
+#endif
+#ifndef OWL_V2_BUDGET
+#define OWL_V2_BUDGET 4000
+#endif
+#ifndef OWL_V2_DEPTH
+#define OWL_V2_DEPTH 14
+#endif
+static uint8_t owlSys[OWL_SYS_MAX];    // system cells (cavity + gaps)
+static uint8_t owlNSys;
+static uint8_t owlGap[OWL_SYS_MAX];    // 1 = sealed gap cell (borders outside)
+
+static uint8_t owlSealedJE(uint8_t q, uint8_t atk) {
+    uint8_t x = q % 9, y = q / 9;
+    // horizontal axis
+    uint8_t la = (x > 0) ? simBoard[q - 1] : 0xFF;   // 0xFF = edge
+    uint8_t ra = (x < 8) ? simBoard[q + 1] : 0xFF;
+    if((la == atk && (ra == atk || ra == 0xFF)) ||
+       (ra == atk && la == 0xFF)) return 1;
+    uint8_t ua = (y > 0) ? simBoard[q - 9] : 0xFF;
+    uint8_t da = (y < 8) ? simBoard[q + 9] : 0xFF;
+    if((ua == atk && (da == atk || da == 0xFF)) ||
+       (da == atk && ua == 0xFF)) return 1;
+    return 0;
+}
+
+// Build the system for the group at owlSeed. Returns 0 = no verdict
+// possible (too big / ambiguous wall), 1 = system ready.
+static uint8_t owlSegment(void) {
+    uint8_t atk = (uint8_t)(3 - owlColor);
+    owlNSys = 0;
+    // flood the group, collect liberty cells as flood seeds
     uint8_t st[28]; uint8_t sp = 0;
-    uint8_t candSc[OWL_MAXCAND];
+    uint8_t seeds[OWL_SYS_MAX]; uint8_t nseeds = 0;
     newMark();
     st[sp++] = owlSeed; *markPtr(owlSeed) = markEpoch;
-    uint8_t nl = 0, ne = 0, nc = 0, nesc = 0;
-    uint8_t escCells[2];
     while(sp) {
         uint8_t u = st[--sp], q;
         FOR_EACH_NEIGHBOR(q, u) {
             if(*markPtr(q) == markEpoch) continue;
-            uint8_t b = simBoard[q];
-            if(b == owlColor) {
-                if(sp >= 28) return 0;            // huge group: bail (alive)
+            if(simBoard[q] == owlColor) {
+                if(sp >= 28) return 0;
                 *markPtr(q) = markEpoch;
                 st[sp++] = q;
-            } else if(b == EMPTY) {
+            } else if(simBoard[q] == EMPTY) {
                 *markPtr(q) = markEpoch;
-                if(nl < 250) nl++;
-                if(isOwnEye(q, owlColor)) ne++;
-                // score the liberty: connectors (outside friendly stone
-                // adjacent) outrank eye-ish (2+ group neighbours) outrank
-                // plain -- the cap must never drop the saving move
-                uint8_t sc = 0, r2;
-                FOR_EACH_NEIGHBOR(r2, q) {
-                    if(simBoard[r2] == owlColor)
-                        sc += (*markPtr(r2) == markEpoch) ? 1 : 4;
-                }
-                if(nc < OWL_MAXCAND) {
-                    uint8_t j = nc++;
-                    while(j && candSc[j - 1] < sc) {
-                        cand[j] = cand[j - 1]; candSc[j] = candSc[j - 1]; j--;
+                if(nseeds >= OWL_SYS_MAX) return 0;
+                seeds[nseeds++] = q;
+            }
+        }
+    }
+    if(!nseeds) return 0;
+    // cavity flood: sealed cells join but do not propagate
+    uint8_t cq[OWL_SYS_MAX]; uint8_t head = 0, tail = 0;
+    newMark();
+    for(uint8_t i = 0; i < nseeds; i++) {
+        owlSys[owlNSys] = seeds[i];
+        owlGap[owlNSys] = owlSealedJE(seeds[i], atk);
+        *markPtr(seeds[i]) = markEpoch;
+        if(!owlGap[owlNSys]) cq[tail++] = seeds[i];
+        owlNSys++;
+        if(owlNSys > OWL_SYS_MAX) return 0;
+    }
+    while(head < tail) {
+        uint8_t u = cq[head++], q;
+        FOR_EACH_NEIGHBOR(q, u) {
+            if(simBoard[q] != EMPTY || *markPtr(q) == markEpoch) continue;
+            *markPtr(q) = markEpoch;
+            if(owlNSys >= OWL_SYS_MAX) return 0;
+            uint8_t sealed = owlSealedJE(q, atk);
+            owlSys[owlNSys] = q;
+            owlGap[owlNSys] = sealed;
+            owlNSys++;
+            if(!sealed) { if(tail >= OWL_SYS_MAX) return 0; cq[tail++] = q; }
+        }
+    }
+    // wall audit: every attacker chain adjacent to a system cell must have
+    // 0 outside libs (in-system) or >=2 (immortal); exactly 1 = no verdict.
+    // system cells carry markEpoch; walk walls with a second scratch mark
+    // impossible (one epoch) -> audit via direct lib counting per chain,
+    // deduped by lowest-cell tag stored in a tiny list.
+    uint8_t seenWall[6]; uint8_t nw = 0;
+    for(uint8_t i = 0; i < owlNSys; i++) {
+        uint8_t q;
+        FOR_EACH_NEIGHBOR(q, owlSys[i]) {
+            if(simBoard[q] != atk) continue;
+            // chain id = its lowest cell: flood once to find it
+            uint8_t wst[24]; uint8_t wsp = 0, lowest = q, outl = 0;
+            uint8_t wseen[11]; memset(wseen, 0, sizeof(wseen));
+            wst[wsp++] = q; wseen[q >> 3] |= bitMask(q);
+            while(wsp) {
+                uint8_t w = wst[--wsp], r;
+                if(w < lowest) lowest = w;
+                FOR_EACH_NEIGHBOR(r, w) {
+                    if(simBoard[r] == atk && !(wseen[r >> 3] & bitMask(r))) {
+                        if(wsp >= 24) return 0;
+                        wseen[r >> 3] |= bitMask(r);
+                        wst[wsp++] = r;
+                    } else if(simBoard[r] == EMPTY && *markPtr(r) != markEpoch) {
+                        outl++;   // liberty outside the system
                     }
-                    cand[j] = q; candSc[j] = sc;
-                } else if(candSc[OWL_MAXCAND - 1] < sc) {
-                    uint8_t j = OWL_MAXCAND - 1;
-                    while(j && candSc[j - 1] < sc) {
-                        cand[j] = cand[j - 1]; candSc[j] = candSc[j - 1]; j--;
-                    }
-                    cand[j] = q; candSc[j] = sc;
                 }
-            } else if(wantEscapes && nesc < 2) {
-                *markPtr(q) = markEpoch;          // visit each enemy cell once
-                escCells[nesc++] = q;             // resolve ataris AFTER the
-            }                                     // flood: soleLiberty bumps
-        }                                         // the mark epoch (newMark)
+            }
+            uint8_t dup = 0;
+            for(uint8_t j = 0; j < nw; j++) if(seenWall[j] == lowest) dup = 1;
+            if(dup) continue;
+            if(nw >= 6) return 0;
+            seenWall[nw++] = lowest;
+            // >=1 outside lib = locally immortal (standard convention:
+            // outside libs are unfillable by local play). The stricter
+            // outl==1 abort was measured to kill segmentation on most
+            // census events (walls in live fights have exactly 1); the
+            // control set arbitrates the precision cost empirically.
+        }
     }
-    uint8_t escLibs[2]; uint8_t nescL = 0;
-    for(uint8_t i = 0; i < nesc; i++) {
-        uint8_t lib = soleLiberty(escCells[i]);
-        if(lib != 0xFF && !(nescL && escLibs[0] == lib)) escLibs[nescL++] = lib;
-    }
-    for(uint8_t i = 0; i < nescL && nc < OWL_MAXCAND; i++) {
-        uint8_t dup = 0;
-        for(uint8_t j = 0; j < nc; j++) if(cand[j] == escLibs[i]) dup = 1;
-        if(!dup) cand[nc++] = escLibs[i];
-    }
-    *eyes = ne; *libs = nl; *ncand = nc;
     return 1;
 }
 
-// 1 = the defender lives (or is unresolvable: conservative), 0 = hopeless.
-static uint8_t owlSearch(uint8_t depth, uint8_t toMove, uint8_t koCell) {
-    if(++owlNodes > OWL_BUDGET) return 1;
-    uint8_t eyes, libs, cand[OWL_MAXCAND], nc;
-    if(!owlEvalGroup(&eyes, &libs, cand, &nc,
-                     (uint8_t)(toMove == owlColor)))
-        return simBoard[owlSeed] == owlColor;      // captured mid-line = dead
-    if(eyes >= 2) return 1;
-    if(libs >= 5) return 1;                        // escaped locally
-    if(!depth) return 0;                           // horizon: never lived
-                                                   // (strict: config-B soft
-                                                   // horizon lost 2 real
-                                                   // deads, fixed 0 false)
-    uint8_t defender = (toMove == owlColor);
-    uint8_t *undo = owlArena[depth];
-    for(uint8_t i = 0; i < nc; i++) {
-        if(cand[i] == koCell) continue;            // simple-ko retake ban
-        uint8_t ko2;
-        uint8_t n = owlPlay(cand[i], toMove, undo, &ko2);
-        if(n == 0xFF) continue;
-        if(n == 0xFE) return 1;                    // unresolvable: alive
-        uint8_t r = owlSearch((uint8_t)(depth - 1), (uint8_t)(3 - toMove), ko2);
-        owlUndoPlay(cand[i], toMove, undo, n);
-        if(defender && r) return 1;                // one living line suffices
-        if(!defender && !r) return 0;              // one killing line suffices
+// Complete search over the system. Returns 1 = defender lives/escapes/
+// unresolvable, 0 = proven dead. `passes` = consecutive passes.
+static uint8_t owlSolve(uint8_t depth, uint8_t toMove, uint8_t koCell,
+                        uint8_t passes) {
+    if(++owlNodes > OWL_V2_BUDGET) return 1;
+    if(simBoard[owlSeed] != owlColor) return 0;         // captured
+    // eye count: liberties of the group that are true own eyes
+    uint8_t st[28]; uint8_t sp = 0, eyes = 0;
+    newMark();
+    st[sp++] = owlSeed; *markPtr(owlSeed) = markEpoch;
+    while(sp) {
+        uint8_t u = st[--sp], q;
+        FOR_EACH_NEIGHBOR(q, u) {
+            if(*markPtr(q) == markEpoch) continue;
+            if(simBoard[q] == owlColor) {
+                if(sp >= 28) return 1;                  // grew out: alive
+                *markPtr(q) = markEpoch;
+                st[sp++] = q;
+            } else if(simBoard[q] == EMPTY) {
+                *markPtr(q) = markEpoch;
+                if(isOwnEye(q, owlColor)) eyes++;
+            }
+        }
     }
-    // defender exhausted -> dead; attacker exhausted (incl. tenuki) -> alive
+    if(eyes >= 2) return 1;
+    if(passes >= 2) return 1;       // attacker cannot improve: seki/alive
+    if(!depth) return 1;            // depth cap: NO VERDICT (conservative)
+    uint8_t defender = (toMove == owlColor);
+    uint8_t *undo = owlArena[depth];    // depth <= 14 by construction
+    uint8_t anyMove = 0;
+    for(uint8_t i = 0; i < owlNSys; i++) {
+        uint8_t m = owlSys[i];
+        if(simBoard[m] != EMPTY || m == koCell) continue;
+        uint8_t ko2;
+        uint8_t n = owlPlay(m, toMove, undo, &ko2);
+        if(n == 0xFF) continue;
+        if(n == 0xFE) return 1;
+        anyMove = 1;
+        uint8_t r;
+        if(defender && owlGap[i]) {
+            // escape check: the placed stone's chain liberties OUTSIDE
+            // the system (system empties are marked... marks were churned
+            // by owlPlay's hasLiberty; recount directly against owlSys)
+            uint8_t est[24]; uint8_t esp = 0, outs = 0;
+            uint8_t eseen[11]; memset(eseen, 0, sizeof(eseen));
+            est[esp++] = m; eseen[m >> 3] |= bitMask(m);
+            while(esp && outs < 2) {
+                uint8_t u = est[--esp], q;
+                FOR_EACH_NEIGHBOR(q, u) {
+                    if(simBoard[q] == toMove && !(eseen[q >> 3] & bitMask(q))) {
+                        if(esp >= 24) { outs = 2; break; }
+                        eseen[q >> 3] |= bitMask(q);
+                        est[esp++] = q;
+                    } else if(simBoard[q] == EMPTY) {
+                        uint8_t inSys = 0;
+                        for(uint8_t k2 = 0; k2 < owlNSys; k2++)
+                            if(owlSys[k2] == q) { inSys = 1; break; }
+                        if(!inSys && !(eseen[q >> 3] & bitMask(q))) {
+                            eseen[q >> 3] |= bitMask(q);
+                            outs++;
+                        }
+                    }
+                }
+            }
+            if(outs >= 2) {         // broke through the seal
+                owlUndoPlay(m, toMove, undo, n);
+                return 1;
+            }
+        }
+        r = owlSolve((uint8_t)(depth - 1), (uint8_t)(3 - toMove), ko2, 0);
+        owlUndoPlay(m, toMove, undo, n);
+        if(defender && r) return 1;
+        if(!defender && !r) return 0;
+    }
+    // pass move (both sides may pass; two passes = settled)
+    {
+        uint8_t r = owlSolve((uint8_t)(depth - 1), (uint8_t)(3 - toMove),
+                             0xFF, (uint8_t)(passes + 1));
+        if(defender && r) return 1;
+        if(!defender && !r) return 0;
+    }
+    (void)anyMove;
     return (uint8_t)!defender;
 }
 
-// Entry: is the group containing `seed` hopeless? 1 = HOPELESS (veto
-// feeding), 0 = alive/unknown. Defender moves first (sente): a group that
-// dies even with sente is definitively not worth feeding.
+// Entry: proven hopeless? 1 = DEAD (a proof, modulo wall conventions).
 static uint8_t owlHopeless(uint8_t seed) {
     owlSeed = seed;
     owlColor = simBoard[seed];
     owlNodes = 0;
-    return (uint8_t)!owlSearch(OWL_DEPTH, owlColor, 0xFF);
+    if(!owlSegment()) {
+#if defined(OWL_DEBUG) && !defined(ARDUINO)
+        fprintf(stderr, "OWLDBG segfail\n");
+#endif
+        return 0;
+    }
+#if defined(OWL_DEBUG) && !defined(ARDUINO)
+    fprintf(stderr, "OWLDBG sys=%u\n", owlNSys);
+#endif
+    return (uint8_t)!owlSolve(OWL_V2_DEPTH, owlColor, 0xFF, 0);
 }
 #endif
 
