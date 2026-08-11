@@ -5160,6 +5160,13 @@ __attribute__((optimize("O2")))
 static inline uint16_t winRate6(uint16_t w, uint16_t v) {
     // 7-step restoring divide floor(w*64/v), quotient in [0,64]. Hand-
     // unrolled: no bit counter / loop branch (out-of-line, one copy).
+#if !defined(ARDUINO) || (MCTS_ITERATIONS * 3 / 2) > 1023
+    // High-budget guard (iterations-arc, 2026-08-11): v<<6 wraps uint16 at
+    // v>=1024 — a dominant child past 1023 visits reads a garbage (tiny)
+    // win rate, inverting the pick. Reachable once budget*1.5 > 1023
+    // (extended thinks); pre-scale preserves the ratio, Q6 error <=1/256.
+    if(v >= 1024) { w >>= 2; v >>= 2; }
+#endif
     uint16_t num = w << 6, d = v << 6, q = 0;
     if(num >= d) { num -= d; q |= 64; } d >>= 1;
     if(num >= d) { num -= d; q |= 32; } d >>= 1;
