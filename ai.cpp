@@ -5497,6 +5497,25 @@ void AI::think(Game &game) {
                 if(v < POISONED && v > lead) lead = v;
             }
             if(lead < UNCERTAIN_MIN) total += iters / 2;
+            // Dose knobs (endgame-arc P2, 2026-08-11): band 45-55%
+            // (LO 9 / HI 11 twentieths) and +50% (AMT 1) are the shipped
+            // defaults. Extension trace census: extensions fire ONLY
+            // mid/end (~1/15 thinks), ZERO in the opening (the opening-
+            // gate idea was a no-op; 27s opening moves = the 600-iter
+            // boost x costlier early playouts). DOSE SWEEP MEASURED
+            // NEUTRAL: L0 n=1000 x2/band/both all +0.4..0.5pp n.s.;
+            // human n=1000 x2 -1.2pp / both +1.2pp (opposite signs,
+            // both contain AMT=2 -> noise). The clutch is SATURATED at
+            // its shipped dose (matches the CLUTCH2 verdict).
+#ifndef CLUTCH_LO
+#define CLUTCH_LO 9
+#endif
+#ifndef CLUTCH_HI
+#define CLUTCH_HI 11
+#endif
+#ifndef CLUTCH_AMT
+#define CLUTCH_AMT 1
+#endif
             // Clutch extension (2026-08): the flat-root check above
             // fires on visit flatness; this complements it on
             // EVALUATION closeness -- a root the playouts score 45-55%
@@ -5505,9 +5524,11 @@ void AI::think(Game &game) {
             // Paired 2000 vs GnuGo L0: +26 (20.0% vs 18.7%), both
             // 1000-game samples positive, for +6.9% total compute
             // (~1 in 7 thinks extends; ~20s vs 13.5s on device).
-            else if((uint32_t)thinkSimWins * 20 > (uint32_t)thinkSims * 9 &&
-                    (uint32_t)thinkSimWins * 20 < (uint32_t)thinkSims * 11)
-                total += iters / 2;
+            else if((uint32_t)thinkSimWins * 20 >
+                        (uint32_t)thinkSims * CLUTCH_LO &&
+                    (uint32_t)thinkSimWins * 20 <
+                        (uint32_t)thinkSims * CLUTCH_HI)
+                total += (iters * CLUTCH_AMT) / 2;
         }
 
         // Early stop when the visit leader's margin exceeds the
