@@ -92,6 +92,34 @@ static uint8_t rnd(uint8_t n);
                         // saturation. Resign timing unchanged.)
 static uint8_t vKomi2;
 
+#ifdef VKOMI_WIN
+// Winning-side dynamic komi (endgame-arc P1, 2026-08-11): when comfortably
+// ahead, playouts must win by vKomiWin half-points, so the tree preserves
+// margin instead of coasting to the wire (phase-0: ~11 pts shed from peak,
+// win or lose). v2 engages on the MARGIN MEAN (playout wr reads 34-74% at
+// positions KataGo scores +30..+56 — wr can't see the win; the margin can),
+// demands at most half the cushion, releases on virtual-wr collapse.
+// MEASURED (MAX=32, human n=1000 paired + gauges): mechanism WORKS — wins
+// at-the-wire (0..2.5) 64->43/100 p<.003, comfortable (>6.5) 18->36, median
+// final +1.5->+3.3 — but WIN-RATE NEUTRAL (242->248 n.s.) and led-then-lost
+// unchanged (57->59%): the close losses die by 10-20pt group deaths the
+// playouts APPROVE (L&D blindness) — margin demand can't veto what the eval
+// can't price. L0 −0.7pp lean n.s.; +374B flash. OFF — revisit as a stack
+// if playout L&D perception ever improves.
+#ifndef VKW_STEP
+#define VKW_STEP 2      // half-points per think (= 1 point)
+#endif
+#ifndef VKW_MAX
+#define VKW_MAX 16      // demand at most this many half-points
+#endif
+#ifndef VKW_ENGAGE
+#define VKW_ENGAGE 16   // engage when mean playout margin exceeds this
+                        // many half-points (16 = 8 points of cushion)
+#endif
+static uint8_t vKomiWin;
+static uint16_t thinkVirtWins; // virtual-komi wins this think (release signal)
+#endif
+
 #ifdef TREUSE
 // Cross-move subtree reuse metadata (see the stash block above think):
 // reuseValid is zeroed by anything that clobbers the borrowed scratch
@@ -111,6 +139,9 @@ void AI::reset() {
     resignCount = 0;
     resignCount2 = 0;
     vKomi2 = 0;
+#ifdef VKOMI_WIN
+    vKomiWin = 0;
+#endif
 }
 
 void AI::notifyMove(uint8_t x, uint8_t y) {
@@ -619,6 +650,13 @@ static uint8_t simKomi;
 // (not max-biased) evaluation of the root position. Read by the host
 // test tools; costs two counters on-device.
 static uint16_t thinkSims, thinkSimWins;
+#if !defined(ARDUINO) || defined(VKOMI_WIN)
+// Device carries this int32 only with VKOMI_WIN (v2 margin-engage signal).
+// NOTE the bias caveat in the host-diagnostic comment below applies here
+// too: playouts can't kill eyespaced-dead groups, so the margin mean is
+// optimistically biased on exactly those boards.
+static int32_t thinkMargin2Sum;
+#endif
 #ifndef ARDUINO
 // Host diagnostic: mean root-relative TRUE margin (doubled points, komi
 // applied) across this think's playouts, annotated by play_gui as est=.
@@ -630,7 +668,6 @@ static uint16_t thinkSims, thinkSimWins;
 // The only honest ownership read is the scoreMode=1 vote (settleVote /
 // scoreDead). Kept as an SGF red-flag diagnostic: est far from the
 // eventual scoreDead count marks positions the playout policy misreads.
-static int32_t thinkMargin2Sum;
 int16_t thinkAvgMargin2;
 // Wait accounting for the FASTPLAY experiment: iterations actually
 // run vs budgeted, across all thinks (host tools print the ratio)
@@ -2822,6 +2859,11 @@ static uint8_t vKomiWinner() {
     int16_t bar = (int16_t)simKomi;
     if(rootTurn == BLACK) bar -= vKomi2;
     else bar += vKomi2;
+#ifdef VKOMI_WIN
+    // Winning side: raise the bar against the root player (must win by more)
+    if(rootTurn == BLACK) bar += vKomiWin;
+    else bar -= vKomiWin;
+#endif
     return lastMargin2 > bar ? BLACK : WHITE;
 }
 
@@ -4832,12 +4874,19 @@ static void mctsIterate(Game &game) {
     // the tree and RAVE learn under the virtual komi (see vKomi2)
     thinkSims++;
     if(winner == rootTurn) thinkSimWins++;
-#ifndef ARDUINO
+#if !defined(ARDUINO) || defined(VKOMI_WIN)
+    // (device pays this only with VKOMI_WIN: the margin mean is the v2
+    // engage signal — playout wr is miscalibrated at bleed sites)
     thinkMargin2Sum += (rootTurn == BLACK)
         ? (int16_t)(lastMargin2 - (int16_t)simKomi)
         : (int16_t)((int16_t)simKomi - lastMargin2);
 #endif
+#ifdef VKOMI_WIN
+    if(vKomi2 | vKomiWin) winner = vKomiWinner();
+    thinkVirtWins += (winner == rootTurn);
+#else
     if(vKomi2) winner = vKomiWinner();
+#endif
 
     // Fold this simulation into the root RAVE tables. Byte-walk the
     // mask: an all-zero byte skips 8 cells for one load, and the
@@ -5197,6 +5246,12 @@ void AI::think(Game &game) {
     poolUsed = 0;
     freeHead = 0xFF;
     thinkSims = thinkSimWins = 0;
+#ifdef VKOMI_WIN
+    thinkVirtWins = 0;
+#ifdef VKW_FORCE
+    vKomiWin = VKW_FORCE;   // bench-only: measure the active-path cost
+#endif
+#endif
 #ifndef ARDUINO
     thinkMargin2Sum = 0;
 #endif
@@ -5358,6 +5413,33 @@ void AI::think(Game &game) {
         } else if(w20 > (uint32_t)thinkSims * 11 && vKomi2) {
             vKomi2 -= VKOMI_STEP2;
         }
+#ifdef VKOMI_WIN
+        // v2 (probe-driven): engage on the MARGIN mean, not win-rate —
+        // at the phase-0 bleed sites the playout wr reads 34-74% while
+        // KataGo says +30..+56 (L&D-blind bimodal playouts), but the
+        // margin mean sees the win. Demand at most HALF the perceived
+        // cushion. Release (checked first, safety bias) on virtual-wr
+        // collapse (anti-flail), wr floor, margin fade, or vKomi2 waking
+        // (contradictory regimes must not fight).
+        int16_t am = (int16_t)(thinkMargin2Sum / (int32_t)thinkSims);
+        uint32_t v20 = (uint32_t)thinkVirtWins * 20;
+        if(vKomiWin &&
+           (v20 < (uint32_t)thinkSims * 9 ||        // virtual wr < 45%
+            w20 < (uint32_t)thinkSims * 10 ||       // true wr < 50%
+            vKomi2 ||
+            am < (int16_t)vKomiWin * 2)) {          // demand > half margin
+            vKomiWin = (vKomiWin > VKW_STEP) ? vKomiWin - VKW_STEP : 0;
+        } else if(!vKomi2 && w20 >= (uint32_t)thinkSims * 10 &&
+                  am > (int16_t)VKW_ENGAGE && vKomiWin < VKW_MAX &&
+                  (int16_t)(vKomiWin + VKW_STEP) * 2 <= am) {
+            vKomiWin += VKW_STEP;
+        }
+#if defined(VKW_DEBUG) && !defined(ARDUINO)
+        fprintf(stderr, "VKW %u am=%d true%lu%% virt%lu%% vk2=%u\n", vKomiWin,
+                am, (unsigned long)(100UL * thinkSimWins / thinkSims),
+                (unsigned long)(100UL * thinkVirtWins / thinkSims), vKomi2);
+#endif
+#endif
     }
 }
 
