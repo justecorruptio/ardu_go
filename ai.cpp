@@ -202,7 +202,11 @@ uint8_t AI::chooseMove(Game &game) {
 #define NODE_POOL (NODE_POOL_SB + NODE_POOL_EXT) // must stay < 255 (8-bit links)
 #ifndef MCTS_ITERATIONS
 #ifndef MCTS_ITERATIONS
-#define MCTS_ITERATIONS 400 // must stay under ~3400: 12-bit visit counters
+#define MCTS_ITERATIONS 1000 // SHIP (2026-08-11, iterations arc): pure-1000 x
+                             // stable-stop-512 = human 317/1000 vs base-400's
+                             // 242 (+7.5pp, chi2=15.9), L0 401 vs 362; ~18.5s
+                             // mean device move. Counters cap ~3400 (12-bit);
+                             // winRate6 guard active above ~680.
 #endif
 #endif
 #ifndef RAVE_K
@@ -447,7 +451,7 @@ uint8_t AI::chooseMove(Game &game) {
 // with the winning move sometimes nearly unvisited. One extra
 // half-budget, granted once, self-targets exactly those positions.
 #ifndef UNCERTAIN_MIN
-#define UNCERTAIN_MIN 48
+#define UNCERTAIN_MIN 0 // SHIP: extension off at 1000 base (see boost note)
 #endif
 
 // Resignation: real-playout win rate under ~8% (1/12) for this many
@@ -538,7 +542,9 @@ uint8_t AI::chooseMove(Game &game) {
 // move after book exit was a measured, repeated 14-26 point blunder.
 // 0 disables.
 #ifndef OPENING_BOOST_STONES
-#define OPENING_BOOST_STONES 14
+#define OPENING_BOOST_STONES 0 // SHIP: boost off — at 1000 base the extra
+                               // iterations land in the 1200-2000 dead
+                               // plateau (L0 five-way: pure 406 > ship 393)
 #endif
 #ifndef MERCY_MARGIN
 #define MERCY_MARGIN 25     // capture lead that ends a playout early
@@ -652,10 +658,15 @@ static uint8_t simKomi;
 // (not max-biased) evaluation of the root position. Read by the host
 // test tools; costs two counters on-device.
 static uint16_t thinkSims, thinkSimWins;
-#ifdef STABLE_STOP
 #ifndef STABLE_K
-#define STABLE_K 128
+#define STABLE_K 512 // SHIP: stable-leader stop at K=512 — full flat-1000
+                     // strength (human 317 vs 313) at ~12.5% fewer iters;
+                     // the human punishes K<=448 progressively (sweep:
+                     // 262/293/282/296/317 at K=256/320/384/448/512).
+                     // -DSTABLE_K=0 disables.
 #endif
+#if STABLE_K > 0
+#define STABLE_STOP 1
 static uint16_t ssSince; static uint8_t ssPrev;
 #endif
 #if !defined(ARDUINO) || defined(VKOMI_WIN)
@@ -5917,10 +5928,10 @@ void AI::think(Game &game) {
             // both contain AMT=2 -> noise). The clutch is SATURATED at
             // its shipped dose (matches the CLUTCH2 verdict).
 #ifndef CLUTCH_LO
-#define CLUTCH_LO 9
+#define CLUTCH_LO 0 // SHIP: clutch off at 1000 base (see boost note)
 #endif
 #ifndef CLUTCH_HI
-#define CLUTCH_HI 11
+#define CLUTCH_HI 0
 #endif
 #ifndef CLUTCH_AMT
 #define CLUTCH_AMT 1
