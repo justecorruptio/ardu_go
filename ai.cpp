@@ -3649,6 +3649,188 @@ static uint16_t contestedVital(uint8_t seed) {
 }
 #endif
 
+#ifdef OWL_LITE
+// ---- OWL-LITE (endgame-arc, 2026-08-11) -------------------------------
+// Bounded local life-status solver for ONE own group at the root. The
+// question is NOT full L&D but the anti-feeding question: "can this group
+// reach two eyes (or escape: 5+ libs, or capture an adjacent atari chain)
+// within OWL_DEPTH plies against best local resistance?" No line found =
+// HOPELESS -> the root pick vetoes moves that feed the group (the
+// rootSelfAtari veto pattern). Conservative by construction; unlike random
+// playouts this search EXECUTES ordered kills/saves.
+// MEASURED (2026-08-11): solver validated on the death census — 7/32
+// true-dead recall (incl. the −47.7/−37.8 monsters), 6/93 false-DEAD on
+// survivors, sub-ms, worst 164 nodes. THE VETO CONSUMER IS HARMFUL:
+// human n=1000 paired winrate 242->228 n.s. but scoreLead −2.05 t=−2.51
+// SIGNIFICANT — close losses 148->124 by sliding into BIGGER losses.
+// LESSON: true deaths are once-a-game events but the veto fires every
+// think, so a ~6% false-DEAD rate compounds (~3 vetoes/game) and each
+// false fire abandons a defensible group. A status verdict needs ~10x
+// that precision before ANY per-think consumer can profit. OFF; the
+// solver + census harness (test/owlcensus.cpp, death/control_events.h)
+// are the reusable parts.
+#define OWL_DEPTH 6
+#define OWL_MAXCAND 6
+#define OWL_BUDGET 800
+#define OWL_MAXCAP 20
+static uint8_t owlArena[OWL_DEPTH + 1][OWL_MAXCAP]; // per-depth undo cells
+static uint16_t owlNodes;
+static uint8_t owlSeed, owlColor;
+static uint8_t owlVeto[11];        // cells of the hopeless group (bitmap)
+static uint8_t owlVetoActive;
+
+// Remove the chain at p (color c); append its cells to undo, return count
+// (0xFE = overflow -> caller treats the position as unresolvable/alive).
+static uint8_t owlRemove(uint8_t p, uint8_t c, uint8_t *undo) {
+    uint8_t st[24]; uint8_t sp = 0, n = 0;
+    st[sp++] = p; simBoard[p] = EMPTY;
+    undo[n++] = p;
+    while(sp) {
+        uint8_t u = st[--sp], q;
+        FOR_EACH_NEIGHBOR(q, u)
+            if(simBoard[q] == c) {
+                if(n >= OWL_MAXCAP || sp >= 24) return 0xFE;
+                simBoard[q] = EMPTY;
+                undo[n++] = q;
+                st[sp++] = q;
+            }
+    }
+    return n;
+}
+
+// Place, resolve captures. Returns capture count, 0xFF suicide/illegal,
+// 0xFE overflow. *koCell = the cell of a single-stone capture (simple-ko
+// guard: the opponent may not immediately retake there).
+static uint8_t owlPlay(uint8_t pos, uint8_t c, uint8_t *undo, uint8_t *koCell) {
+    simBoard[pos] = c;
+    uint8_t n = 0, q;
+    *koCell = 0xFF;
+    FOR_EACH_NEIGHBOR(q, pos)
+        if(simBoard[q] == (uint8_t)(3 - c) && !hasLiberty(q, (uint8_t)(3 - c))) {
+            uint8_t r = owlRemove(q, (uint8_t)(3 - c), undo + n);
+            if(r == 0xFE || n + r > OWL_MAXCAP) { // restore what we took
+                for(uint8_t i = 0; i < n; i++) simBoard[undo[i]] = (uint8_t)(3 - c);
+                simBoard[pos] = EMPTY;
+                return 0xFE;
+            }
+            n += r;
+        }
+    if(!n && !hasLiberty(pos, c)) { simBoard[pos] = EMPTY; return 0xFF; }
+    if(n == 1) *koCell = undo[0];
+    return n;
+}
+static void owlUndoPlay(uint8_t pos, uint8_t c, const uint8_t *undo, uint8_t n) {
+    simBoard[pos] = EMPTY;
+    for(uint8_t i = 0; i < n; i++) simBoard[undo[i]] = (uint8_t)(3 - c);
+}
+
+// Flood the target group; report eyes (point-eyes among its liberties,
+// false-eye-aware via isOwnEye), liberty count (capped), candidate cells
+// (libs, plus up to 2 escape-by-capture cells when wantEscapes).
+static uint8_t owlEvalGroup(uint8_t *eyes, uint8_t *libs,
+                            uint8_t *cand, uint8_t *ncand, uint8_t wantEscapes) {
+    if(simBoard[owlSeed] != owlColor) return 0;   // captured
+    uint8_t st[28]; uint8_t sp = 0;
+    uint8_t candSc[OWL_MAXCAND];
+    newMark();
+    st[sp++] = owlSeed; *markPtr(owlSeed) = markEpoch;
+    uint8_t nl = 0, ne = 0, nc = 0, nesc = 0;
+    uint8_t escCells[2];
+    while(sp) {
+        uint8_t u = st[--sp], q;
+        FOR_EACH_NEIGHBOR(q, u) {
+            if(*markPtr(q) == markEpoch) continue;
+            uint8_t b = simBoard[q];
+            if(b == owlColor) {
+                if(sp >= 28) return 0;            // huge group: bail (alive)
+                *markPtr(q) = markEpoch;
+                st[sp++] = q;
+            } else if(b == EMPTY) {
+                *markPtr(q) = markEpoch;
+                if(nl < 250) nl++;
+                if(isOwnEye(q, owlColor)) ne++;
+                // score the liberty: connectors (outside friendly stone
+                // adjacent) outrank eye-ish (2+ group neighbours) outrank
+                // plain -- the cap must never drop the saving move
+                uint8_t sc = 0, r2;
+                FOR_EACH_NEIGHBOR(r2, q) {
+                    if(simBoard[r2] == owlColor)
+                        sc += (*markPtr(r2) == markEpoch) ? 1 : 4;
+                }
+                if(nc < OWL_MAXCAND) {
+                    uint8_t j = nc++;
+                    while(j && candSc[j - 1] < sc) {
+                        cand[j] = cand[j - 1]; candSc[j] = candSc[j - 1]; j--;
+                    }
+                    cand[j] = q; candSc[j] = sc;
+                } else if(candSc[OWL_MAXCAND - 1] < sc) {
+                    uint8_t j = OWL_MAXCAND - 1;
+                    while(j && candSc[j - 1] < sc) {
+                        cand[j] = cand[j - 1]; candSc[j] = candSc[j - 1]; j--;
+                    }
+                    cand[j] = q; candSc[j] = sc;
+                }
+            } else if(wantEscapes && nesc < 2) {
+                *markPtr(q) = markEpoch;          // visit each enemy cell once
+                escCells[nesc++] = q;             // resolve ataris AFTER the
+            }                                     // flood: soleLiberty bumps
+        }                                         // the mark epoch (newMark)
+    }
+    uint8_t escLibs[2]; uint8_t nescL = 0;
+    for(uint8_t i = 0; i < nesc; i++) {
+        uint8_t lib = soleLiberty(escCells[i]);
+        if(lib != 0xFF && !(nescL && escLibs[0] == lib)) escLibs[nescL++] = lib;
+    }
+    for(uint8_t i = 0; i < nescL && nc < OWL_MAXCAND; i++) {
+        uint8_t dup = 0;
+        for(uint8_t j = 0; j < nc; j++) if(cand[j] == escLibs[i]) dup = 1;
+        if(!dup) cand[nc++] = escLibs[i];
+    }
+    *eyes = ne; *libs = nl; *ncand = nc;
+    return 1;
+}
+
+// 1 = the defender lives (or is unresolvable: conservative), 0 = hopeless.
+static uint8_t owlSearch(uint8_t depth, uint8_t toMove, uint8_t koCell) {
+    if(++owlNodes > OWL_BUDGET) return 1;
+    uint8_t eyes, libs, cand[OWL_MAXCAND], nc;
+    if(!owlEvalGroup(&eyes, &libs, cand, &nc,
+                     (uint8_t)(toMove == owlColor)))
+        return simBoard[owlSeed] == owlColor;      // captured mid-line = dead
+    if(eyes >= 2) return 1;
+    if(libs >= 5) return 1;                        // escaped locally
+    if(!depth) return 0;                           // horizon: never lived
+                                                   // (strict: config-B soft
+                                                   // horizon lost 2 real
+                                                   // deads, fixed 0 false)
+    uint8_t defender = (toMove == owlColor);
+    uint8_t *undo = owlArena[depth];
+    for(uint8_t i = 0; i < nc; i++) {
+        if(cand[i] == koCell) continue;            // simple-ko retake ban
+        uint8_t ko2;
+        uint8_t n = owlPlay(cand[i], toMove, undo, &ko2);
+        if(n == 0xFF) continue;
+        if(n == 0xFE) return 1;                    // unresolvable: alive
+        uint8_t r = owlSearch((uint8_t)(depth - 1), (uint8_t)(3 - toMove), ko2);
+        owlUndoPlay(cand[i], toMove, undo, n);
+        if(defender && r) return 1;                // one living line suffices
+        if(!defender && !r) return 0;              // one killing line suffices
+    }
+    // defender exhausted -> dead; attacker exhausted (incl. tenuki) -> alive
+    return (uint8_t)!defender;
+}
+
+// Entry: is the group containing `seed` hopeless? 1 = HOPELESS (veto
+// feeding), 0 = alive/unknown. Defender moves first (sente): a group that
+// dies even with sente is definitively not worth feeding.
+static uint8_t owlHopeless(uint8_t seed) {
+    owlSeed = seed;
+    owlColor = simBoard[seed];
+    owlNodes = 0;
+    return (uint8_t)!owlSearch(OWL_DEPTH, owlColor, 0xFF);
+}
+#endif
+
 // Fill simBoard from the game and collect the eyespace vital points.
 // Shared by think() and scoreDead().
 static void unpackBoard(Game &game);
@@ -3742,6 +3924,69 @@ static void loadRootBoard(Game &game) {
             if(nakSeen[i >> 3] & bitMask(i)) continue;
             uint8_t v = nakadeVital(i, nakSeen);
             if(v != 0xFF) nakVitals[nNakVitals++] = v;
+        }
+    }
+#endif
+#ifdef OWL_LITE
+    // Owl pass (endgame-arc): find the LARGEST own group in the target
+    // class (>=3 stones, <2 point-eyes, <=4 libs), solve it; if hopeless,
+    // mark its cells -- rootMoveOK vetoes non-capturing moves adjacent to
+    // them (the anti-feeding veto, rootSelfAtari pattern).
+    owlVetoActive = 0;
+    {
+        uint8_t mine = game.turn;
+        uint8_t seen[11]; memset(seen, 0, sizeof(seen));
+        uint8_t bestSeed = 0xFF, bestSize = 0;
+        for(uint8_t i = 0; i < BOARD_CELLS; i++) {
+            if(simBoard[i] != mine || (seen[i >> 3] & bitMask(i))) continue;
+            uint8_t st[28]; uint8_t sp = 0, sz = 0, eyes = 0, libs = 0;
+            uint8_t cells[28];
+            newMark();
+            st[sp++] = i; *markPtr(i) = markEpoch;
+            seen[i >> 3] |= bitMask(i);
+            uint8_t big = 0;
+            while(sp) {
+                uint8_t u = st[--sp], q;
+                if(sz < 28) cells[sz] = u;
+                sz++;
+                FOR_EACH_NEIGHBOR(q, u) {
+                    if(*markPtr(q) == markEpoch) continue;
+                    if(simBoard[q] == mine) {
+                        if(sp >= 28) { big = 1; break; }
+                        *markPtr(q) = markEpoch;
+                        seen[q >> 3] |= bitMask(q);
+                        st[sp++] = q;
+                    } else if(simBoard[q] == EMPTY) {
+                        *markPtr(q) = markEpoch;
+                        libs++;
+                        if(isOwnEye(q, mine)) eyes++;
+                    }
+                }
+                if(big) break;
+            }
+            if(big || sz < 3 || sz > 27 || eyes >= 2 || libs > 4) continue;
+            if(sz > bestSize) { bestSize = sz; bestSeed = i; }
+        }
+        if(bestSeed != 0xFF && owlHopeless(bestSeed)) {
+            // re-flood the (unchanged) group into the veto bitmap
+            memset(owlVeto, 0, sizeof(owlVeto));
+            uint8_t st[28]; uint8_t sp = 0;
+            newMark();
+            st[sp++] = bestSeed; *markPtr(bestSeed) = markEpoch;
+            owlVeto[bestSeed >> 3] |= bitMask(bestSeed);
+            while(sp) {
+                uint8_t u = st[--sp], q;
+                FOR_EACH_NEIGHBOR(q, u)
+                    if(simBoard[q] == game.turn && *markPtr(q) != markEpoch) {
+                        *markPtr(q) = markEpoch;
+                        owlVeto[q >> 3] |= bitMask(q);
+                        st[sp++] = q;
+                    }
+            }
+            owlVetoActive = 1;
+#if defined(OWL_DEBUG) && !defined(ARDUINO)
+            fprintf(stderr, "OWL hopeless group sz=%u seed=%u\n", bestSize, bestSeed);
+#endif
         }
     }
 #endif
@@ -5650,8 +5895,28 @@ static uint8_t pct100(uint16_t w, uint16_t n) {
 // Root-move legality shared by the LCB and backup picks: on-board legal
 // and not a root self-atari.
 static bool rootMoveOK(Game &game, uint8_t m) {
+#ifdef OWL_LITE
+    if(!game.isValidMove(m % BOARD_SIZE, m / BOARD_SIZE)) return false;
+    if(rootSelfAtari(m, game.turn)) return false;
+    if(owlVetoActive) {
+        uint8_t q, adj = 0, captures = 0;
+        FOR_EACH_NEIGHBOR(q, m) {
+            if(simBoard[q] != EMPTY && (owlVeto[q >> 3] & bitMask(q))) adj = 1;
+            if(simBoard[q] == (uint8_t)(3 - game.turn) &&
+               soleLiberty(q) == m) captures = 1;
+        }
+        if(adj && !captures) {
+#if defined(OWL_DEBUG) && !defined(ARDUINO)
+            fprintf(stderr, "OWL veto m=%u\n", m);
+#endif
+            return false;                    // don't feed the hopeless group
+        }
+    }
+    return true;
+#else
     return game.isValidMove(m % BOARD_SIZE, m / BOARD_SIZE) &&
            !rootSelfAtari(m, game.turn);
+#endif
 }
 
 uint8_t AI::bestMove(Game &game, uint8_t &x, uint8_t &y) {
