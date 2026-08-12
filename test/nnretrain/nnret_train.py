@@ -11,6 +11,8 @@ from scipy import sparse
 PREFIX, OUT, SEED = sys.argv[1], sys.argv[2], int(sys.argv[3])
 EPOCHS = int(sys.argv[4]) if len(sys.argv) > 4 else 80
 H = int(sys.argv[5]) if len(sys.argv) > 5 else 8
+BSZ_A = int(sys.argv[6]) if len(sys.argv) > 6 else 512
+LR_A = float(sys.argv[7]) if len(sys.argv) > 7 else 0.10
 TAIL, ANNEAL = 20, 15
 NB, NW, NE = 15, 578, 98
 
@@ -94,8 +96,8 @@ seglen = segs[:, 1] - segs[:, 0]
 T = np.concatenate(tgt)
 W = np.array(wrow)
 npos = len(segs)
-LR0 = 0.10
-BSZ = 512
+LR0 = LR_A
+BSZ = BSZ_A
 MOM = 0.9
 rng2 = np.random.default_rng(SEED + 1000)   # shuffle stream, separate from init
 m1 = np.zeros_like(w1); m2 = np.zeros_like(w2)

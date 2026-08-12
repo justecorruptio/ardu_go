@@ -10,23 +10,35 @@ import sys, numpy as np
 npz = np.load(sys.argv[1])
 OUT = sys.argv[2]
 NAME = sys.argv[3] if len(sys.argv) > 3 else "nnret"
+# projection variant: jitter the quantization scales -> different 4-bit grid
+# snap of the SAME float net ("search over projections, don't fix 4-bit" --
+# the snap measured as a large random perturbation, 22.0% vs 32.9% same net).
+PJ = int(sys.argv[4]) if len(sys.argv) > 4 else 0
 w1, w2, b1, v = npz['w1'], npz['w2'], npz['b1'], npz['v']
 NB, NW, NE, NF, H = int(npz['NB']), int(npz['NW']), int(npz['NE']), int(npz['NF']), int(npz['H'])
 
-alpha = max(np.abs(w2).max(), np.abs(b1).max()) / 7.0
-beta = np.abs(v).max() / 7.0
+jit = 1.0
+if PJ:
+    jit = 1.0 + 0.08 * np.random.default_rng(PJ).standard_normal()
+alpha = max(np.abs(w2).max(), np.abs(b1).max()) / 7.0 * jit
+beta = np.abs(v).max() / 7.0 * (2.0 - jit if PJ else 1.0)
 KS = max(1, int(np.ceil(np.abs(w1).max() / (7.0 * alpha * beta))))
 gamma = KS * alpha * beta
 
 def q(x, step):
     return np.clip(np.round(x / step), -8, 7).astype(int)
 
+NF_CANON = 74   # ship compact feature space; dump-derived NF can be short
+def padF(a, rows):
+    if a.shape[0] >= rows: return a
+    pad = np.zeros((rows - a.shape[0],) + a.shape[1:])
+    return np.concatenate([a, pad])
 B_q = q(w1[:NB], gamma)
 W_q = q(w1[NB:NB + NW], gamma)
-Lf_q = q(w1[NB + NW:], gamma)
+Lf_q = q(padF(w1[NB + NW:], NF_CANON), gamma)
 EB_q = q(w2[:NB], alpha)          # [NB][H]
 E_q = q(w2[NB:NB + NE], alpha)    # [NE][H]
-F_q = q(w2[NB + NE:], alpha)      # [NF][H]
+F_q = q(padF(w2[NB + NE:], NF_CANON), alpha)   # [NF][H]
 B1_q = q(b1, alpha)               # [H]
 V_q = q(v, beta)                  # [H]
 
