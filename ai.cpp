@@ -5031,6 +5031,12 @@ static void ponderMatch(uint8_t oppMove) {
 
 static uint32_t psPonderSpent;   // ponder iters, kept OUT of thinkItersRun
 static uint32_t psCarryVisits;   // v2: root visits carried into warm thinks
+#ifdef PS_FRESHSTOP
+// Repair arm: early-stops must price only FRESH evidence. Carried visits
+// stay in the tree (selection/bestMove see them) but are subtracted from
+// the stop rules' view, so warm thinks stop no sooner than cold ones.
+static uint16_t psBaseVis[82];
+#endif
 // ---- v2: continuous-tree pondering (re-root instead of seed-compress) ----
 // v1 verdict: seed transfer is lossy (human -2.9pp lean, zero latency —
 // seeds can't compress the ss512 stability CLOCK). v2 models the real
@@ -5097,6 +5103,12 @@ static void psHalveTree(void) {
 }
 
 void AI::ponderThink(Game &game, uint16_t iters) {
+    // Sentinel guard (the device rule): POISONED = 0xFF0 is an IN-BAND visit
+    // sentinel, so before pondering on a carried tree whose root could cross
+    // it, halve everything — ratios and argmax preserved, old evidence decays
+    // geometrically. This is what makes unbounded device ponder safe.
+    if(psWarmValid && (uint32_t)nRefVisits(node(0)) + iters > 3400)
+        psHalveTree();
     uint8_t sC = resignCount, sC2 = resignCount2, sVk = vKomi2;
     uint16_t sIters = mctsIterations;
     uint32_t sRun = thinkItersRun, sBud = thinkItersBudget;
@@ -6071,6 +6083,13 @@ void AI::think(Game &game) {
 #ifndef TREUSE
 #ifdef PONDER_SIM
     if(!psWarm) newNode(0xFF); // root (warm: carried tree already rooted)
+#ifdef PS_FRESHSTOP
+    memset(psBaseVis, 0, sizeof(psBaseVis));
+    if(psWarm)
+        for(uint8_t c = node(0).firstChild; c != 0xFF; c = node(c).nextSibling)
+            if(!(node(c).move & 0x80) && nVisits(c) < POISONED)
+                psBaseVis[node(c).move] = nVisits(c);
+#endif
 #else
     newNode(0xFF); // root
 #endif
@@ -6158,6 +6177,10 @@ void AI::think(Game &game) {
             for(uint8_t c = node(0).firstChild; c != 0xFF; c = node(c).nextSibling) {
                 uint16_t v = nVisits(c);
                 if(v >= POISONED) continue;
+#ifdef PS_FRESHSTOP
+                { uint16_t b = (node(c).move & 0x80) ? 0 : psBaseVis[node(c).move];
+                  v = (v > b) ? v - b : 0; }
+#endif
                 if(v > top1) {
                     top2 = top1; top1 = v;
 #ifdef STABLE_STOP
