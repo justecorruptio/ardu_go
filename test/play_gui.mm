@@ -55,13 +55,23 @@ static void setStatus(NSString *s) {
 }
 
 static void showScore() {
+    // Area (Chinese) scoring, matching areaWinner()/the device display:
+    // stones + territory, komi to White. scoreDead first so dead groups
+    // are lifted off the board before counting.
     ai.scoreDead(game);
-    int b2 = game.territory[0] * 2 + game.captures[0] * 2;
-    int w2 = game.territory[1] * 2 + game.captures[1] * 2 + game.kpieces;
+    game.computeScore();
+    int bs = 0, ws = 0;
+    for(int i = 0; i < 81; i++) {
+        uint8_t c = packedGet(game.board, i);
+        if(c == BLACK) bs++;
+        else if(c == WHITE) ws++;
+    }
+    int b2 = (game.territory[0] + bs) * 2;
+    int w2 = (game.territory[1] + ws) * 2 + game.kpieces;
     setStatus([NSString stringWithFormat:@"%s WINS  B %d+%d=%d  W %d+%d+6.5=%d.5",
-               game.winner() == BLACK ? "BLACK" : "WHITE",
-               game.territory[0], game.captures[0], b2 / 2,
-               game.territory[1], game.captures[1], w2 / 2]);
+               b2 > w2 ? "BLACK" : "WHITE",
+               bs, game.territory[0], b2 / 2,
+               ws, game.territory[1], w2 / 2]);
 }
 
 static void aiMoveIfNeeded();

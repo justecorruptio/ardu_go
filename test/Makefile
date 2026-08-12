@@ -10,7 +10,7 @@ test_ladder: test_ladder.cpp ../ai.cpp ../game.cpp ../*.h Arduboy2.h
 	clang++ $(CXXFLAGS) test_ladder.cpp -o test_ladder
 
 play_gui: play_gui.mm ../ai.cpp ../game.cpp ../*.h Arduboy2.h
-	clang++ $(CXXFLAGS) -fobjc-arc play_gui.mm -o play_gui -framework Cocoa
+	clang++ $(CXXFLAGS) -DNNOPEN -DNN_DEVICE_TIER -DNN_CORE_TIER -fobjc-arc play_gui.mm -o play_gui -framework Cocoa
 
 harness: harness.cpp ../ai.cpp ../game.cpp ../*.h Arduboy2.h
 	clang++ $(CXXFLAGS) harness.cpp -o harness
