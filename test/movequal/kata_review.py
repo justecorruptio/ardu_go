@@ -5,8 +5,8 @@
 import sys, re, json, subprocess, glob, os
 out_path = sys.argv[1]
 sgfs = sys.argv[2:]
-MODEL = "/private/tmp/claude-501/-Users-jay-workspace/5b06ba38-9a1c-46e2-9ca0-ed5be982489d/scratchpad/kata_b6.txt.gz"
-CFG = "/private/tmp/claude-501/-Users-jay-workspace/5b06ba38-9a1c-46e2-9ca0-ed5be982489d/scratchpad/kata_analysis.cfg"
+MODEL = os.environ.get("MODEL", "/tmp/kata_b6.bin.gz")
+CFG = os.environ.get("CFG", os.path.join(os.path.dirname(os.path.abspath(__file__)), "kata_analysis.cfg"))
 COLS = "ABCDEFGHJ"
 def moves_of(path):
     sgf = open(path).read()
