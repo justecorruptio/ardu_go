@@ -6385,6 +6385,21 @@ uint8_t AI::bestMove(Game &game, uint8_t &x, uint8_t &y) {
         // (var<<12)/v is Q24 of q(1-q)/n, so isqrt lands in Q12
         uint16_t term = isqrtLUT(((uint32_t)var << 12) / v);
         int16_t lcb = (int16_t)q - (int16_t)(((uint32_t)term * LCB_Z) >> 8);
+#ifdef CRAWL_TIEBREAK
+        // D1 probe (2026-08-11): 58% of "crawl" blunders are near-ties at the
+        // root — the line-3/4 move is searched and scored within a few percent
+        // of the low pick, and 79% of them vanish under a fresh seed. Pick-time
+        // whisper penalty on line-1/2 moves outside the endgame: statistical
+        // ties break toward the higher line; any q gap beyond the epsilon
+        // (Q12: 41 = 1% winrate) still wins. Value-changing -> gauntlet-gated.
+        if(m != MOVE_PASS && rootStones <= 32) {
+            uint8_t mx = m % 9, my = m / 9;
+            uint8_t d = mx < 8 - mx ? mx : 8 - mx;
+            uint8_t dy = my < 8 - my ? my : 8 - my;
+            if(dy < d) d = dy;
+            if(d <= 1) lcb -= CRAWL_TIEBREAK;
+        }
+#endif
         if(lcb <= bestL) continue;
         if(m != MOVE_PASS && !rootMoveOK(game, m))
             continue;
