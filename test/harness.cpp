@@ -12,6 +12,10 @@
 
 #include "../game.cpp"
 #include "../ai.cpp"
+#ifdef PONDER_SIM
+static uint16_t psPonderIters;   // PONDER_SIM env: iters per opponent turn
+static uint8_t psHalve = 1;      // PONDER_HALVE env: adoption discount (TREUSE precedent)
+#endif
 
 uint8_t Arduboy2Base::sBuffer[1024];
 
@@ -322,6 +326,9 @@ static int playGame(int gameNo, int level, uint8_t aiColor, bool verbose) {
     }
     game.reset();
     ai.reset();
+#ifdef PONDER_SIM
+    psWarmValid = psTreeFresh = 0;   // never carry a tree across games
+#endif
     // Per-game engine RNG seed (2026-08): previously rngState free-ran
     // across a worker's whole batch, so any behavioral divergence in
     // game k desynced every later game -- "paired" gauntlets were
@@ -399,8 +406,16 @@ static int playGame(int gameNo, int level, uint8_t aiColor, bool verbose) {
                 // thinks (only poolExt survives). Scribble the same
                 // region here so host games cannot depend on -- or
                 // measure benefits from -- state a real device loses.
+#ifdef PONDER_SIM
+                // v2 ponder models the blit design: rendering never touches
+                // sBuffer, so the pool survives between thinks. Scribble only
+                // when no warm tree is armed (cold path keeps device honesty).
+                if(!psWarmValid)
+#endif
+                {
                 memset(pool, 0xA5, sizeof(Node) * NODE_POOL_SB);
                 memset(pool, 0xA5, sizeof(Node) * NODE_POOL_SB); // device honesty (see playGame)
+                }
         ai.think(game);
                 if(ai.resigned) {
                     printf("  game %d: AI resigns at move %d (eval %u/%u = %d%%)\n",
@@ -418,6 +433,16 @@ static int playGame(int gameNo, int level, uint8_t aiColor, bool verbose) {
                     game.pass();
                     ai.notifyPass();
                 }
+#ifdef PONDER_SIM
+                // v2: re-root the just-searched tree at OUR move (the
+                // opponent-to-move position is bm's subtree), then ponder on
+                // it for the budget the "human's thinking time" affords. The
+                // tree persists in the pool for adoption at their reply.
+                if(psPonderIters && !ai.resigned) {
+                    psReRootTo(x != 0xFF ? (uint8_t)(y * 9 + x) : MOVE_PASS);
+                    ai.ponderThink(game, psPonderIters);
+                }
+#endif
             }
             if(recordFirst) {
                 firstEngineMove = (x == 0xFF) ? 0xFE : (uint8_t)(y * 9 + x);
@@ -529,6 +554,12 @@ static int playGame(int gameNo, int level, uint8_t aiColor, bool verbose) {
             }
             if(resp == "PASS" || resp == "pass") {
                 sgfAdd(color, -1, -1);
+#ifdef PONDER_SIM
+                if(psPonderIters && psReRootTo(MOVE_PASS)) {
+                    if(psHalve) psHalveTree(); psHits++;
+                    psCarryVisits += nRefVisits(node(0));
+                }
+#endif
                 game.pass();
                 ai.notifyPass();
             } else {
@@ -546,6 +577,12 @@ static int playGame(int gameNo, int level, uint8_t aiColor, bool verbose) {
                     break;
                 }
                 sgfAdd(color, x, y);
+#ifdef PONDER_SIM
+                if(psPonderIters && psReRootTo((uint8_t)(y * 9 + x))) {
+                    if(psHalve) psHalveTree(); psHits++;   // TREUSE staleness precedent
+                    psCarryVisits += nRefVisits(node(0));
+                }
+#endif
                 ai.notifyMove(x, y);
             }
         }
@@ -637,7 +674,25 @@ static int evalBench(const char *path) {
     return 0;
 }
 
+static void psReport(void) {
+#ifdef PONDER_SIM
+    if(psPonders || thinkItersRun)
+        fprintf(stderr, "PONDER ponders=%lu adopt=%lu (%.0f%%) carryV=%lu "
+                "(mean %.0f) ownIters=%lu ownBudget=%lu ponderSpent=%lu\n",
+                (unsigned long)psPonders, (unsigned long)psHits,
+                psPonders ? 100.0 * psHits / psPonders : 0.0,
+                (unsigned long)psCarryVisits,
+                psHits ? (double)psCarryVisits / psHits : 0.0,
+                (unsigned long)thinkItersRun, (unsigned long)thinkItersBudget,
+                (unsigned long)psPonderSpent);
+#endif
+}
 int main(int argc, char **argv) {
+#ifdef PONDER_SIM
+    if(getenv("PONDER_SIM")) psPonderIters = (uint16_t)atoi(getenv("PONDER_SIM"));
+    if(getenv("PONDER_HALVE")) psHalve = (uint8_t)atoi(getenv("PONDER_HALVE"));
+    atexit(psReport);
+#endif
     if(argc > 2 && std::string(argv[1]) == "hunt") {
         huntMode = true;
         int games = atoi(argv[2]);

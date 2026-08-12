@@ -2061,7 +2061,18 @@ static int32_t nnTopSc[3];
 #define NN_PRIOR_TOP 0
 #endif
 
+#ifdef PONDER_SIM
+// v2 continuous-tree validity (defined early: nnOpeningMove below must
+// invalidate). psTreeFresh = the pool tree matches the position the last
+// completed search ran on (0 across early-returns, settleVote's sBuffer
+// stomp, and nnOpeningMove's sBuffer borrow). psWarmValid = a re-rooted
+// tree is armed for the next think.
+static uint8_t psWarmValid, psTreeFresh;
+#endif
 uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uint8_t &oy) {
+#ifdef PONDER_SIM
+    psWarmValid = psTreeFresh = 0;   // borrows sBuffer: pool tree dies here
+#endif
     if(nnLast > 80) return 0;                    // need a last move
     if(nnPriorMode) { nnTop[0]=nnTop[1]=nnTop[2]=0xFF; }
 #ifdef NN_TWONET
@@ -4945,6 +4956,164 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
 // Push-front: child order carries no meaning beyond tie-breaking, and
 // random scan starts keep the ties fair. A negative bonus becomes
 // virtual losses: extra visits with no wins.
+#if defined(PONDER_SIM) && !defined(ARDUINO)
+// ---- HOST PONDER-SIM (ponder-arc step 1, 2026-08-11) -------------------
+// After our move, think() on the opponent-to-move position for a fixed
+// budget (models the human's thinking time); harvest the crown: top
+// replies -> top answers with (v,w). On the opponent's actual move, if it
+// matches a predicted reply, its answer list seeds our next root children
+// (active-at-creation only: latent seeds would corrupt latentBest's
+// prior recovery). Measures hit rate + strength; device phases follow.
+#define PS_REPLIES 4
+#define PS_ANSWERS 8
+static uint8_t  psReply[PS_REPLIES];
+static uint8_t  psAnsMove[PS_REPLIES][PS_ANSWERS];
+static uint16_t psAnsV[PS_REPLIES][PS_ANSWERS], psAnsW[PS_REPLIES][PS_ANSWERS];
+static uint8_t  psNReply, psNAns[PS_REPLIES];
+static uint8_t  psSeedMove[PS_ANSWERS];
+static uint16_t psSeedV[PS_ANSWERS], psSeedW[PS_ANSWERS];
+static uint8_t  psNSeed;
+static uint32_t psPonders, psHits, psSeedApplied;
+
+static void ponderHarvest(void) {
+    psNReply = 0;
+    // top replies by visits among ACTIVE root children
+    for(uint8_t pass = 0; pass < PS_REPLIES; pass++) {
+        uint16_t best = 0; uint8_t bc = 0xFF;
+        for(uint8_t c = node(0).firstChild; c != 0xFF; c = node(c).nextSibling) {
+            if(node(c).move & 0x80) continue;
+            uint16_t v = nVisits(c);
+            if(v >= POISONED || v <= best) continue;
+            uint8_t dup = 0;
+            for(uint8_t j = 0; j < psNReply; j++)
+                if(psReply[j] == (node(c).move & 0x7F)) dup = 1;
+            if(!dup) { best = v; bc = c; }
+        }
+        if(bc == 0xFF) break;
+        uint8_t r = psNReply;
+        psReply[r] = node(bc).move & 0x7F;
+        psNAns[r] = 0;
+        for(uint8_t g = node(bc).firstChild; g != 0xFF && psNAns[r] < PS_ANSWERS;
+            g = node(g).nextSibling) {
+            if(node(g).move & 0x80) continue;
+            uint16_t v = nVisits(g);
+            if(v >= POISONED || v < 4) continue;   // noise floor
+            psAnsMove[r][psNAns[r]] = node(g).move & 0x7F;
+            psAnsV[r][psNAns[r]] = v;
+            psAnsW[r][psNAns[r]] = nWins(g);
+            psNAns[r]++;
+        }
+        psNReply++;
+    }
+}
+
+// Called by the harness with the opponent's actual move (0xFF/pass = none).
+static void ponderMatch(uint8_t oppMove) {
+    psNSeed = 0;
+    for(uint8_t r = 0; r < psNReply; r++) {
+        if(psReply[r] != oppMove) continue;
+        psHits++;
+        for(uint8_t a = 0; a < psNAns[r]; a++) {
+            // scale: cap virtual visits (over-seeding fights UCB damping)
+#ifndef PS_SEED_CAP
+#define PS_SEED_CAP 48
+#endif
+            uint16_t v = psAnsV[r][a], w = psAnsW[r][a];
+            if(v > PS_SEED_CAP) { w = (uint32_t)w * PS_SEED_CAP / v; v = PS_SEED_CAP; }
+            psSeedMove[psNSeed] = psAnsMove[r][a];
+            psSeedV[psNSeed] = v; psSeedW[psNSeed] = w;
+            psNSeed++;
+        }
+        break;
+    }
+    psNReply = 0;   // consumed
+}
+
+static uint32_t psPonderSpent;   // ponder iters, kept OUT of thinkItersRun
+static uint32_t psCarryVisits;   // v2: root visits carried into warm thinks
+// ---- v2: continuous-tree pondering (re-root instead of seed-compress) ----
+// v1 verdict: seed transfer is lossy (human -2.9pp lean, zero latency —
+// seeds can't compress the ss512 stability CLOCK). v2 models the real
+// device design: the pool tree persists (the blit design removes the
+// render-clobber), re-rooted at each played move; ponder extends it on
+// the opponent position; our next think starts warm with REAL visits.
+// Stats are re-root-safe (wins-for-its-mover is depth-parity invariant);
+// staleness bounded by TREUSE's precedent: halve on final adoption.
+// Promote root child with move `mv` to root (slot 0). Frees all sibling
+// subtrees. Returns 1 on success (psWarmValid set), 0 = miss (invalidated).
+static uint8_t psReRootTo(uint8_t mv) {
+    if(!psTreeFresh) { psWarmValid = 0; return 0; }   // stale pool: never walk it
+    uint8_t c = node(0).firstChild, target = 0xFF;
+    while(c != 0xFF) {
+        uint8_t nxt = node(c).nextSibling;
+        uint8_t m = node(c).move;
+        if((m & 0x7F) == mv && !(m & 0x80) && nRefVisits(node(c)) < POISONED
+           && target == 0xFF) {
+            target = c;
+        } else {
+            freeSubtree(c);
+            node(c).nextSibling = freeHead;
+            freeHead = c;
+        }
+        c = nxt;
+    }
+    if(target == 0xFF) { psWarmValid = 0; node(0).firstChild = 0xFF;
+#ifdef PS_DEBUG
+        fprintf(stderr, "PSMISS mv=%u\n", mv);
+#endif
+        return 0; }
+#ifdef PS_DEBUG
+    fprintf(stderr, "PSROOT total=%u child=%u pool=%u\n",
+            nRefVisits(node(0)), nRefVisits(node(target)), poolUsed);
+#endif
+    Node &t = node(target);
+    Node &r = node(0);
+    r.s[0] = t.s[0]; r.s[1] = t.s[1]; r.s[2] = t.s[2];
+    r.firstChild = t.firstChild;
+    r.nextSibling = 0xFF;
+    r.move = 0xFF;                      // root sentinel
+    t.firstChild = 0xFF;
+    t.nextSibling = freeHead;
+    freeHead = target;
+    psWarmValid = 1;
+    return 1;
+}
+
+// Halve all live stats (TREUSE staleness precedent). Linear over the pool;
+// free-list nodes' stats are unused so halving them is harmless; POISONED
+// sentinels and latents are skipped (latent stats encode the recovered
+// prior — halving would corrupt latentBest).
+static void psHalveTree(void) {
+    for(uint8_t i = 0; i < poolUsed; i++) {
+        Node &n = node(i);
+        if(i && (n.move & 0x80)) continue;
+        uint16_t v = nRefVisits(n);
+        if(v >= POISONED) continue;
+        uint16_t hv = v >> 1;
+        if(v && !hv) hv = 1;          // re-floor: an active 1-visit node must
+                                      // not become 0/0 (winRate6 hazard)
+        nSetStatsN(n, hv, nRefWins(n) >> 1);
+    }
+}
+
+void AI::ponderThink(Game &game, uint16_t iters) {
+    uint8_t sC = resignCount, sC2 = resignCount2, sVk = vKomi2;
+    uint16_t sIters = mctsIterations;
+    uint32_t sRun = thinkItersRun, sBud = thinkItersBudget;
+    mctsIterations = iters;
+    think(game);
+    psPonderSpent += thinkItersRun - sRun;
+    thinkItersRun = sRun; thinkItersBudget = sBud;
+    // v2: no harvest — the tree simply persists in the pool (psTreeFresh
+    // set by think), to be re-rooted at the opponent's actual reply.
+    psPonders++;
+    mctsIterations = sIters;
+    vKomi2 = sVk;
+    resignCount = sC; resignCount2 = sC2;
+    resigned = 0;
+}
+#endif
+
 static uint8_t addChild(uint8_t nodeIdx, uint8_t move, int8_t bonus) {
     uint8_t c = newNode(move);
     if(c == 0xFF) return 0xFF;
@@ -4953,6 +5122,17 @@ static uint8_t addChild(uint8_t nodeIdx, uint8_t move, int8_t bonus) {
         nSetStatsN(nc, PRIOR_BASE_V + bonus, PRIOR_BASE_W + bonus);
     else
         nSetStatsN(nc, PRIOR_BASE_V - bonus, PRIOR_BASE_W);
+#if defined(PONDER_SIM) && !defined(ARDUINO)
+    // ponder seed: ACTIVE root children only (latent seeds would corrupt
+    // latentBest's prior recovery from the seeded stats)
+    if(nodeIdx == 0 && !(move & 0x80))
+        for(uint8_t i = 0; i < psNSeed; i++)
+            if(psSeedMove[i] == move) {
+                nSetStatsN(nc, nVisits(c) + psSeedV[i], nWins(c) + psSeedW[i]);
+                psSeedApplied++;
+                break;
+            }
+#endif
     Node &np = node(nodeIdx);          // resolve once (was 2x: read + write)
     nc.nextSibling = np.firstChild;
     np.firstChild = c;
@@ -5755,6 +5935,13 @@ void AI::think(Game &game) {
     rootNearValid = 0;   // new root board: recompute its near mask
     passToWin = 0;
     resigned = 0;
+#ifdef PONDER_SIM
+    // Consume the warm arm now: pass sequences run settleVote below, which
+    // stomps sBuffer (= the pool) — a carried tree cannot survive that path.
+    uint8_t psWarm = psWarmValid && !game.consecutivePasses;
+    psWarmValid = 0;
+    psTreeFresh = 0;   // re-set to 1 only when this search completes
+#endif
     // The naive-count path stays endgame-only (>= 45 stones: it once
     // fired on a 6-stone board, "winning" by bare komi). The vote
     // path below runs at ANY stone count -- settleVote's own
@@ -5808,8 +5995,12 @@ void AI::think(Game &game) {
         }
     }
 
+#ifdef PONDER_SIM
+    if(!psWarm) { poolUsed = 0; freeHead = 0xFF; }
+#else
     poolUsed = 0;
     freeHead = 0xFF;
+#endif
     thinkSims = thinkSimWins = 0;
 #ifdef STABLE_STOP
     ssSince = 0; ssPrev = 0xFF;
@@ -5878,7 +6069,11 @@ void AI::think(Game &game) {
     memset(raveV, 0, 2 * BOARD_CELLS);   // raveW == raveV + BOARD_CELLS, contiguous
 
 #ifndef TREUSE
+#ifdef PONDER_SIM
+    if(!psWarm) newNode(0xFF); // root (warm: carried tree already rooted)
+#else
     newNode(0xFF); // root
+#endif
 #endif
     uint16_t iters = mctsIterations;
     if(rootStones < OPENING_BOOST_STONES) iters += iters / 2;
@@ -6054,6 +6249,9 @@ void AI::think(Game &game) {
 #endif
 #endif
     }
+#ifdef PONDER_SIM
+    psTreeFresh = 1;   // search completed: pool tree matches this position
+#endif
 }
 
 // Root self-atari veto: a move that leaves its own merged group at

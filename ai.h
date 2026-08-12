@@ -23,6 +23,10 @@
 
 class AI {
     public:
+#ifdef PONDER_SIM
+    void ponderThink(Game &game, uint16_t iters); // host sim: think on the
+                                 // opponent position w/o disturbing resign/vKomi
+#endif
     void reset();
 
     // Call for every stone placed (either player) to advance the book walk
