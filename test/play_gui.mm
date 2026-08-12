@@ -81,6 +81,13 @@ static void aiMoveIfNeeded();
 
 @implementation BoardView
 - (BOOL)isFlipped { return YES; }
+// Unbundled terminal-launched apps: without this, the click that
+// activates the app is swallowed and never reaches mouseDown — on
+// macOS 15 activation for unbundled binaries can fail to stick, which
+// turns EVERY click into a swallowed activation click (board looks
+// alive, clicks do nothing).
+- (BOOL)acceptsFirstMouse:(NSEvent *)e { return YES; }
+- (BOOL)acceptsFirstResponder { return YES; }
 
 - (void)drawRect:(NSRect)dirty {
     [[NSColor colorWithCalibratedRed:0.87 green:0.72 blue:0.45 alpha:1] setFill];
@@ -147,7 +154,11 @@ static void aiMoveIfNeeded();
 
 - (void)mouseDown:(NSEvent *)e {
     if(thinking || game.isGameOver() || game.resignedBy ||
-       game.turn != humanColor) return;
+       game.turn != humanColor) {
+        NSLog(@"click ignored: thinking=%d over=%d resigned=%d turn=%d human=%d",
+              thinking, game.isGameOver(), game.resignedBy, game.turn, humanColor);
+        return;
+    }
     NSPoint p = [self convertPoint:e.locationInWindow fromView:nil];
     int gx = (int)lround((p.x - kMargin) / kCell);
     int gy = (int)lround((p.y - kMargin) / kCell);
@@ -454,6 +465,12 @@ int main() {
         startNewGame();
         [NSApp activateIgnoringOtherApps:YES];
         [gWindow makeKeyAndOrderFront:nil];
+        // macOS 15: activation of unbundled apps can silently fail at
+        // launch; re-assert once the event loop is running.
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [NSApp activateIgnoringOtherApps:YES];
+            [gWindow makeKeyAndOrderFront:nil];
+        });
         [NSApp run];
     }
     return 0;
