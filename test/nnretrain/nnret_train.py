@@ -93,38 +93,51 @@ segs = np.array(seg)
 seglen = segs[:, 1] - segs[:, 0]
 T = np.concatenate(tgt)
 W = np.array(wrow)
-Wrow = np.repeat(W, seglen)
 npos = len(segs)
-LR0 = 0.20
+LR0 = 0.10
+BSZ = 512
+MOM = 0.9
+rng2 = np.random.default_rng(SEED + 1000)   # shuffle stream, separate from init
+m1 = np.zeros_like(w1); m2 = np.zeros_like(w2)
+mb1 = np.zeros_like(b1); mv = np.zeros_like(v)
 avg = None
 for ep in range(1, EPOCHS + 1):
     lr = LR0
     if ep > EPOCHS - ANNEAL:
         k = (ep - (EPOCHS - ANNEAL)) / ANNEAL
         lr = LR0 * 0.5 * (1 + np.cos(np.pi * k))
-    lin = X1 @ w1
-    pre = (X2 @ w2) + b1
-    act = np.maximum(pre, 0)
-    sc = lin + act @ v
-    # segment softmax, fully vectorized via reduceat
-    starts = segs[:, 0]
-    mx = np.maximum.reduceat(sc, starts)
-    e = np.exp(sc - np.repeat(mx, seglen))
-    Z = np.add.reduceat(e, starts)
-    P = e / np.repeat(Z, seglen)
-    loss = float(-np.sum(Wrow * T * np.log(P + 1e-12)))
-    g = (P - T) * Wrow / W.sum()
-    gv = act.T @ g
-    gpre = np.outer(g, v) * (pre > 0)
-    w1 -= lr * (X1.T @ g)
-    w2 -= lr * (X2.T @ gpre)
-    b1 -= lr * gpre.sum(0)
-    v -= lr * gv
+    perm = rng2.permutation(npos)
+    epl = 0.0; epw = 0.0
+    for bi in range(0, npos, BSZ):
+        pb = perm[bi:bi + BSZ]
+        rows = np.concatenate([np.arange(segs[i, 0], segs[i, 1]) for i in pb])
+        sl = seglen[pb]
+        Xb1 = X1[rows]; Xb2 = X2[rows]
+        Tb = T[rows]; Wb = W[pb]
+        Wrow = np.repeat(Wb, sl)
+        lin = Xb1 @ w1
+        pre = (Xb2 @ w2) + b1
+        act = np.maximum(pre, 0)
+        sc = lin + act @ v
+        starts = np.concatenate([[0], np.cumsum(sl)[:-1]])
+        mx = np.maximum.reduceat(sc, starts)
+        e = np.exp(sc - np.repeat(mx, sl))
+        Z = np.add.reduceat(e, starts)
+        P = e / np.repeat(Z, sl)
+        epl += float(-np.sum(Wrow * Tb * np.log(P + 1e-12))); epw += Wb.sum()
+        g = (P - Tb) * Wrow / Wb.sum()
+        gv = act.T @ g
+        gpre = np.outer(g, v) * (pre > 0)
+        m1 = MOM * m1 + (Xb1.T @ g)
+        m2 = MOM * m2 + (Xb2.T @ gpre)
+        mb1 = MOM * mb1 + gpre.sum(0)
+        mv = MOM * mv + gv
+        w1 -= lr * m1; w2 -= lr * m2; b1 -= lr * mb1; v -= lr * mv
     if ep > EPOCHS - TAIL:
         cur = np.concatenate([w1, w2.ravel(), b1, v])
         avg = cur if avg is None else avg + cur
     if ep % 10 == 0 or ep == 1:
-        print(f"epoch {ep}: CE {loss / W.sum():.4f} lr {lr:.3f}", flush=True)
+        print(f"epoch {ep}: CE {epl / epw:.4f} lr {lr:.3f}", flush=True)
 
 avg /= TAIL
 i = 0

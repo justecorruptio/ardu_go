@@ -1,0 +1,6905 @@
+{
+ "tags": {
+  "feed-doomed": {
+   "group": "life&death",
+   "desc": "adds a stone to an own group that is dead at game end",
+   "n": 45,
+   "ph": [
+    13,
+    23,
+    9
+   ],
+   "loss": 18.827100000000005,
+   "wr0": 33.08090000000001
+  },
+  "missed-save": {
+   "group": "life&death",
+   "desc": "own group in atari, KataGo saves it, ArduGo plays elsewhere",
+   "n": 44,
+   "ph": [
+    15,
+    19,
+    10
+   ],
+   "loss": 19.229099999999995,
+   "wr0": 26.8995
+  },
+  "missed-capture": {
+   "group": "life&death",
+   "desc": "enemy group in atari, KataGo takes it, ArduGo plays elsewhere",
+   "n": 13,
+   "ph": [
+    0,
+    8,
+    5
+   ],
+   "loss": 4.858199999999999,
+   "wr0": 9.3492
+  },
+  "missed-attack": {
+   "group": "life&death",
+   "desc": "enemy group at 2 libs, KataGo presses it, ArduGo plays elsewhere",
+   "n": 119,
+   "ph": [
+    16,
+    67,
+    36
+   ],
+   "loss": 56.029399999999995,
+   "wr0": 87.08259999999997
+  },
+  "ignored-atari": {
+   "group": "life&death",
+   "desc": "own group in atari, KataGo addresses it, ArduGo does neither",
+   "n": 52,
+   "ph": [
+    15,
+    24,
+    13
+   ],
+   "loss": 22.212599999999995,
+   "wr0": 33.433900000000015
+  },
+  "captured-soon": {
+   "group": "life&death",
+   "desc": "the played stone is gone within 4 plies",
+   "n": 15,
+   "ph": [
+    2,
+    10,
+    3
+   ],
+   "loss": 6.543299999999999,
+   "wr0": 11.048100000000002
+  },
+  "self-atari": {
+   "group": "tactics",
+   "desc": "played stone's chain ends with exactly 1 liberty",
+   "n": 4,
+   "ph": [
+    0,
+    2,
+    2
+   ],
+   "loss": 2.2331,
+   "wr0": 2.9272
+  },
+  "feed-weak": {
+   "group": "tactics",
+   "desc": "played stone's chain ends with exactly 2 liberties",
+   "n": 76,
+   "ph": [
+    12,
+    46,
+    18
+   ],
+   "loss": 33.91589999999999,
+   "wr0": 57.31870000000001
+  },
+  "connect-miss": {
+   "group": "tactics",
+   "desc": "KataGo's move connects 2+ own chains, ArduGo plays elsewhere",
+   "n": 160,
+   "ph": [
+    55,
+    85,
+    20
+   ],
+   "loss": 65.79330000000002,
+   "wr0": 114.55320000000003
+  },
+  "cut-miss": {
+   "group": "tactics",
+   "desc": "KataGo's move cuts/wedges 2+ enemy chains, ArduGo plays elsewhere",
+   "n": 91,
+   "ph": [
+    11,
+    55,
+    25
+   ],
+   "loss": 41.95270000000001,
+   "wr0": 67.271
+  },
+  "crawl": {
+   "group": "direction",
+   "desc": "plays line 1-2 while KataGo plays line 3+ (low crawl)",
+   "n": 193,
+   "ph": [
+    63,
+    119,
+    11
+   ],
+   "loss": 80.39649999999996,
+   "wr0": 142.8549
+  },
+  "edge2": {
+   "group": "direction",
+   "desc": "KataGo plays line 2, ArduGo plays line 3+ (edge blindness)",
+   "n": 74,
+   "ph": [
+    26,
+    42,
+    6
+   ],
+   "loss": 30.4449,
+   "wr0": 49.2965
+  },
+  "edge1": {
+   "group": "direction",
+   "desc": "KataGo plays line 1, ArduGo plays line 3+",
+   "n": 32,
+   "ph": [
+    1,
+    16,
+    15
+   ],
+   "loss": 15.174400000000004,
+   "wr0": 23.316799999999994
+  },
+  "local": {
+   "group": "direction",
+   "desc": "played adjacent to KataGo's point (right area, wrong point)",
+   "n": 112,
+   "ph": [
+    50,
+    56,
+    6
+   ],
+   "loss": 45.313,
+   "wr0": 78.65809999999996
+  },
+  "tenuki": {
+   "group": "direction",
+   "desc": "abandons the hot area KataGo stays in",
+   "n": 116,
+   "ph": [
+    26,
+    67,
+    23
+   ],
+   "loss": 52.26329999999998,
+   "wr0": 83.62399999999992
+  },
+  "eye-fill": {
+   "group": "waste",
+   "desc": "fills a point whose neighbors are all own stones",
+   "n": 4,
+   "ph": [
+    0,
+    1,
+    3
+   ],
+   "loss": 1.9804000000000004,
+   "wr0": 2.8537999999999997
+  },
+  "own-territory": {
+   "group": "waste",
+   "desc": "plays inside a region bordered only by own stones",
+   "n": 7,
+   "ph": [
+    0,
+    2,
+    5
+   ],
+   "loss": 3.5925000000000002,
+   "wr0": 4.9169
+  },
+  "pass": {
+   "group": "waste",
+   "desc": "passes while contested boundaries remain",
+   "n": 0,
+   "ph": [
+    0,
+    0,
+    0
+   ],
+   "loss": 0.0,
+   "wr0": 0.0
+  },
+  "game-losing": {
+   "group": "severity",
+   "desc": "this single move crosses the game from won to lost",
+   "n": 424,
+   "ph": [
+    126,
+    228,
+    70
+   ],
+   "loss": 202.07910000000018,
+   "wr0": 311.3141999999999
+  },
+  "serial": {
+   "group": "severity",
+   "desc": "within 4 plies of another >=25% blunder",
+   "n": 424,
+   "ph": [
+    101,
+    252,
+    71
+   ],
+   "loss": 180.81070000000005,
+   "wr0": 304.2790999999997
+  }
+ },
+ "total": 657,
+ "untagged": 9,
+ "pairs": [
+  [
+   "game-losing",
+   "serial",
+   275
+  ],
+  [
+   "crawl",
+   "serial",
+   138
+  ],
+  [
+   "crawl",
+   "game-losing",
+   118
+  ],
+  [
+   "connect-miss",
+   "serial",
+   101
+  ],
+  [
+   "connect-miss",
+   "game-losing",
+   96
+  ],
+  [
+   "game-losing",
+   "local",
+   80
+  ],
+  [
+   "game-losing",
+   "missed-attack",
+   79
+  ],
+  [
+   "game-losing",
+   "tenuki",
+   73
+  ],
+  [
+   "missed-attack",
+   "serial",
+   69
+  ],
+  [
+   "serial",
+   "tenuki",
+   68
+  ],
+  [
+   "connect-miss",
+   "crawl",
+   66
+  ],
+  [
+   "cut-miss",
+   "serial",
+   63
+  ]
+ ],
+ "moves": [
+  {
+   "g": 7001,
+   "t": 43,
+   "tags": [
+    "serial",
+    "missed-attack"
+   ],
+   "loss": 0.289
+  },
+  {
+   "g": 7000,
+   "t": 30,
+   "tags": [
+    "game-losing",
+    "serial",
+    "local"
+   ],
+   "loss": 0.427
+  },
+  {
+   "g": 7001,
+   "t": 17,
+   "tags": [
+    "serial",
+    "crawl",
+    "connect-miss"
+   ],
+   "loss": 0.337
+  },
+  {
+   "g": 7001,
+   "t": 41,
+   "tags": [
+    "game-losing",
+    "serial",
+    "missed-attack"
+   ],
+   "loss": 0.417
+  },
+  {
+   "g": 7001,
+   "t": 35,
+   "tags": [
+    "game-losing",
+    "serial",
+    "missed-attack"
+   ],
+   "loss": 0.3
+  },
+  {
+   "g": 7003,
+   "t": 15,
+   "tags": [
+    "serial",
+    "edge2"
+   ],
+   "loss": 0.356
+  },
+  {
+   "g": 7004,
+   "t": 12,
+   "tags": [
+    "game-losing",
+    "crawl"
+   ],
+   "loss": 0.33
+  },
+  {
+   "g": 7002,
+   "t": 14,
+   "tags": [
+    "edge2"
+   ],
+   "loss": 0.251
+  },
+  {
+   "g": 7001,
+   "t": 15,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "local",
+    "tenuki",
+    "feed-doomed",
+    "connect-miss"
+   ],
+   "loss": 0.392
+  },
+  {
+   "g": 7000,
+   "t": 34,
+   "tags": [
+    "game-losing",
+    "serial",
+    "tenuki",
+    "connect-miss"
+   ],
+   "loss": 0.298
+  },
+  {
+   "g": 7003,
+   "t": 17,
+   "tags": [
+    "serial",
+    "edge2"
+   ],
+   "loss": 0.396
+  },
+  {
+   "g": 7001,
+   "t": 39,
+   "tags": [
+    "game-losing",
+    "serial",
+    "missed-attack"
+   ],
+   "loss": 0.351
+  },
+  {
+   "g": 7005,
+   "t": 17,
+   "tags": [
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.332
+  },
+  {
+   "g": 7005,
+   "t": 21,
+   "tags": [
+    "serial"
+   ],
+   "loss": 0.337
+  },
+  {
+   "g": 7007,
+   "t": 11,
+   "tags": [
+    "game-losing",
+    "serial"
+   ],
+   "loss": 0.531
+  },
+  {
+   "g": 7007,
+   "t": 15,
+   "tags": [
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.446
+  },
+  {
+   "g": 7007,
+   "t": 13,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.521
+  },
+  {
+   "g": 7006,
+   "t": 20,
+   "tags": [
+    "serial",
+    "missed-attack",
+    "feed-weak"
+   ],
+   "loss": 0.458
+  },
+  {
+   "g": 7006,
+   "t": 26,
+   "tags": [
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.293
+  },
+  {
+   "g": 7006,
+   "t": 24,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.569
+  },
+  {
+   "g": 7007,
+   "t": 7,
+   "tags": [
+    "game-losing",
+    "serial"
+   ],
+   "loss": 0.336
+  },
+  {
+   "g": 7007,
+   "t": 9,
+   "tags": [
+    "game-losing",
+    "serial",
+    "feed-weak",
+    "captured-soon"
+   ],
+   "loss": 0.425
+  },
+  {
+   "g": 7007,
+   "t": 19,
+   "tags": [
+    "game-losing",
+    "serial",
+    "connect-miss"
+   ],
+   "loss": 0.389
+  },
+  {
+   "g": 7006,
+   "t": 28,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge2"
+   ],
+   "loss": 0.487
+  },
+  {
+   "g": 7008,
+   "t": 34,
+   "tags": [
+    "serial",
+    "crawl",
+    "connect-miss"
+   ],
+   "loss": 0.364
+  },
+  {
+   "g": 7007,
+   "t": 33,
+   "tags": [
+    "game-losing",
+    "serial"
+   ],
+   "loss": 0.427
+  },
+  {
+   "g": 7007,
+   "t": 23,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "connect-miss"
+   ],
+   "loss": 0.437
+  },
+  {
+   "g": 7007,
+   "t": 25,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "connect-miss"
+   ],
+   "loss": 0.533
+  },
+  {
+   "g": 7007,
+   "t": 29,
+   "tags": [
+    "serial"
+   ],
+   "loss": 0.3
+  },
+  {
+   "g": 7008,
+   "t": 14,
+   "tags": [
+    "game-losing",
+    "missed-save",
+    "ignored-atari"
+   ],
+   "loss": 0.508
+  },
+  {
+   "g": 7008,
+   "t": 28,
+   "tags": [
+    "game-losing",
+    "crawl"
+   ],
+   "loss": 0.278
+  },
+  {
+   "g": 7008,
+   "t": 46,
+   "tags": [
+    "game-losing",
+    "missed-attack"
+   ],
+   "loss": 0.949
+  },
+  {
+   "g": 7008,
+   "t": 36,
+   "tags": [
+    "serial",
+    "crawl",
+    "tenuki",
+    "connect-miss"
+   ],
+   "loss": 0.349
+  },
+  {
+   "g": 7008,
+   "t": 6,
+   "tags": [
+    "game-losing",
+    "local",
+    "missed-attack",
+    "feed-weak",
+    "cut-miss"
+   ],
+   "loss": 0.347
+  },
+  {
+   "g": 7009,
+   "t": 25,
+   "tags": [
+    "game-losing",
+    "missed-attack",
+    "feed-doomed"
+   ],
+   "loss": 0.818
+  },
+  {
+   "g": 7010,
+   "t": 8,
+   "tags": [
+    "game-losing"
+   ],
+   "loss": 0.312
+  },
+  {
+   "g": 7010,
+   "t": 26,
+   "tags": [
+    "game-losing",
+    "local",
+    "tenuki",
+    "missed-attack",
+    "feed-weak"
+   ],
+   "loss": 0.851
+  },
+  {
+   "g": 7012,
+   "t": 12,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.301
+  },
+  {
+   "g": 7011,
+   "t": 9,
+   "tags": [
+    "crawl"
+   ],
+   "loss": 0.261
+  },
+  {
+   "g": 7012,
+   "t": 14,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "feed-weak"
+   ],
+   "loss": 0.36
+  },
+  {
+   "g": 7011,
+   "t": 21,
+   "tags": [
+    "local",
+    "missed-attack",
+    "cut-miss"
+   ],
+   "loss": 0.34
+  },
+  {
+   "g": 7012,
+   "t": 16,
+   "tags": [
+    "game-losing",
+    "serial",
+    "local",
+    "feed-weak"
+   ],
+   "loss": 0.524
+  },
+  {
+   "g": 7013,
+   "t": 23,
+   "tags": [
+    "serial",
+    "connect-miss"
+   ],
+   "loss": 0.332
+  },
+  {
+   "g": 7013,
+   "t": 15,
+   "tags": [
+    "game-losing",
+    "edge2",
+    "missed-save",
+    "ignored-atari",
+    "feed-weak"
+   ],
+   "loss": 0.282
+  },
+  {
+   "g": 7014,
+   "t": 20,
+   "tags": [
+    "serial",
+    "crawl",
+    "tenuki"
+   ],
+   "loss": 0.413
+  },
+  {
+   "g": 7013,
+   "t": 21,
+   "tags": [
+    "serial"
+   ],
+   "loss": 0.262
+  },
+  {
+   "g": 7014,
+   "t": 24,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "tenuki"
+   ],
+   "loss": 0.736
+  },
+  {
+   "g": 7015,
+   "t": 7,
+   "tags": [
+    "game-losing",
+    "crawl"
+   ],
+   "loss": 0.259
+  },
+  {
+   "g": 7015,
+   "t": 21,
+   "tags": [
+    "crawl",
+    "local"
+   ],
+   "loss": 0.282
+  },
+  {
+   "g": 7015,
+   "t": 29,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge1",
+    "tenuki",
+    "missed-save"
+   ],
+   "loss": 0.46
+  },
+  {
+   "g": 7015,
+   "t": 33,
+   "tags": [
+    "game-losing",
+    "serial",
+    "feed-weak"
+   ],
+   "loss": 0.283
+  },
+  {
+   "g": 7016,
+   "t": 12,
+   "tags": [
+    "game-losing",
+    "crawl",
+    "tenuki",
+    "connect-miss"
+   ],
+   "loss": 0.416
+  },
+  {
+   "g": 7016,
+   "t": 22,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "missed-save",
+    "ignored-atari",
+    "connect-miss"
+   ],
+   "loss": 0.447
+  },
+  {
+   "g": 7016,
+   "t": 20,
+   "tags": [
+    "serial",
+    "connect-miss"
+   ],
+   "loss": 0.315
+  },
+  {
+   "g": 7016,
+   "t": 26,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "tenuki",
+    "connect-miss"
+   ],
+   "loss": 0.623
+  },
+  {
+   "g": 7017,
+   "t": 9,
+   "tags": [
+    "game-losing",
+    "tenuki",
+    "connect-miss"
+   ],
+   "loss": 0.403
+  },
+  {
+   "g": 7017,
+   "t": 15,
+   "tags": [
+    "serial",
+    "connect-miss"
+   ],
+   "loss": 0.253
+  },
+  {
+   "g": 7017,
+   "t": 19,
+   "tags": [
+    "serial",
+    "crawl",
+    "connect-miss"
+   ],
+   "loss": 0.288
+  },
+  {
+   "g": 7017,
+   "t": 23,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.492
+  },
+  {
+   "g": 7018,
+   "t": 10,
+   "tags": [
+    "game-losing",
+    "local",
+    "connect-miss"
+   ],
+   "loss": 0.408
+  },
+  {
+   "g": 7018,
+   "t": 16,
+   "tags": [
+    "game-losing"
+   ],
+   "loss": 0.275
+  },
+  {
+   "g": 7019,
+   "t": 15,
+   "tags": [
+    "serial",
+    "local"
+   ],
+   "loss": 0.321
+  },
+  {
+   "g": 7019,
+   "t": 11,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge2",
+    "connect-miss"
+   ],
+   "loss": 0.264
+  },
+  {
+   "g": 7020,
+   "t": 14,
+   "tags": [
+    "serial",
+    "crawl",
+    "feed-doomed"
+   ],
+   "loss": 0.306
+  },
+  {
+   "g": 7020,
+   "t": 10,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "feed-doomed"
+   ],
+   "loss": 0.442
+  },
+  {
+   "g": 7020,
+   "t": 18,
+   "tags": [
+    "serial",
+    "crawl",
+    "cut-miss"
+   ],
+   "loss": 0.272
+  },
+  {
+   "g": 7020,
+   "t": 34,
+   "tags": [
+    "game-losing",
+    "serial"
+   ],
+   "loss": 0.607
+  },
+  {
+   "g": 7020,
+   "t": 30,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge1",
+    "feed-doomed"
+   ],
+   "loss": 0.448
+  },
+  {
+   "g": 7020,
+   "t": 42,
+   "tags": [
+    "serial"
+   ],
+   "loss": 0.256
+  },
+  {
+   "g": 7020,
+   "t": 52,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge1",
+    "tenuki",
+    "cut-miss"
+   ],
+   "loss": 0.533
+  },
+  {
+   "g": 7020,
+   "t": 46,
+   "tags": [
+    "serial",
+    "crawl",
+    "missed-attack",
+    "feed-weak",
+    "captured-soon"
+   ],
+   "loss": 0.316
+  },
+  {
+   "g": 7020,
+   "t": 54,
+   "tags": [
+    "game-losing",
+    "serial",
+    "feed-weak",
+    "cut-miss"
+   ],
+   "loss": 0.625
+  },
+  {
+   "g": 7021,
+   "t": 13,
+   "tags": [],
+   "loss": 0.254
+  },
+  {
+   "g": 7020,
+   "t": 60,
+   "tags": [
+    "game-losing",
+    "serial",
+    "missed-attack",
+    "feed-doomed",
+    "cut-miss"
+   ],
+   "loss": 0.607
+  },
+  {
+   "g": 7020,
+   "t": 58,
+   "tags": [
+    "game-losing",
+    "serial",
+    "tenuki",
+    "missed-attack",
+    "feed-doomed",
+    "cut-miss"
+   ],
+   "loss": 0.774
+  },
+  {
+   "g": 7020,
+   "t": 62,
+   "tags": [
+    "game-losing",
+    "serial",
+    "local"
+   ],
+   "loss": 0.689
+  },
+  {
+   "g": 7022,
+   "t": 8,
+   "tags": [
+    "game-losing",
+    "local"
+   ],
+   "loss": 0.263
+  },
+  {
+   "g": 7023,
+   "t": 7,
+   "tags": [],
+   "loss": 0.3
+  },
+  {
+   "g": 7023,
+   "t": 23,
+   "tags": [
+    "game-losing",
+    "local",
+    "missed-attack",
+    "cut-miss"
+   ],
+   "loss": 0.255
+  },
+  {
+   "g": 7023,
+   "t": 13,
+   "tags": [
+    "game-losing",
+    "edge2",
+    "missed-attack"
+   ],
+   "loss": 0.276
+  },
+  {
+   "g": 7023,
+   "t": 39,
+   "tags": [
+    "feed-weak"
+   ],
+   "loss": 0.3
+  },
+  {
+   "g": 7024,
+   "t": 14,
+   "tags": [
+    "game-losing",
+    "serial",
+    "connect-miss"
+   ],
+   "loss": 0.415
+  },
+  {
+   "g": 7024,
+   "t": 18,
+   "tags": [
+    "game-losing",
+    "serial",
+    "local",
+    "feed-weak"
+   ],
+   "loss": 0.415
+  },
+  {
+   "g": 7025,
+   "t": 75,
+   "tags": [
+    "missed-save",
+    "ignored-atari",
+    "connect-miss"
+   ],
+   "loss": 0.276
+  },
+  {
+   "g": 7025,
+   "t": 15,
+   "tags": [
+    "crawl"
+   ],
+   "loss": 0.305
+  },
+  {
+   "g": 7028,
+   "t": 52,
+   "tags": [
+    "missed-attack",
+    "feed-weak",
+    "cut-miss"
+   ],
+   "loss": 0.28
+  },
+  {
+   "g": 7028,
+   "t": 20,
+   "tags": [
+    "game-losing",
+    "crawl",
+    "cut-miss"
+   ],
+   "loss": 0.467
+  },
+  {
+   "g": 7028,
+   "t": 32,
+   "tags": [
+    "game-losing",
+    "connect-miss"
+   ],
+   "loss": 0.75
+  },
+  {
+   "g": 7027,
+   "t": 19,
+   "tags": [
+    "game-losing",
+    "edge2",
+    "connect-miss"
+   ],
+   "loss": 0.683
+  },
+  {
+   "g": 7029,
+   "t": 17,
+   "tags": [
+    "game-losing",
+    "feed-weak",
+    "captured-soon"
+   ],
+   "loss": 0.441
+  },
+  {
+   "g": 7029,
+   "t": 29,
+   "tags": [
+    "game-losing",
+    "missed-attack",
+    "cut-miss"
+   ],
+   "loss": 0.523
+  },
+  {
+   "g": 7030,
+   "t": 8,
+   "tags": [
+    "game-losing",
+    "missed-attack"
+   ],
+   "loss": 0.266
+  },
+  {
+   "g": 7031,
+   "t": 19,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge2",
+    "missed-attack"
+   ],
+   "loss": 0.32
+  },
+  {
+   "g": 7031,
+   "t": 17,
+   "tags": [
+    "game-losing",
+    "serial",
+    "feed-weak"
+   ],
+   "loss": 0.31
+  },
+  {
+   "g": 7031,
+   "t": 29,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "tenuki",
+    "missed-attack"
+   ],
+   "loss": 0.541
+  },
+  {
+   "g": 7031,
+   "t": 35,
+   "tags": [
+    "serial",
+    "edge1"
+   ],
+   "loss": 0.31
+  },
+  {
+   "g": 7031,
+   "t": 31,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "local",
+    "tenuki",
+    "missed-attack"
+   ],
+   "loss": 0.318
+  },
+  {
+   "g": 7031,
+   "t": 37,
+   "tags": [
+    "game-losing",
+    "serial"
+   ],
+   "loss": 0.511
+  },
+  {
+   "g": 7031,
+   "t": 45,
+   "tags": [
+    "game-losing",
+    "edge1"
+   ],
+   "loss": 0.679
+  },
+  {
+   "g": 7032,
+   "t": 12,
+   "tags": [
+    "game-losing"
+   ],
+   "loss": 0.419
+  },
+  {
+   "g": 7033,
+   "t": 19,
+   "tags": [
+    "game-losing",
+    "missed-capture",
+    "ignored-atari",
+    "cut-miss"
+   ],
+   "loss": 0.35
+  },
+  {
+   "g": 7033,
+   "t": 27,
+   "tags": [
+    "game-losing",
+    "edge1"
+   ],
+   "loss": 0.495
+  },
+  {
+   "g": 7034,
+   "t": 22,
+   "tags": [
+    "game-losing",
+    "serial"
+   ],
+   "loss": 0.326
+  },
+  {
+   "g": 7034,
+   "t": 24,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge1"
+   ],
+   "loss": 0.283
+  },
+  {
+   "g": 7034,
+   "t": 26,
+   "tags": [
+    "serial"
+   ],
+   "loss": 0.425
+  },
+  {
+   "g": 7035,
+   "t": 11,
+   "tags": [
+    "game-losing",
+    "connect-miss"
+   ],
+   "loss": 0.508
+  },
+  {
+   "g": 7035,
+   "t": 33,
+   "tags": [
+    "serial"
+   ],
+   "loss": 0.252
+  },
+  {
+   "g": 7035,
+   "t": 35,
+   "tags": [
+    "game-losing",
+    "serial",
+    "tenuki",
+    "connect-miss"
+   ],
+   "loss": 0.443
+  },
+  {
+   "g": 7036,
+   "t": 6,
+   "tags": [
+    "game-losing",
+    "crawl"
+   ],
+   "loss": 0.257
+  },
+  {
+   "g": 7037,
+   "t": 9,
+   "tags": [
+    "game-losing",
+    "connect-miss"
+   ],
+   "loss": 0.334
+  },
+  {
+   "g": 7038,
+   "t": 12,
+   "tags": [
+    "serial",
+    "edge2",
+    "feed-weak"
+   ],
+   "loss": 0.274
+  },
+  {
+   "g": 7038,
+   "t": 14,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge2"
+   ],
+   "loss": 0.532
+  },
+  {
+   "g": 7038,
+   "t": 16,
+   "tags": [
+    "game-losing",
+    "serial"
+   ],
+   "loss": 0.499
+  },
+  {
+   "g": 7039,
+   "t": 29,
+   "tags": [
+    "game-losing",
+    "missed-attack",
+    "cut-miss"
+   ],
+   "loss": 0.32
+  },
+  {
+   "g": 7038,
+   "t": 18,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge2"
+   ],
+   "loss": 0.493
+  },
+  {
+   "g": 7038,
+   "t": 20,
+   "tags": [
+    "game-losing",
+    "serial"
+   ],
+   "loss": 0.464
+  },
+  {
+   "g": 7040,
+   "t": 14,
+   "tags": [
+    "game-losing",
+    "serial"
+   ],
+   "loss": 0.38
+  },
+  {
+   "g": 7040,
+   "t": 32,
+   "tags": [
+    "game-losing",
+    "local",
+    "feed-weak"
+   ],
+   "loss": 0.845
+  },
+  {
+   "g": 7040,
+   "t": 16,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge2"
+   ],
+   "loss": 0.28
+  },
+  {
+   "g": 7041,
+   "t": 21,
+   "tags": [
+    "serial",
+    "connect-miss"
+   ],
+   "loss": 0.318
+  },
+  {
+   "g": 7041,
+   "t": 19,
+   "tags": [
+    "game-losing",
+    "serial",
+    "local"
+   ],
+   "loss": 0.492
+  },
+  {
+   "g": 7041,
+   "t": 25,
+   "tags": [
+    "game-losing",
+    "serial",
+    "local",
+    "missed-attack"
+   ],
+   "loss": 0.36
+  },
+  {
+   "g": 7041,
+   "t": 27,
+   "tags": [
+    "game-losing",
+    "serial"
+   ],
+   "loss": 0.498
+  },
+  {
+   "g": 7041,
+   "t": 29,
+   "tags": [
+    "game-losing",
+    "serial",
+    "local"
+   ],
+   "loss": 0.404
+  },
+  {
+   "g": 7041,
+   "t": 31,
+   "tags": [
+    "game-losing",
+    "serial",
+    "tenuki",
+    "cut-miss"
+   ],
+   "loss": 0.68
+  },
+  {
+   "g": 7042,
+   "t": 22,
+   "tags": [
+    "game-losing",
+    "edge2",
+    "local",
+    "missed-attack"
+   ],
+   "loss": 0.554
+  },
+  {
+   "g": 7043,
+   "t": 23,
+   "tags": [
+    "game-losing",
+    "edge2",
+    "missed-attack",
+    "cut-miss"
+   ],
+   "loss": 0.444
+  },
+  {
+   "g": 7043,
+   "t": 17,
+   "tags": [
+    "cut-miss"
+   ],
+   "loss": 0.339
+  },
+  {
+   "g": 7044,
+   "t": 10,
+   "tags": [
+    "tenuki",
+    "missed-save",
+    "ignored-atari",
+    "connect-miss"
+   ],
+   "loss": 0.36
+  },
+  {
+   "g": 7045,
+   "t": 7,
+   "tags": [
+    "crawl"
+   ],
+   "loss": 0.268
+  },
+  {
+   "g": 7045,
+   "t": 17,
+   "tags": [
+    "tenuki",
+    "missed-save",
+    "ignored-atari",
+    "feed-weak",
+    "captured-soon"
+   ],
+   "loss": 0.318
+  },
+  {
+   "g": 7046,
+   "t": 8,
+   "tags": [
+    "edge2",
+    "missed-save",
+    "ignored-atari",
+    "feed-weak"
+   ],
+   "loss": 0.279
+  },
+  {
+   "g": 7047,
+   "t": 71,
+   "tags": [
+    "tenuki",
+    "feed-weak"
+   ],
+   "loss": 0.276
+  },
+  {
+   "g": 7047,
+   "t": 17,
+   "tags": [
+    "game-losing",
+    "local",
+    "tenuki"
+   ],
+   "loss": 0.361
+  },
+  {
+   "g": 7047,
+   "t": 23,
+   "tags": [
+    "game-losing",
+    "crawl",
+    "missed-attack",
+    "self-atari",
+    "feed-doomed",
+    "captured-soon",
+    "cut-miss"
+   ],
+   "loss": 0.783
+  },
+  {
+   "g": 7049,
+   "t": 19,
+   "tags": [
+    "game-losing",
+    "serial",
+    "missed-attack"
+   ],
+   "loss": 0.44
+  },
+  {
+   "g": 7048,
+   "t": 12,
+   "tags": [
+    "game-losing",
+    "edge2",
+    "missed-attack"
+   ],
+   "loss": 0.574
+  },
+  {
+   "g": 7048,
+   "t": 38,
+   "tags": [
+    "game-losing",
+    "tenuki",
+    "connect-miss"
+   ],
+   "loss": 0.891
+  },
+  {
+   "g": 7048,
+   "t": 6,
+   "tags": [
+    "game-losing",
+    "local"
+   ],
+   "loss": 0.289
+  },
+  {
+   "g": 7049,
+   "t": 21,
+   "tags": [
+    "serial",
+    "edge1",
+    "missed-attack"
+   ],
+   "loss": 0.28
+  },
+  {
+   "g": 7051,
+   "t": 23,
+   "tags": [
+    "serial",
+    "crawl",
+    "tenuki",
+    "connect-miss"
+   ],
+   "loss": 0.286
+  },
+  {
+   "g": 7051,
+   "t": 25,
+   "tags": [
+    "game-losing",
+    "serial",
+    "feed-doomed",
+    "connect-miss"
+   ],
+   "loss": 0.51
+  },
+  {
+   "g": 7051,
+   "t": 47,
+   "tags": [
+    "missed-attack",
+    "feed-doomed"
+   ],
+   "loss": 0.439
+  },
+  {
+   "g": 7052,
+   "t": 16,
+   "tags": [
+    "game-losing",
+    "crawl",
+    "local",
+    "missed-attack",
+    "cut-miss"
+   ],
+   "loss": 0.251
+  },
+  {
+   "g": 7053,
+   "t": 7,
+   "tags": [
+    "missed-attack"
+   ],
+   "loss": 0.25
+  },
+  {
+   "g": 7055,
+   "t": 11,
+   "tags": [
+    "game-losing",
+    "edge2",
+    "tenuki",
+    "connect-miss"
+   ],
+   "loss": 0.449
+  },
+  {
+   "g": 7056,
+   "t": 12,
+   "tags": [
+    "game-losing",
+    "crawl",
+    "missed-save",
+    "ignored-atari",
+    "feed-weak",
+    "connect-miss"
+   ],
+   "loss": 0.553
+  },
+  {
+   "g": 7057,
+   "t": 39,
+   "tags": [
+    "tenuki"
+   ],
+   "loss": 0.41
+  },
+  {
+   "g": 7058,
+   "t": 18,
+   "tags": [
+    "serial",
+    "tenuki",
+    "connect-miss"
+   ],
+   "loss": 0.403
+  },
+  {
+   "g": 7058,
+   "t": 10,
+   "tags": [
+    "connect-miss"
+   ],
+   "loss": 0.262
+  },
+  {
+   "g": 7058,
+   "t": 36,
+   "tags": [
+    "game-losing",
+    "serial",
+    "local",
+    "connect-miss"
+   ],
+   "loss": 0.377
+  },
+  {
+   "g": 7058,
+   "t": 20,
+   "tags": [
+    "serial",
+    "missed-save",
+    "ignored-atari",
+    "connect-miss"
+   ],
+   "loss": 0.348
+  },
+  {
+   "g": 7058,
+   "t": 38,
+   "tags": [
+    "game-losing",
+    "serial",
+    "missed-save",
+    "ignored-atari"
+   ],
+   "loss": 0.602
+  },
+  {
+   "g": 7059,
+   "t": 27,
+   "tags": [
+    "game-losing",
+    "serial"
+   ],
+   "loss": 0.426
+  },
+  {
+   "g": 7059,
+   "t": 29,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge2",
+    "tenuki",
+    "missed-save",
+    "ignored-atari",
+    "connect-miss"
+   ],
+   "loss": 0.539
+  },
+  {
+   "g": 7059,
+   "t": 41,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge1",
+    "tenuki",
+    "missed-attack"
+   ],
+   "loss": 0.834
+  },
+  {
+   "g": 7059,
+   "t": 43,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge1",
+    "missed-attack"
+   ],
+   "loss": 0.917
+  },
+  {
+   "g": 7059,
+   "t": 51,
+   "tags": [
+    "game-losing",
+    "feed-weak"
+   ],
+   "loss": 0.805
+  },
+  {
+   "g": 7059,
+   "t": 33,
+   "tags": [
+    "game-losing",
+    "serial",
+    "feed-weak",
+    "connect-miss"
+   ],
+   "loss": 0.321
+  },
+  {
+   "g": 7060,
+   "t": 12,
+   "tags": [
+    "game-losing",
+    "serial",
+    "local",
+    "feed-weak",
+    "feed-doomed",
+    "captured-soon"
+   ],
+   "loss": 0.428
+  },
+  {
+   "g": 7060,
+   "t": 14,
+   "tags": [
+    "serial",
+    "local",
+    "missed-attack"
+   ],
+   "loss": 0.298
+  },
+  {
+   "g": 7061,
+   "t": 13,
+   "tags": [
+    "game-losing"
+   ],
+   "loss": 0.349
+  },
+  {
+   "g": 7060,
+   "t": 42,
+   "tags": [
+    "tenuki",
+    "missed-capture",
+    "ignored-atari",
+    "cut-miss"
+   ],
+   "loss": 0.297
+  },
+  {
+   "g": 7062,
+   "t": 20,
+   "tags": [
+    "serial",
+    "cut-miss"
+   ],
+   "loss": 0.319
+  },
+  {
+   "g": 7062,
+   "t": 18,
+   "tags": [
+    "game-losing",
+    "serial",
+    "cut-miss"
+   ],
+   "loss": 0.32
+  },
+  {
+   "g": 7062,
+   "t": 28,
+   "tags": [
+    "game-losing"
+   ],
+   "loss": 0.463
+  },
+  {
+   "g": 7063,
+   "t": 21,
+   "tags": [
+    "game-losing",
+    "serial",
+    "feed-weak"
+   ],
+   "loss": 0.565
+  },
+  {
+   "g": 7063,
+   "t": 23,
+   "tags": [
+    "game-losing",
+    "serial"
+   ],
+   "loss": 0.618
+  },
+  {
+   "g": 7064,
+   "t": 20,
+   "tags": [
+    "serial",
+    "missed-attack",
+    "cut-miss"
+   ],
+   "loss": 0.45
+  },
+  {
+   "g": 7064,
+   "t": 16,
+   "tags": [
+    "game-losing",
+    "serial",
+    "local"
+   ],
+   "loss": 0.573
+  },
+  {
+   "g": 7064,
+   "t": 22,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "tenuki",
+    "cut-miss"
+   ],
+   "loss": 0.456
+  },
+  {
+   "g": 7064,
+   "t": 24,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "cut-miss"
+   ],
+   "loss": 0.325
+  },
+  {
+   "g": 7064,
+   "t": 28,
+   "tags": [
+    "game-losing",
+    "serial",
+    "local",
+    "missed-attack",
+    "cut-miss"
+   ],
+   "loss": 0.667
+  },
+  {
+   "g": 7066,
+   "t": 16,
+   "tags": [
+    "game-losing",
+    "local",
+    "missed-save",
+    "ignored-atari"
+   ],
+   "loss": 0.614
+  },
+  {
+   "g": 7064,
+   "t": 38,
+   "tags": [
+    "game-losing",
+    "crawl",
+    "missed-attack",
+    "connect-miss"
+   ],
+   "loss": 0.942
+  },
+  {
+   "g": 7067,
+   "t": 19,
+   "tags": [
+    "game-losing",
+    "serial",
+    "tenuki"
+   ],
+   "loss": 0.258
+  },
+  {
+   "g": 7068,
+   "t": 24,
+   "tags": [
+    "missed-attack"
+   ],
+   "loss": 0.303
+  },
+  {
+   "g": 7070,
+   "t": 28,
+   "tags": [
+    "serial",
+    "local"
+   ],
+   "loss": 0.336
+  },
+  {
+   "g": 7067,
+   "t": 23,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge2",
+    "tenuki",
+    "missed-save",
+    "ignored-atari",
+    "connect-miss"
+   ],
+   "loss": 0.818
+  },
+  {
+   "g": 7070,
+   "t": 30,
+   "tags": [
+    "game-losing",
+    "serial",
+    "tenuki",
+    "missed-attack",
+    "feed-weak",
+    "cut-miss"
+   ],
+   "loss": 0.698
+  },
+  {
+   "g": 7069,
+   "t": 29,
+   "tags": [
+    "game-losing",
+    "connect-miss"
+   ],
+   "loss": 0.724
+  },
+  {
+   "g": 7070,
+   "t": 34,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge2",
+    "missed-attack",
+    "cut-miss"
+   ],
+   "loss": 0.924
+  },
+  {
+   "g": 7070,
+   "t": 32,
+   "tags": [
+    "game-losing",
+    "serial",
+    "missed-attack",
+    "cut-miss"
+   ],
+   "loss": 0.561
+  },
+  {
+   "g": 7071,
+   "t": 21,
+   "tags": [],
+   "loss": 0.372
+  },
+  {
+   "g": 7071,
+   "t": 7,
+   "tags": [
+    "game-losing",
+    "local"
+   ],
+   "loss": 0.252
+  },
+  {
+   "g": 7071,
+   "t": 55,
+   "tags": [],
+   "loss": 0.277
+  },
+  {
+   "g": 7072,
+   "t": 30,
+   "tags": [
+    "game-losing",
+    "serial",
+    "tenuki",
+    "connect-miss"
+   ],
+   "loss": 0.468
+  },
+  {
+   "g": 7072,
+   "t": 34,
+   "tags": [
+    "game-losing",
+    "serial",
+    "tenuki",
+    "connect-miss"
+   ],
+   "loss": 0.331
+  },
+  {
+   "g": 7072,
+   "t": 36,
+   "tags": [
+    "game-losing",
+    "serial",
+    "missed-attack",
+    "feed-weak"
+   ],
+   "loss": 0.492
+  },
+  {
+   "g": 7072,
+   "t": 40,
+   "tags": [
+    "game-losing",
+    "serial"
+   ],
+   "loss": 0.589
+  },
+  {
+   "g": 7073,
+   "t": 11,
+   "tags": [
+    "serial",
+    "crawl",
+    "connect-miss"
+   ],
+   "loss": 0.303
+  },
+  {
+   "g": 7073,
+   "t": 21,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge2"
+   ],
+   "loss": 0.479
+  },
+  {
+   "g": 7073,
+   "t": 13,
+   "tags": [
+    "serial",
+    "tenuki",
+    "connect-miss"
+   ],
+   "loss": 0.424
+  },
+  {
+   "g": 7073,
+   "t": 25,
+   "tags": [
+    "game-losing",
+    "serial",
+    "tenuki"
+   ],
+   "loss": 0.339
+  },
+  {
+   "g": 7073,
+   "t": 23,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.436
+  },
+  {
+   "g": 7073,
+   "t": 27,
+   "tags": [
+    "game-losing",
+    "serial"
+   ],
+   "loss": 0.295
+  },
+  {
+   "g": 7074,
+   "t": 22,
+   "tags": [
+    "game-losing",
+    "local"
+   ],
+   "loss": 0.638
+  },
+  {
+   "g": 7075,
+   "t": 21,
+   "tags": [
+    "game-losing",
+    "crawl",
+    "tenuki"
+   ],
+   "loss": 0.376
+  },
+  {
+   "g": 7076,
+   "t": 18,
+   "tags": [
+    "serial"
+   ],
+   "loss": 0.316
+  },
+  {
+   "g": 7075,
+   "t": 31,
+   "tags": [
+    "game-losing",
+    "local"
+   ],
+   "loss": 0.348
+  },
+  {
+   "g": 7076,
+   "t": 20,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge2"
+   ],
+   "loss": 0.331
+  },
+  {
+   "g": 7076,
+   "t": 24,
+   "tags": [
+    "game-losing",
+    "serial"
+   ],
+   "loss": 0.516
+  },
+  {
+   "g": 7076,
+   "t": 26,
+   "tags": [
+    "game-losing",
+    "serial",
+    "feed-weak"
+   ],
+   "loss": 0.527
+  },
+  {
+   "g": 7076,
+   "t": 28,
+   "tags": [
+    "game-losing",
+    "serial",
+    "feed-weak"
+   ],
+   "loss": 0.514
+  },
+  {
+   "g": 7077,
+   "t": 19,
+   "tags": [
+    "game-losing",
+    "crawl"
+   ],
+   "loss": 0.335
+  },
+  {
+   "g": 7077,
+   "t": 7,
+   "tags": [
+    "game-losing",
+    "serial",
+    "local",
+    "feed-doomed",
+    "connect-miss"
+   ],
+   "loss": 0.328
+  },
+  {
+   "g": 7077,
+   "t": 11,
+   "tags": [
+    "serial"
+   ],
+   "loss": 0.34
+  },
+  {
+   "g": 7079,
+   "t": 57,
+   "tags": [
+    "game-losing",
+    "local",
+    "missed-save",
+    "ignored-atari",
+    "feed-weak",
+    "connect-miss"
+   ],
+   "loss": 0.792
+  },
+  {
+   "g": 7078,
+   "t": 28,
+   "tags": [
+    "game-losing",
+    "feed-weak"
+   ],
+   "loss": 0.807
+  },
+  {
+   "g": 7079,
+   "t": 9,
+   "tags": [
+    "serial",
+    "edge2",
+    "local",
+    "missed-attack",
+    "feed-weak",
+    "cut-miss"
+   ],
+   "loss": 0.275
+  },
+  {
+   "g": 7079,
+   "t": 13,
+   "tags": [
+    "game-losing",
+    "serial",
+    "local",
+    "cut-miss"
+   ],
+   "loss": 0.321
+  },
+  {
+   "g": 7080,
+   "t": 26,
+   "tags": [
+    "game-losing",
+    "tenuki"
+   ],
+   "loss": 0.443
+  },
+  {
+   "g": 7080,
+   "t": 34,
+   "tags": [
+    "game-losing",
+    "local",
+    "missed-attack",
+    "feed-weak"
+   ],
+   "loss": 0.582
+  },
+  {
+   "g": 7080,
+   "t": 42,
+   "tags": [
+    "crawl",
+    "connect-miss"
+   ],
+   "loss": 0.312
+  },
+  {
+   "g": 7081,
+   "t": 9,
+   "tags": [
+    "game-losing",
+    "serial",
+    "local"
+   ],
+   "loss": 0.356
+  },
+  {
+   "g": 7081,
+   "t": 13,
+   "tags": [
+    "game-losing",
+    "serial"
+   ],
+   "loss": 0.272
+  },
+  {
+   "g": 7082,
+   "t": 20,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "cut-miss"
+   ],
+   "loss": 0.76
+  },
+  {
+   "g": 7082,
+   "t": 18,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "tenuki",
+    "feed-weak",
+    "cut-miss"
+   ],
+   "loss": 0.665
+  },
+  {
+   "g": 7082,
+   "t": 36,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge2",
+    "cut-miss"
+   ],
+   "loss": 0.436
+  },
+  {
+   "g": 7082,
+   "t": 38,
+   "tags": [
+    "serial",
+    "tenuki",
+    "cut-miss"
+   ],
+   "loss": 0.297
+  },
+  {
+   "g": 7082,
+   "t": 40,
+   "tags": [
+    "serial",
+    "missed-save",
+    "ignored-atari",
+    "connect-miss"
+   ],
+   "loss": 0.291
+  },
+  {
+   "g": 7082,
+   "t": 46,
+   "tags": [
+    "serial",
+    "missed-save",
+    "ignored-atari",
+    "connect-miss"
+   ],
+   "loss": 0.358
+  },
+  {
+   "g": 7082,
+   "t": 50,
+   "tags": [
+    "serial",
+    "missed-save",
+    "ignored-atari",
+    "connect-miss"
+   ],
+   "loss": 0.261
+  },
+  {
+   "g": 7083,
+   "t": 7,
+   "tags": [
+    "game-losing",
+    "crawl",
+    "tenuki"
+   ],
+   "loss": 0.425
+  },
+  {
+   "g": 7083,
+   "t": 15,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge2",
+    "feed-weak"
+   ],
+   "loss": 0.28
+  },
+  {
+   "g": 7083,
+   "t": 17,
+   "tags": [
+    "serial",
+    "local",
+    "missed-capture"
+   ],
+   "loss": 0.259
+  },
+  {
+   "g": 7084,
+   "t": 24,
+   "tags": [
+    "game-losing",
+    "connect-miss"
+   ],
+   "loss": 0.619
+  },
+  {
+   "g": 7086,
+   "t": 16,
+   "tags": [
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.358
+  },
+  {
+   "g": 7086,
+   "t": 28,
+   "tags": [
+    "game-losing"
+   ],
+   "loss": 0.282
+  },
+  {
+   "g": 7086,
+   "t": 42,
+   "tags": [
+    "edge1"
+   ],
+   "loss": 0.309
+  },
+  {
+   "g": 7086,
+   "t": 18,
+   "tags": [
+    "game-losing",
+    "serial",
+    "local",
+    "missed-attack",
+    "feed-weak"
+   ],
+   "loss": 0.693
+  },
+  {
+   "g": 7087,
+   "t": 19,
+   "tags": [
+    "serial",
+    "edge2",
+    "missed-capture",
+    "missed-attack",
+    "ignored-atari",
+    "cut-miss"
+   ],
+   "loss": 0.293
+  },
+  {
+   "g": 7087,
+   "t": 35,
+   "tags": [
+    "serial",
+    "edge2",
+    "missed-attack",
+    "cut-miss"
+   ],
+   "loss": 0.414
+  },
+  {
+   "g": 7087,
+   "t": 21,
+   "tags": [
+    "game-losing",
+    "serial",
+    "tenuki",
+    "missed-attack",
+    "feed-weak",
+    "cut-miss"
+   ],
+   "loss": 0.326
+  },
+  {
+   "g": 7087,
+   "t": 31,
+   "tags": [
+    "serial",
+    "missed-attack",
+    "cut-miss"
+   ],
+   "loss": 0.307
+  },
+  {
+   "g": 7088,
+   "t": 10,
+   "tags": [
+    "crawl",
+    "feed-doomed"
+   ],
+   "loss": 0.273
+  },
+  {
+   "g": 7088,
+   "t": 16,
+   "tags": [
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.263
+  },
+  {
+   "g": 7088,
+   "t": 18,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "feed-weak"
+   ],
+   "loss": 0.595
+  },
+  {
+   "g": 7089,
+   "t": 9,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "connect-miss"
+   ],
+   "loss": 0.353
+  },
+  {
+   "g": 7089,
+   "t": 13,
+   "tags": [
+    "game-losing",
+    "serial"
+   ],
+   "loss": 0.321
+  },
+  {
+   "g": 7089,
+   "t": 11,
+   "tags": [
+    "serial",
+    "crawl",
+    "connect-miss"
+   ],
+   "loss": 0.259
+  },
+  {
+   "g": 7089,
+   "t": 21,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "missed-attack"
+   ],
+   "loss": 0.76
+  },
+  {
+   "g": 7089,
+   "t": 25,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge2",
+    "feed-weak"
+   ],
+   "loss": 0.443
+  },
+  {
+   "g": 7090,
+   "t": 12,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.398
+  },
+  {
+   "g": 7091,
+   "t": 15,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge2",
+    "tenuki"
+   ],
+   "loss": 0.538
+  },
+  {
+   "g": 7090,
+   "t": 16,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "tenuki"
+   ],
+   "loss": 0.281
+  },
+  {
+   "g": 7091,
+   "t": 17,
+   "tags": [
+    "serial"
+   ],
+   "loss": 0.289
+  },
+  {
+   "g": 7092,
+   "t": 20,
+   "tags": [
+    "crawl",
+    "tenuki",
+    "missed-attack",
+    "feed-weak"
+   ],
+   "loss": 0.449
+  },
+  {
+   "g": 7094,
+   "t": 16,
+   "tags": [
+    "serial"
+   ],
+   "loss": 0.275
+  },
+  {
+   "g": 7094,
+   "t": 18,
+   "tags": [
+    "game-losing",
+    "serial",
+    "tenuki",
+    "connect-miss"
+   ],
+   "loss": 0.378
+  },
+  {
+   "g": 7095,
+   "t": 7,
+   "tags": [
+    "game-losing",
+    "local"
+   ],
+   "loss": 0.508
+  },
+  {
+   "g": 7095,
+   "t": 19,
+   "tags": [
+    "game-losing"
+   ],
+   "loss": 0.474
+  },
+  {
+   "g": 7097,
+   "t": 9,
+   "tags": [
+    "serial",
+    "crawl",
+    "local",
+    "tenuki",
+    "connect-miss"
+   ],
+   "loss": 0.281
+  },
+  {
+   "g": 7097,
+   "t": 13,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge2",
+    "tenuki"
+   ],
+   "loss": 0.369
+  },
+  {
+   "g": 7097,
+   "t": 17,
+   "tags": [
+    "game-losing",
+    "serial"
+   ],
+   "loss": 0.69
+  },
+  {
+   "g": 7099,
+   "t": 15,
+   "tags": [
+    "game-losing",
+    "edge2",
+    "local"
+   ],
+   "loss": 0.3
+  },
+  {
+   "g": 7099,
+   "t": 25,
+   "tags": [
+    "serial"
+   ],
+   "loss": 0.3
+  },
+  {
+   "g": 7100,
+   "t": 30,
+   "tags": [
+    "game-losing",
+    "serial",
+    "missed-attack",
+    "cut-miss"
+   ],
+   "loss": 0.499
+  },
+  {
+   "g": 7099,
+   "t": 27,
+   "tags": [
+    "game-losing",
+    "serial",
+    "missed-attack",
+    "cut-miss"
+   ],
+   "loss": 0.545
+  },
+  {
+   "g": 7100,
+   "t": 32,
+   "tags": [
+    "serial",
+    "crawl",
+    "cut-miss"
+   ],
+   "loss": 0.38
+  },
+  {
+   "g": 7100,
+   "t": 14,
+   "tags": [
+    "game-losing",
+    "crawl",
+    "tenuki",
+    "cut-miss"
+   ],
+   "loss": 0.422
+  },
+  {
+   "g": 7100,
+   "t": 36,
+   "tags": [
+    "game-losing",
+    "serial"
+   ],
+   "loss": 0.464
+  },
+  {
+   "g": 7100,
+   "t": 38,
+   "tags": [
+    "serial"
+   ],
+   "loss": 0.443
+  },
+  {
+   "g": 7102,
+   "t": 18,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge2"
+   ],
+   "loss": 0.451
+  },
+  {
+   "g": 7101,
+   "t": 23,
+   "tags": [
+    "edge2",
+    "feed-doomed",
+    "connect-miss"
+   ],
+   "loss": 0.272
+  },
+  {
+   "g": 7102,
+   "t": 20,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge2"
+   ],
+   "loss": 0.434
+  },
+  {
+   "g": 7103,
+   "t": 11,
+   "tags": [
+    "serial",
+    "local",
+    "feed-doomed"
+   ],
+   "loss": 0.372
+  },
+  {
+   "g": 7102,
+   "t": 24,
+   "tags": [
+    "game-losing",
+    "serial",
+    "connect-miss"
+   ],
+   "loss": 0.572
+  },
+  {
+   "g": 7103,
+   "t": 15,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge2"
+   ],
+   "loss": 0.614
+  },
+  {
+   "g": 7103,
+   "t": 29,
+   "tags": [
+    "game-losing",
+    "crawl",
+    "connect-miss"
+   ],
+   "loss": 0.326
+  },
+  {
+   "g": 7105,
+   "t": 23,
+   "tags": [
+    "game-losing",
+    "tenuki",
+    "feed-weak"
+   ],
+   "loss": 0.529
+  },
+  {
+   "g": 7104,
+   "t": 8,
+   "tags": [
+    "game-losing",
+    "local"
+   ],
+   "loss": 0.362
+  },
+  {
+   "g": 7107,
+   "t": 7,
+   "tags": [
+    "game-losing",
+    "serial",
+    "local"
+   ],
+   "loss": 0.266
+  },
+  {
+   "g": 7107,
+   "t": 9,
+   "tags": [
+    "serial",
+    "cut-miss"
+   ],
+   "loss": 0.33
+  },
+  {
+   "g": 7109,
+   "t": 15,
+   "tags": [
+    "game-losing",
+    "edge2",
+    "tenuki"
+   ],
+   "loss": 0.266
+  },
+  {
+   "g": 7109,
+   "t": 39,
+   "tags": [
+    "serial",
+    "missed-attack",
+    "feed-doomed",
+    "cut-miss"
+   ],
+   "loss": 0.269
+  },
+  {
+   "g": 7109,
+   "t": 41,
+   "tags": [
+    "game-losing",
+    "serial",
+    "tenuki",
+    "missed-attack",
+    "cut-miss"
+   ],
+   "loss": 0.707
+  },
+  {
+   "g": 7111,
+   "t": 9,
+   "tags": [
+    "serial",
+    "crawl",
+    "tenuki",
+    "missed-attack",
+    "cut-miss"
+   ],
+   "loss": 0.329
+  },
+  {
+   "g": 7110,
+   "t": 20,
+   "tags": [
+    "tenuki"
+   ],
+   "loss": 0.293
+  },
+  {
+   "g": 7111,
+   "t": 7,
+   "tags": [
+    "serial",
+    "crawl",
+    "tenuki"
+   ],
+   "loss": 0.329
+  },
+  {
+   "g": 7111,
+   "t": 73,
+   "tags": [
+    "missed-attack",
+    "cut-miss"
+   ],
+   "loss": 0.28
+  },
+  {
+   "g": 7111,
+   "t": 25,
+   "tags": [
+    "crawl",
+    "tenuki",
+    "missed-save",
+    "ignored-atari",
+    "connect-miss"
+   ],
+   "loss": 0.418
+  },
+  {
+   "g": 7112,
+   "t": 16,
+   "tags": [
+    "game-losing",
+    "connect-miss"
+   ],
+   "loss": 0.284
+  },
+  {
+   "g": 7112,
+   "t": 24,
+   "tags": [
+    "game-losing",
+    "local",
+    "missed-attack",
+    "cut-miss"
+   ],
+   "loss": 0.346
+  },
+  {
+   "g": 7112,
+   "t": 46,
+   "tags": [
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.374
+  },
+  {
+   "g": 7112,
+   "t": 48,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.477
+  },
+  {
+   "g": 7113,
+   "t": 9,
+   "tags": [
+    "serial",
+    "connect-miss"
+   ],
+   "loss": 0.291
+  },
+  {
+   "g": 7113,
+   "t": 11,
+   "tags": [
+    "serial",
+    "crawl",
+    "missed-attack",
+    "cut-miss"
+   ],
+   "loss": 0.363
+  },
+  {
+   "g": 7114,
+   "t": 16,
+   "tags": [
+    "crawl",
+    "local",
+    "missed-attack"
+   ],
+   "loss": 0.296
+  },
+  {
+   "g": 7114,
+   "t": 26,
+   "tags": [
+    "tenuki"
+   ],
+   "loss": 0.296
+  },
+  {
+   "g": 7114,
+   "t": 32,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge2",
+    "self-atari",
+    "connect-miss"
+   ],
+   "loss": 0.604
+  },
+  {
+   "g": 7114,
+   "t": 34,
+   "tags": [
+    "game-losing",
+    "serial",
+    "feed-weak"
+   ],
+   "loss": 0.455
+  },
+  {
+   "g": 7114,
+   "t": 38,
+   "tags": [
+    "game-losing",
+    "serial",
+    "missed-attack"
+   ],
+   "loss": 0.508
+  },
+  {
+   "g": 7115,
+   "t": 35,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge2",
+    "connect-miss"
+   ],
+   "loss": 0.611
+  },
+  {
+   "g": 7115,
+   "t": 61,
+   "tags": [
+    "game-losing",
+    "own-territory"
+   ],
+   "loss": 0.52
+  },
+  {
+   "g": 7115,
+   "t": 41,
+   "tags": [
+    "serial",
+    "edge1"
+   ],
+   "loss": 0.372
+  },
+  {
+   "g": 7115,
+   "t": 69,
+   "tags": [
+    "game-losing",
+    "missed-attack",
+    "eye-fill",
+    "own-territory",
+    "connect-miss"
+   ],
+   "loss": 0.316
+  },
+  {
+   "g": 7115,
+   "t": 37,
+   "tags": [
+    "serial",
+    "feed-weak"
+   ],
+   "loss": 0.295
+  },
+  {
+   "g": 7116,
+   "t": 12,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "local"
+   ],
+   "loss": 0.371
+  },
+  {
+   "g": 7116,
+   "t": 14,
+   "tags": [
+    "game-losing",
+    "serial",
+    "local",
+    "feed-doomed"
+   ],
+   "loss": 0.259
+  },
+  {
+   "g": 7116,
+   "t": 24,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "connect-miss"
+   ],
+   "loss": 0.32
+  },
+  {
+   "g": 7116,
+   "t": 20,
+   "tags": [
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.451
+  },
+  {
+   "g": 7116,
+   "t": 44,
+   "tags": [
+    "game-losing"
+   ],
+   "loss": 0.616
+  },
+  {
+   "g": 7116,
+   "t": 28,
+   "tags": [
+    "game-losing",
+    "serial",
+    "eye-fill",
+    "own-territory"
+   ],
+   "loss": 0.687
+  },
+  {
+   "g": 7118,
+   "t": 16,
+   "tags": [
+    "game-losing",
+    "crawl",
+    "local",
+    "connect-miss"
+   ],
+   "loss": 0.624
+  },
+  {
+   "g": 7119,
+   "t": 11,
+   "tags": [
+    "local"
+   ],
+   "loss": 0.256
+  },
+  {
+   "g": 7120,
+   "t": 22,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "connect-miss"
+   ],
+   "loss": 0.525
+  },
+  {
+   "g": 7119,
+   "t": 21,
+   "tags": [
+    "game-losing",
+    "connect-miss"
+   ],
+   "loss": 0.334
+  },
+  {
+   "g": 7120,
+   "t": 14,
+   "tags": [
+    "tenuki",
+    "connect-miss"
+   ],
+   "loss": 0.312
+  },
+  {
+   "g": 7119,
+   "t": 27,
+   "tags": [
+    "game-losing",
+    "edge1",
+    "tenuki",
+    "missed-attack"
+   ],
+   "loss": 0.444
+  },
+  {
+   "g": 7120,
+   "t": 24,
+   "tags": [
+    "serial",
+    "crawl",
+    "connect-miss"
+   ],
+   "loss": 0.347
+  },
+  {
+   "g": 7121,
+   "t": 11,
+   "tags": [
+    "edge2",
+    "connect-miss"
+   ],
+   "loss": 0.428
+  },
+  {
+   "g": 7123,
+   "t": 53,
+   "tags": [
+    "game-losing",
+    "edge1"
+   ],
+   "loss": 0.368
+  },
+  {
+   "g": 7121,
+   "t": 23,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.349
+  },
+  {
+   "g": 7121,
+   "t": 27,
+   "tags": [
+    "game-losing",
+    "serial",
+    "connect-miss"
+   ],
+   "loss": 0.613
+  },
+  {
+   "g": 7122,
+   "t": 12,
+   "tags": [
+    "crawl",
+    "tenuki",
+    "connect-miss"
+   ],
+   "loss": 0.297
+  },
+  {
+   "g": 7124,
+   "t": 14,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "local",
+    "tenuki",
+    "connect-miss"
+   ],
+   "loss": 0.429
+  },
+  {
+   "g": 7124,
+   "t": 16,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.49
+  },
+  {
+   "g": 7124,
+   "t": 38,
+   "tags": [
+    "serial"
+   ],
+   "loss": 0.377
+  },
+  {
+   "g": 7124,
+   "t": 32,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge1"
+   ],
+   "loss": 0.871
+  },
+  {
+   "g": 7124,
+   "t": 36,
+   "tags": [
+    "game-losing",
+    "serial"
+   ],
+   "loss": 0.667
+  },
+  {
+   "g": 7124,
+   "t": 40,
+   "tags": [
+    "serial"
+   ],
+   "loss": 0.291
+  },
+  {
+   "g": 7124,
+   "t": 42,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge1"
+   ],
+   "loss": 0.851
+  },
+  {
+   "g": 7124,
+   "t": 44,
+   "tags": [
+    "game-losing",
+    "serial"
+   ],
+   "loss": 0.937
+  },
+  {
+   "g": 7127,
+   "t": 15,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.53
+  },
+  {
+   "g": 7127,
+   "t": 13,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "tenuki"
+   ],
+   "loss": 0.422
+  },
+  {
+   "g": 7126,
+   "t": 26,
+   "tags": [
+    "serial",
+    "edge2",
+    "feed-weak",
+    "connect-miss"
+   ],
+   "loss": 0.282
+  },
+  {
+   "g": 7126,
+   "t": 30,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge2",
+    "missed-attack"
+   ],
+   "loss": 0.437
+  },
+  {
+   "g": 7127,
+   "t": 17,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.593
+  },
+  {
+   "g": 7127,
+   "t": 19,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "feed-doomed"
+   ],
+   "loss": 0.654
+  },
+  {
+   "g": 7127,
+   "t": 21,
+   "tags": [
+    "serial",
+    "crawl",
+    "feed-doomed"
+   ],
+   "loss": 0.317
+  },
+  {
+   "g": 7127,
+   "t": 23,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "feed-doomed"
+   ],
+   "loss": 0.695
+  },
+  {
+   "g": 7128,
+   "t": 16,
+   "tags": [
+    "serial",
+    "crawl",
+    "tenuki"
+   ],
+   "loss": 0.398
+  },
+  {
+   "g": 7128,
+   "t": 18,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.611
+  },
+  {
+   "g": 7127,
+   "t": 25,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.773
+  },
+  {
+   "g": 7128,
+   "t": 20,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "feed-weak"
+   ],
+   "loss": 0.629
+  },
+  {
+   "g": 7128,
+   "t": 30,
+   "tags": [
+    "game-losing",
+    "tenuki",
+    "feed-weak"
+   ],
+   "loss": 0.452
+  },
+  {
+   "g": 7129,
+   "t": 19,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "tenuki",
+    "cut-miss"
+   ],
+   "loss": 0.405
+  },
+  {
+   "g": 7129,
+   "t": 29,
+   "tags": [
+    "tenuki"
+   ],
+   "loss": 0.267
+  },
+  {
+   "g": 7129,
+   "t": 23,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "tenuki",
+    "missed-save",
+    "ignored-atari",
+    "connect-miss"
+   ],
+   "loss": 0.327
+  },
+  {
+   "g": 7130,
+   "t": 10,
+   "tags": [
+    "game-losing",
+    "missed-attack"
+   ],
+   "loss": 0.436
+  },
+  {
+   "g": 7131,
+   "t": 17,
+   "tags": [
+    "game-losing",
+    "serial",
+    "connect-miss"
+   ],
+   "loss": 0.333
+  },
+  {
+   "g": 7132,
+   "t": 18,
+   "tags": [
+    "serial",
+    "crawl",
+    "tenuki",
+    "connect-miss"
+   ],
+   "loss": 0.284
+  },
+  {
+   "g": 7131,
+   "t": 19,
+   "tags": [
+    "game-losing",
+    "serial"
+   ],
+   "loss": 0.461
+  },
+  {
+   "g": 7132,
+   "t": 28,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge2"
+   ],
+   "loss": 0.301
+  },
+  {
+   "g": 7132,
+   "t": 30,
+   "tags": [
+    "serial",
+    "feed-weak",
+    "cut-miss"
+   ],
+   "loss": 0.261
+  },
+  {
+   "g": 7133,
+   "t": 7,
+   "tags": [
+    "game-losing",
+    "serial",
+    "local"
+   ],
+   "loss": 0.422
+  },
+  {
+   "g": 7132,
+   "t": 20,
+   "tags": [
+    "serial",
+    "crawl",
+    "local",
+    "connect-miss"
+   ],
+   "loss": 0.349
+  },
+  {
+   "g": 7133,
+   "t": 47,
+   "tags": [
+    "game-losing",
+    "tenuki",
+    "connect-miss"
+   ],
+   "loss": 0.725
+  },
+  {
+   "g": 7133,
+   "t": 31,
+   "tags": [
+    "tenuki",
+    "missed-save",
+    "ignored-atari",
+    "feed-weak",
+    "connect-miss"
+   ],
+   "loss": 0.282
+  },
+  {
+   "g": 7133,
+   "t": 11,
+   "tags": [
+    "serial",
+    "crawl",
+    "missed-save",
+    "ignored-atari",
+    "connect-miss"
+   ],
+   "loss": 0.316
+  },
+  {
+   "g": 7134,
+   "t": 20,
+   "tags": [
+    "serial"
+   ],
+   "loss": 0.257
+  },
+  {
+   "g": 7134,
+   "t": 22,
+   "tags": [
+    "game-losing",
+    "serial",
+    "feed-weak",
+    "captured-soon"
+   ],
+   "loss": 0.338
+  },
+  {
+   "g": 7134,
+   "t": 28,
+   "tags": [
+    "serial",
+    "edge1",
+    "missed-attack"
+   ],
+   "loss": 0.28
+  },
+  {
+   "g": 7134,
+   "t": 30,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "tenuki",
+    "connect-miss"
+   ],
+   "loss": 0.416
+  },
+  {
+   "g": 7134,
+   "t": 32,
+   "tags": [
+    "serial",
+    "crawl",
+    "connect-miss"
+   ],
+   "loss": 0.304
+  },
+  {
+   "g": 7136,
+   "t": 18,
+   "tags": [
+    "game-losing",
+    "crawl"
+   ],
+   "loss": 0.368
+  },
+  {
+   "g": 7134,
+   "t": 34,
+   "tags": [
+    "serial",
+    "connect-miss"
+   ],
+   "loss": 0.451
+  },
+  {
+   "g": 7137,
+   "t": 23,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "local",
+    "cut-miss"
+   ],
+   "loss": 0.335
+  },
+  {
+   "g": 7137,
+   "t": 25,
+   "tags": [
+    "serial",
+    "edge2",
+    "local"
+   ],
+   "loss": 0.265
+  },
+  {
+   "g": 7138,
+   "t": 12,
+   "tags": [
+    "tenuki",
+    "missed-save",
+    "ignored-atari",
+    "connect-miss"
+   ],
+   "loss": 0.279
+  },
+  {
+   "g": 7137,
+   "t": 39,
+   "tags": [
+    "edge1",
+    "tenuki"
+   ],
+   "loss": 0.322
+  },
+  {
+   "g": 7142,
+   "t": 18,
+   "tags": [
+    "game-losing",
+    "crawl",
+    "local",
+    "tenuki",
+    "connect-miss"
+   ],
+   "loss": 0.422
+  },
+  {
+   "g": 7140,
+   "t": 14,
+   "tags": [
+    "edge2",
+    "tenuki"
+   ],
+   "loss": 0.315
+  },
+  {
+   "g": 7142,
+   "t": 26,
+   "tags": [
+    "edge2",
+    "local"
+   ],
+   "loss": 0.259
+  },
+  {
+   "g": 7143,
+   "t": 13,
+   "tags": [
+    "serial"
+   ],
+   "loss": 0.339
+  },
+  {
+   "g": 7142,
+   "t": 32,
+   "tags": [
+    "game-losing"
+   ],
+   "loss": 0.682
+  },
+  {
+   "g": 7143,
+   "t": 17,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.508
+  },
+  {
+   "g": 7144,
+   "t": 12,
+   "tags": [
+    "game-losing"
+   ],
+   "loss": 0.564
+  },
+  {
+   "g": 7143,
+   "t": 19,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.68
+  },
+  {
+   "g": 7145,
+   "t": 25,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "tenuki",
+    "cut-miss"
+   ],
+   "loss": 0.733
+  },
+  {
+   "g": 7147,
+   "t": 17,
+   "tags": [
+    "serial",
+    "local"
+   ],
+   "loss": 0.254
+  },
+  {
+   "g": 7147,
+   "t": 15,
+   "tags": [
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.265
+  },
+  {
+   "g": 7145,
+   "t": 19,
+   "tags": [
+    "crawl",
+    "feed-weak",
+    "cut-miss"
+   ],
+   "loss": 0.315
+  },
+  {
+   "g": 7145,
+   "t": 27,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "feed-doomed"
+   ],
+   "loss": 0.393
+  },
+  {
+   "g": 7147,
+   "t": 19,
+   "tags": [
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.295
+  },
+  {
+   "g": 7147,
+   "t": 45,
+   "tags": [
+    "game-losing",
+    "serial",
+    "tenuki",
+    "missed-attack"
+   ],
+   "loss": 0.776
+  },
+  {
+   "g": 7147,
+   "t": 47,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge1",
+    "missed-attack",
+    "eye-fill",
+    "own-territory"
+   ],
+   "loss": 0.629
+  },
+  {
+   "g": 7147,
+   "t": 25,
+   "tags": [
+    "crawl",
+    "feed-weak",
+    "captured-soon"
+   ],
+   "loss": 0.407
+  },
+  {
+   "g": 7148,
+   "t": 12,
+   "tags": [
+    "crawl"
+   ],
+   "loss": 0.283
+  },
+  {
+   "g": 7148,
+   "t": 24,
+   "tags": [
+    "game-losing",
+    "missed-attack"
+   ],
+   "loss": 0.684
+  },
+  {
+   "g": 7149,
+   "t": 9,
+   "tags": [
+    "game-losing",
+    "edge2",
+    "local"
+   ],
+   "loss": 0.253
+  },
+  {
+   "g": 7154,
+   "t": 26,
+   "tags": [
+    "game-losing",
+    "edge1"
+   ],
+   "loss": 0.376
+  },
+  {
+   "g": 7154,
+   "t": 10,
+   "tags": [
+    "game-losing",
+    "serial",
+    "local",
+    "feed-doomed",
+    "connect-miss"
+   ],
+   "loss": 0.273
+  },
+  {
+   "g": 7155,
+   "t": 29,
+   "tags": [
+    "game-losing",
+    "tenuki"
+   ],
+   "loss": 0.5
+  },
+  {
+   "g": 7150,
+   "t": 18,
+   "tags": [],
+   "loss": 0.268
+  },
+  {
+   "g": 7154,
+   "t": 12,
+   "tags": [
+    "serial",
+    "local",
+    "missed-save",
+    "ignored-atari"
+   ],
+   "loss": 0.398
+  },
+  {
+   "g": 7155,
+   "t": 41,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge2",
+    "connect-miss"
+   ],
+   "loss": 0.36
+  },
+  {
+   "g": 7155,
+   "t": 39,
+   "tags": [
+    "game-losing",
+    "serial",
+    "connect-miss"
+   ],
+   "loss": 0.33
+  },
+  {
+   "g": 7156,
+   "t": 12,
+   "tags": [
+    "game-losing",
+    "crawl"
+   ],
+   "loss": 0.486
+  },
+  {
+   "g": 7157,
+   "t": 9,
+   "tags": [
+    "game-losing",
+    "edge2",
+    "local",
+    "missed-attack"
+   ],
+   "loss": 0.473
+  },
+  {
+   "g": 7157,
+   "t": 45,
+   "tags": [
+    "tenuki",
+    "missed-attack"
+   ],
+   "loss": 0.325
+  },
+  {
+   "g": 7158,
+   "t": 4,
+   "tags": [
+    "tenuki",
+    "connect-miss"
+   ],
+   "loss": 0.268
+  },
+  {
+   "g": 7158,
+   "t": 24,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge2"
+   ],
+   "loss": 0.445
+  },
+  {
+   "g": 7158,
+   "t": 30,
+   "tags": [
+    "serial",
+    "feed-weak",
+    "captured-soon",
+    "cut-miss"
+   ],
+   "loss": 0.42
+  },
+  {
+   "g": 7158,
+   "t": 28,
+   "tags": [
+    "game-losing",
+    "serial",
+    "missed-attack",
+    "cut-miss"
+   ],
+   "loss": 0.487
+  },
+  {
+   "g": 7158,
+   "t": 40,
+   "tags": [
+    "crawl",
+    "connect-miss"
+   ],
+   "loss": 0.255
+  },
+  {
+   "g": 7159,
+   "t": 21,
+   "tags": [
+    "serial",
+    "tenuki"
+   ],
+   "loss": 0.254
+  },
+  {
+   "g": 7159,
+   "t": 25,
+   "tags": [
+    "serial",
+    "edge2"
+   ],
+   "loss": 0.378
+  },
+  {
+   "g": 7159,
+   "t": 37,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge1",
+    "tenuki",
+    "connect-miss"
+   ],
+   "loss": 0.63
+  },
+  {
+   "g": 7159,
+   "t": 33,
+   "tags": [
+    "serial",
+    "edge2",
+    "local",
+    "feed-weak",
+    "feed-doomed"
+   ],
+   "loss": 0.331
+  },
+  {
+   "g": 7161,
+   "t": 13,
+   "tags": [
+    "missed-save",
+    "ignored-atari",
+    "connect-miss"
+   ],
+   "loss": 0.259
+  },
+  {
+   "g": 7162,
+   "t": 8,
+   "tags": [
+    "serial"
+   ],
+   "loss": 0.334
+  },
+  {
+   "g": 7162,
+   "t": 10,
+   "tags": [
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.299
+  },
+  {
+   "g": 7162,
+   "t": 12,
+   "tags": [
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.364
+  },
+  {
+   "g": 7163,
+   "t": 15,
+   "tags": [
+    "game-losing",
+    "crawl",
+    "missed-save",
+    "ignored-atari",
+    "connect-miss"
+   ],
+   "loss": 0.427
+  },
+  {
+   "g": 7163,
+   "t": 47,
+   "tags": [
+    "game-losing",
+    "serial",
+    "feed-weak",
+    "eye-fill",
+    "own-territory"
+   ],
+   "loss": 0.348
+  },
+  {
+   "g": 7163,
+   "t": 27,
+   "tags": [
+    "game-losing",
+    "edge1",
+    "tenuki",
+    "missed-attack"
+   ],
+   "loss": 0.483
+  },
+  {
+   "g": 7163,
+   "t": 35,
+   "tags": [
+    "game-losing",
+    "local",
+    "connect-miss"
+   ],
+   "loss": 0.714
+  },
+  {
+   "g": 7163,
+   "t": 49,
+   "tags": [
+    "serial",
+    "local"
+   ],
+   "loss": 0.363
+  },
+  {
+   "g": 7165,
+   "t": 13,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.351
+  },
+  {
+   "g": 7165,
+   "t": 23,
+   "tags": [
+    "local",
+    "feed-weak"
+   ],
+   "loss": 0.472
+  },
+  {
+   "g": 7165,
+   "t": 15,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "missed-save",
+    "ignored-atari",
+    "connect-miss"
+   ],
+   "loss": 0.488
+  },
+  {
+   "g": 7165,
+   "t": 41,
+   "tags": [
+    "game-losing",
+    "edge1",
+    "tenuki",
+    "missed-attack"
+   ],
+   "loss": 0.584
+  },
+  {
+   "g": 7166,
+   "t": 10,
+   "tags": [
+    "game-losing",
+    "missed-attack"
+   ],
+   "loss": 0.315
+  },
+  {
+   "g": 7166,
+   "t": 40,
+   "tags": [
+    "cut-miss"
+   ],
+   "loss": 0.397
+  },
+  {
+   "g": 7167,
+   "t": 13,
+   "tags": [
+    "game-losing",
+    "serial",
+    "cut-miss"
+   ],
+   "loss": 0.638
+  },
+  {
+   "g": 7167,
+   "t": 15,
+   "tags": [
+    "serial"
+   ],
+   "loss": 0.301
+  },
+  {
+   "g": 7168,
+   "t": 10,
+   "tags": [
+    "game-losing",
+    "edge2"
+   ],
+   "loss": 0.41
+  },
+  {
+   "g": 7169,
+   "t": 7,
+   "tags": [
+    "game-losing",
+    "local",
+    "feed-doomed",
+    "connect-miss"
+   ],
+   "loss": 0.381
+  },
+  {
+   "g": 7169,
+   "t": 13,
+   "tags": [
+    "game-losing",
+    "local",
+    "missed-attack",
+    "cut-miss"
+   ],
+   "loss": 0.595
+  },
+  {
+   "g": 7171,
+   "t": 21,
+   "tags": [
+    "serial",
+    "connect-miss"
+   ],
+   "loss": 0.432
+  },
+  {
+   "g": 7169,
+   "t": 41,
+   "tags": [
+    "game-losing"
+   ],
+   "loss": 0.344
+  },
+  {
+   "g": 7169,
+   "t": 33,
+   "tags": [],
+   "loss": 0.357
+  },
+  {
+   "g": 7171,
+   "t": 17,
+   "tags": [
+    "serial",
+    "local",
+    "missed-capture"
+   ],
+   "loss": 0.285
+  },
+  {
+   "g": 7171,
+   "t": 23,
+   "tags": [
+    "serial",
+    "crawl",
+    "connect-miss"
+   ],
+   "loss": 0.479
+  },
+  {
+   "g": 7172,
+   "t": 6,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.314
+  },
+  {
+   "g": 7172,
+   "t": 8,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.32
+  },
+  {
+   "g": 7172,
+   "t": 18,
+   "tags": [
+    "game-losing",
+    "serial"
+   ],
+   "loss": 0.4
+  },
+  {
+   "g": 7172,
+   "t": 20,
+   "tags": [
+    "serial"
+   ],
+   "loss": 0.331
+  },
+  {
+   "g": 7173,
+   "t": 7,
+   "tags": [
+    "game-losing",
+    "local",
+    "feed-doomed",
+    "connect-miss"
+   ],
+   "loss": 0.5
+  },
+  {
+   "g": 7173,
+   "t": 31,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "tenuki",
+    "connect-miss"
+   ],
+   "loss": 0.657
+  },
+  {
+   "g": 7175,
+   "t": 15,
+   "tags": [
+    "game-losing",
+    "crawl",
+    "connect-miss"
+   ],
+   "loss": 0.346
+  },
+  {
+   "g": 7176,
+   "t": 22,
+   "tags": [
+    "crawl",
+    "tenuki",
+    "missed-attack"
+   ],
+   "loss": 0.369
+  },
+  {
+   "g": 7173,
+   "t": 33,
+   "tags": [
+    "game-losing",
+    "serial"
+   ],
+   "loss": 0.687
+  },
+  {
+   "g": 7177,
+   "t": 21,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "feed-weak",
+    "feed-doomed",
+    "captured-soon"
+   ],
+   "loss": 0.47
+  },
+  {
+   "g": 7177,
+   "t": 25,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "feed-doomed"
+   ],
+   "loss": 0.399
+  },
+  {
+   "g": 7177,
+   "t": 27,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "feed-weak",
+    "captured-soon"
+   ],
+   "loss": 0.504
+  },
+  {
+   "g": 7177,
+   "t": 29,
+   "tags": [
+    "game-losing",
+    "serial",
+    "feed-doomed"
+   ],
+   "loss": 0.297
+  },
+  {
+   "g": 7177,
+   "t": 45,
+   "tags": [
+    "game-losing",
+    "local",
+    "connect-miss"
+   ],
+   "loss": 0.45
+  },
+  {
+   "g": 7177,
+   "t": 31,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.708
+  },
+  {
+   "g": 7177,
+   "t": 37,
+   "tags": [
+    "game-losing",
+    "crawl",
+    "connect-miss"
+   ],
+   "loss": 0.396
+  },
+  {
+   "g": 7179,
+   "t": 11,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.439
+  },
+  {
+   "g": 7179,
+   "t": 13,
+   "tags": [
+    "serial",
+    "crawl",
+    "tenuki"
+   ],
+   "loss": 0.275
+  },
+  {
+   "g": 7179,
+   "t": 23,
+   "tags": [
+    "serial",
+    "crawl",
+    "missed-save",
+    "ignored-atari",
+    "feed-weak",
+    "connect-miss"
+   ],
+   "loss": 0.319
+  },
+  {
+   "g": 7179,
+   "t": 17,
+   "tags": [
+    "game-losing",
+    "serial",
+    "tenuki"
+   ],
+   "loss": 0.503
+  },
+  {
+   "g": 7179,
+   "t": 27,
+   "tags": [
+    "game-losing",
+    "serial"
+   ],
+   "loss": 0.356
+  },
+  {
+   "g": 7179,
+   "t": 21,
+   "tags": [
+    "serial",
+    "crawl",
+    "tenuki",
+    "missed-save",
+    "ignored-atari",
+    "connect-miss"
+   ],
+   "loss": 0.488
+  },
+  {
+   "g": 7180,
+   "t": 8,
+   "tags": [
+    "game-losing",
+    "crawl"
+   ],
+   "loss": 0.296
+  },
+  {
+   "g": 7181,
+   "t": 9,
+   "tags": [
+    "game-losing",
+    "missed-save",
+    "ignored-atari",
+    "connect-miss"
+   ],
+   "loss": 0.665
+  },
+  {
+   "g": 7181,
+   "t": 27,
+   "tags": [],
+   "loss": 0.264
+  },
+  {
+   "g": 7181,
+   "t": 35,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "tenuki",
+    "feed-weak",
+    "connect-miss"
+   ],
+   "loss": 0.772
+  },
+  {
+   "g": 7181,
+   "t": 37,
+   "tags": [
+    "serial",
+    "missed-save",
+    "ignored-atari",
+    "connect-miss"
+   ],
+   "loss": 0.384
+  },
+  {
+   "g": 7181,
+   "t": 41,
+   "tags": [
+    "serial"
+   ],
+   "loss": 0.395
+  },
+  {
+   "g": 7181,
+   "t": 43,
+   "tags": [
+    "game-losing",
+    "serial",
+    "self-atari",
+    "captured-soon"
+   ],
+   "loss": 0.503
+  },
+  {
+   "g": 7181,
+   "t": 47,
+   "tags": [
+    "serial",
+    "edge1"
+   ],
+   "loss": 0.259
+  },
+  {
+   "g": 7181,
+   "t": 63,
+   "tags": [
+    "game-losing",
+    "local",
+    "feed-weak"
+   ],
+   "loss": 0.28
+  },
+  {
+   "g": 7181,
+   "t": 49,
+   "tags": [
+    "game-losing",
+    "serial",
+    "self-atari",
+    "captured-soon"
+   ],
+   "loss": 0.343
+  },
+  {
+   "g": 7184,
+   "t": 16,
+   "tags": [
+    "missed-attack",
+    "feed-doomed",
+    "cut-miss"
+   ],
+   "loss": 0.257
+  },
+  {
+   "g": 7185,
+   "t": 5,
+   "tags": [
+    "game-losing",
+    "local",
+    "tenuki",
+    "connect-miss"
+   ],
+   "loss": 0.4
+  },
+  {
+   "g": 7182,
+   "t": 16,
+   "tags": [
+    "crawl"
+   ],
+   "loss": 0.288
+  },
+  {
+   "g": 7185,
+   "t": 19,
+   "tags": [
+    "serial",
+    "edge2",
+    "missed-attack"
+   ],
+   "loss": 0.259
+  },
+  {
+   "g": 7188,
+   "t": 18,
+   "tags": [
+    "serial",
+    "tenuki",
+    "connect-miss"
+   ],
+   "loss": 0.278
+  },
+  {
+   "g": 7185,
+   "t": 21,
+   "tags": [
+    "serial",
+    "missed-attack"
+   ],
+   "loss": 0.392
+  },
+  {
+   "g": 7188,
+   "t": 14,
+   "tags": [
+    "game-losing",
+    "serial",
+    "missed-save",
+    "ignored-atari",
+    "connect-miss"
+   ],
+   "loss": 0.494
+  },
+  {
+   "g": 7185,
+   "t": 23,
+   "tags": [
+    "serial",
+    "missed-attack",
+    "feed-doomed"
+   ],
+   "loss": 0.315
+  },
+  {
+   "g": 7188,
+   "t": 24,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge2",
+    "missed-attack",
+    "cut-miss"
+   ],
+   "loss": 0.637
+  },
+  {
+   "g": 7188,
+   "t": 20,
+   "tags": [
+    "game-losing",
+    "serial",
+    "tenuki",
+    "connect-miss"
+   ],
+   "loss": 0.555
+  },
+  {
+   "g": 7188,
+   "t": 30,
+   "tags": [
+    "game-losing"
+   ],
+   "loss": 0.69
+  },
+  {
+   "g": 7189,
+   "t": 11,
+   "tags": [
+    "game-losing",
+    "serial"
+   ],
+   "loss": 0.335
+  },
+  {
+   "g": 7189,
+   "t": 13,
+   "tags": [
+    "game-losing",
+    "serial",
+    "local"
+   ],
+   "loss": 0.408
+  },
+  {
+   "g": 7189,
+   "t": 15,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge2",
+    "connect-miss"
+   ],
+   "loss": 0.299
+  },
+  {
+   "g": 7190,
+   "t": 12,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.422
+  },
+  {
+   "g": 7190,
+   "t": 30,
+   "tags": [
+    "game-losing",
+    "serial",
+    "local",
+    "feed-doomed"
+   ],
+   "loss": 0.35
+  },
+  {
+   "g": 7190,
+   "t": 16,
+   "tags": [
+    "game-losing",
+    "serial",
+    "cut-miss"
+   ],
+   "loss": 0.36
+  },
+  {
+   "g": 7190,
+   "t": 24,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "connect-miss"
+   ],
+   "loss": 0.487
+  },
+  {
+   "g": 7190,
+   "t": 28,
+   "tags": [
+    "serial",
+    "tenuki"
+   ],
+   "loss": 0.332
+  },
+  {
+   "g": 7191,
+   "t": 7,
+   "tags": [
+    "game-losing",
+    "tenuki"
+   ],
+   "loss": 0.312
+  },
+  {
+   "g": 7191,
+   "t": 23,
+   "tags": [
+    "game-losing",
+    "crawl",
+    "missed-save",
+    "ignored-atari",
+    "connect-miss"
+   ],
+   "loss": 0.753
+  },
+  {
+   "g": 7191,
+   "t": 45,
+   "tags": [
+    "game-losing",
+    "edge2"
+   ],
+   "loss": 0.489
+  },
+  {
+   "g": 7191,
+   "t": 35,
+   "tags": [
+    "game-losing",
+    "feed-weak",
+    "captured-soon"
+   ],
+   "loss": 0.576
+  },
+  {
+   "g": 7192,
+   "t": 10,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.436
+  },
+  {
+   "g": 7192,
+   "t": 12,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge2"
+   ],
+   "loss": 0.319
+  },
+  {
+   "g": 7193,
+   "t": 7,
+   "tags": [
+    "game-losing",
+    "connect-miss"
+   ],
+   "loss": 0.381
+  },
+  {
+   "g": 7192,
+   "t": 32,
+   "tags": [
+    "game-losing",
+    "missed-attack"
+   ],
+   "loss": 0.661
+  },
+  {
+   "g": 7193,
+   "t": 21,
+   "tags": [
+    "connect-miss"
+   ],
+   "loss": 0.289
+  },
+  {
+   "g": 7194,
+   "t": 16,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "connect-miss"
+   ],
+   "loss": 0.257
+  },
+  {
+   "g": 7194,
+   "t": 18,
+   "tags": [
+    "serial",
+    "crawl",
+    "connect-miss"
+   ],
+   "loss": 0.251
+  },
+  {
+   "g": 7194,
+   "t": 20,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "connect-miss"
+   ],
+   "loss": 0.496
+  },
+  {
+   "g": 7194,
+   "t": 24,
+   "tags": [
+    "serial",
+    "edge2"
+   ],
+   "loss": 0.311
+  },
+  {
+   "g": 7194,
+   "t": 22,
+   "tags": [
+    "serial",
+    "crawl",
+    "connect-miss"
+   ],
+   "loss": 0.391
+  },
+  {
+   "g": 7197,
+   "t": 15,
+   "tags": [
+    "serial",
+    "edge2"
+   ],
+   "loss": 0.283
+  },
+  {
+   "g": 7194,
+   "t": 30,
+   "tags": [
+    "game-losing",
+    "tenuki",
+    "missed-attack"
+   ],
+   "loss": 0.543
+  },
+  {
+   "g": 7197,
+   "t": 17,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge2",
+    "tenuki"
+   ],
+   "loss": 0.445
+  },
+  {
+   "g": 7195,
+   "t": 35,
+   "tags": [
+    "local"
+   ],
+   "loss": 0.333
+  },
+  {
+   "g": 7196,
+   "t": 12,
+   "tags": [
+    "crawl"
+   ],
+   "loss": 0.296
+  },
+  {
+   "g": 7197,
+   "t": 25,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "missed-capture",
+    "ignored-atari",
+    "feed-doomed",
+    "cut-miss"
+   ],
+   "loss": 0.345
+  },
+  {
+   "g": 7197,
+   "t": 29,
+   "tags": [
+    "game-losing",
+    "serial",
+    "missed-attack",
+    "connect-miss"
+   ],
+   "loss": 0.459
+  },
+  {
+   "g": 7198,
+   "t": 12,
+   "tags": [
+    "game-losing",
+    "edge1"
+   ],
+   "loss": 0.334
+  },
+  {
+   "g": 7198,
+   "t": 18,
+   "tags": [
+    "crawl",
+    "local",
+    "missed-attack",
+    "connect-miss",
+    "cut-miss"
+   ],
+   "loss": 0.313
+  },
+  {
+   "g": 7199,
+   "t": 9,
+   "tags": [
+    "game-losing",
+    "crawl",
+    "local"
+   ],
+   "loss": 0.412
+  },
+  {
+   "g": 7200,
+   "t": 10,
+   "tags": [
+    "game-losing",
+    "serial",
+    "local",
+    "connect-miss"
+   ],
+   "loss": 0.306
+  },
+  {
+   "g": 7200,
+   "t": 12,
+   "tags": [
+    "serial",
+    "local",
+    "missed-save",
+    "ignored-atari"
+   ],
+   "loss": 0.413
+  },
+  {
+   "g": 7200,
+   "t": 22,
+   "tags": [
+    "game-losing",
+    "local",
+    "missed-attack"
+   ],
+   "loss": 0.764
+  },
+  {
+   "g": 7202,
+   "t": 12,
+   "tags": [
+    "game-losing",
+    "crawl",
+    "connect-miss"
+   ],
+   "loss": 0.382
+  },
+  {
+   "g": 7201,
+   "t": 27,
+   "tags": [
+    "game-losing",
+    "edge2",
+    "missed-save",
+    "ignored-atari"
+   ],
+   "loss": 0.651
+  },
+  {
+   "g": 7203,
+   "t": 17,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "tenuki",
+    "connect-miss"
+   ],
+   "loss": 0.344
+  },
+  {
+   "g": 7201,
+   "t": 21,
+   "tags": [
+    "game-losing",
+    "edge2",
+    "missed-save",
+    "ignored-atari"
+   ],
+   "loss": 0.494
+  },
+  {
+   "g": 7203,
+   "t": 19,
+   "tags": [
+    "serial",
+    "connect-miss"
+   ],
+   "loss": 0.251
+  },
+  {
+   "g": 7203,
+   "t": 25,
+   "tags": [
+    "serial",
+    "crawl",
+    "local"
+   ],
+   "loss": 0.349
+  },
+  {
+   "g": 7203,
+   "t": 21,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "local",
+    "connect-miss"
+   ],
+   "loss": 0.401
+  },
+  {
+   "g": 7204,
+   "t": 10,
+   "tags": [
+    "game-losing",
+    "local"
+   ],
+   "loss": 0.362
+  },
+  {
+   "g": 7204,
+   "t": 22,
+   "tags": [
+    "game-losing"
+   ],
+   "loss": 0.64
+  },
+  {
+   "g": 7205,
+   "t": 15,
+   "tags": [
+    "serial",
+    "crawl",
+    "feed-doomed",
+    "connect-miss"
+   ],
+   "loss": 0.269
+  },
+  {
+   "g": 7204,
+   "t": 34,
+   "tags": [
+    "game-losing",
+    "serial"
+   ],
+   "loss": 0.506
+  },
+  {
+   "g": 7205,
+   "t": 13,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "tenuki"
+   ],
+   "loss": 0.42
+  },
+  {
+   "g": 7204,
+   "t": 36,
+   "tags": [
+    "game-losing",
+    "serial"
+   ],
+   "loss": 0.401
+  },
+  {
+   "g": 7205,
+   "t": 17,
+   "tags": [
+    "serial",
+    "feed-weak",
+    "captured-soon"
+   ],
+   "loss": 0.272
+  },
+  {
+   "g": 7205,
+   "t": 19,
+   "tags": [
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.301
+  },
+  {
+   "g": 7205,
+   "t": 21,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "feed-weak"
+   ],
+   "loss": 0.496
+  },
+  {
+   "g": 7205,
+   "t": 23,
+   "tags": [
+    "serial",
+    "crawl",
+    "connect-miss"
+   ],
+   "loss": 0.287
+  },
+  {
+   "g": 7206,
+   "t": 38,
+   "tags": [
+    "game-losing",
+    "serial",
+    "missed-save",
+    "ignored-atari",
+    "feed-weak"
+   ],
+   "loss": 0.525
+  },
+  {
+   "g": 7205,
+   "t": 25,
+   "tags": [
+    "serial",
+    "crawl",
+    "feed-weak",
+    "feed-doomed",
+    "connect-miss"
+   ],
+   "loss": 0.319
+  },
+  {
+   "g": 7206,
+   "t": 42,
+   "tags": [
+    "game-losing",
+    "serial",
+    "missed-save",
+    "feed-doomed"
+   ],
+   "loss": 0.555
+  },
+  {
+   "g": 7206,
+   "t": 40,
+   "tags": [
+    "game-losing",
+    "serial",
+    "missed-save",
+    "ignored-atari",
+    "feed-doomed"
+   ],
+   "loss": 0.481
+  },
+  {
+   "g": 7207,
+   "t": 9,
+   "tags": [
+    "game-losing"
+   ],
+   "loss": 0.348
+  },
+  {
+   "g": 7208,
+   "t": 40,
+   "tags": [
+    "game-losing",
+    "serial",
+    "tenuki",
+    "missed-attack",
+    "own-territory",
+    "cut-miss"
+   ],
+   "loss": 0.74
+  },
+  {
+   "g": 7208,
+   "t": 22,
+   "tags": [
+    "local",
+    "missed-save",
+    "ignored-atari",
+    "connect-miss"
+   ],
+   "loss": 0.253
+  },
+  {
+   "g": 7208,
+   "t": 42,
+   "tags": [
+    "game-losing",
+    "serial",
+    "missed-attack",
+    "cut-miss"
+   ],
+   "loss": 0.772
+  },
+  {
+   "g": 7208,
+   "t": 44,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge2",
+    "missed-attack",
+    "cut-miss"
+   ],
+   "loss": 0.539
+  },
+  {
+   "g": 7208,
+   "t": 50,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge2",
+    "missed-attack",
+    "cut-miss"
+   ],
+   "loss": 0.798
+  },
+  {
+   "g": 7208,
+   "t": 46,
+   "tags": [
+    "game-losing",
+    "serial",
+    "missed-attack",
+    "cut-miss"
+   ],
+   "loss": 0.811
+  },
+  {
+   "g": 7208,
+   "t": 48,
+   "tags": [
+    "game-losing",
+    "serial",
+    "missed-attack",
+    "cut-miss"
+   ],
+   "loss": 0.938
+  },
+  {
+   "g": 7209,
+   "t": 35,
+   "tags": [
+    "crawl",
+    "feed-doomed",
+    "connect-miss"
+   ],
+   "loss": 0.344
+  },
+  {
+   "g": 7210,
+   "t": 16,
+   "tags": [
+    "edge2",
+    "missed-attack"
+   ],
+   "loss": 0.279
+  },
+  {
+   "g": 7211,
+   "t": 21,
+   "tags": [
+    "game-losing",
+    "feed-doomed"
+   ],
+   "loss": 0.315
+  },
+  {
+   "g": 7211,
+   "t": 15,
+   "tags": [
+    "local"
+   ],
+   "loss": 0.328
+  },
+  {
+   "g": 7211,
+   "t": 27,
+   "tags": [
+    "game-losing",
+    "serial",
+    "connect-miss"
+   ],
+   "loss": 0.451
+  },
+  {
+   "g": 7211,
+   "t": 29,
+   "tags": [
+    "serial",
+    "connect-miss"
+   ],
+   "loss": 0.334
+  },
+  {
+   "g": 7212,
+   "t": 20,
+   "tags": [
+    "local"
+   ],
+   "loss": 0.262
+  },
+  {
+   "g": 7213,
+   "t": 19,
+   "tags": [
+    "game-losing",
+    "serial"
+   ],
+   "loss": 0.569
+  },
+  {
+   "g": 7213,
+   "t": 17,
+   "tags": [
+    "game-losing",
+    "serial"
+   ],
+   "loss": 0.367
+  },
+  {
+   "g": 7214,
+   "t": 16,
+   "tags": [
+    "edge2",
+    "missed-attack"
+   ],
+   "loss": 0.332
+  },
+  {
+   "g": 7214,
+   "t": 8,
+   "tags": [
+    "game-losing",
+    "crawl"
+   ],
+   "loss": 0.311
+  },
+  {
+   "g": 7215,
+   "t": 15,
+   "tags": [
+    "game-losing",
+    "local"
+   ],
+   "loss": 0.518
+  },
+  {
+   "g": 7216,
+   "t": 24,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.575
+  },
+  {
+   "g": 7216,
+   "t": 12,
+   "tags": [
+    "game-losing",
+    "local",
+    "connect-miss"
+   ],
+   "loss": 0.347
+  },
+  {
+   "g": 7216,
+   "t": 20,
+   "tags": [
+    "serial",
+    "edge2",
+    "tenuki",
+    "missed-attack"
+   ],
+   "loss": 0.322
+  },
+  {
+   "g": 7216,
+   "t": 26,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.506
+  },
+  {
+   "g": 7216,
+   "t": 28,
+   "tags": [
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.392
+  },
+  {
+   "g": 7216,
+   "t": 30,
+   "tags": [
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.315
+  },
+  {
+   "g": 7221,
+   "t": 7,
+   "tags": [
+    "game-losing",
+    "serial",
+    "local"
+   ],
+   "loss": 0.507
+  },
+  {
+   "g": 7217,
+   "t": 21,
+   "tags": [
+    "missed-save",
+    "ignored-atari",
+    "connect-miss"
+   ],
+   "loss": 0.316
+  },
+  {
+   "g": 7216,
+   "t": 32,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "local"
+   ],
+   "loss": 0.642
+  },
+  {
+   "g": 7218,
+   "t": 12,
+   "tags": [
+    "game-losing",
+    "serial",
+    "connect-miss"
+   ],
+   "loss": 0.313
+  },
+  {
+   "g": 7219,
+   "t": 13,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.288
+  },
+  {
+   "g": 7218,
+   "t": 16,
+   "tags": [
+    "game-losing",
+    "serial",
+    "feed-weak",
+    "feed-doomed"
+   ],
+   "loss": 0.361
+  },
+  {
+   "g": 7220,
+   "t": 12,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "connect-miss"
+   ],
+   "loss": 0.321
+  },
+  {
+   "g": 7219,
+   "t": 15,
+   "tags": [
+    "game-losing",
+    "serial"
+   ],
+   "loss": 0.529
+  },
+  {
+   "g": 7220,
+   "t": 10,
+   "tags": [
+    "game-losing",
+    "serial",
+    "local",
+    "connect-miss"
+   ],
+   "loss": 0.291
+  },
+  {
+   "g": 7219,
+   "t": 35,
+   "tags": [
+    "game-losing",
+    "connect-miss"
+   ],
+   "loss": 0.834
+  },
+  {
+   "g": 7220,
+   "t": 14,
+   "tags": [
+    "game-losing",
+    "serial",
+    "local",
+    "tenuki"
+   ],
+   "loss": 0.379
+  },
+  {
+   "g": 7221,
+   "t": 9,
+   "tags": [
+    "game-losing",
+    "serial",
+    "local",
+    "connect-miss"
+   ],
+   "loss": 0.318
+  },
+  {
+   "g": 7220,
+   "t": 16,
+   "tags": [
+    "game-losing",
+    "serial",
+    "local"
+   ],
+   "loss": 0.296
+  },
+  {
+   "g": 7225,
+   "t": 13,
+   "tags": [
+    "game-losing",
+    "serial"
+   ],
+   "loss": 0.349
+  },
+  {
+   "g": 7221,
+   "t": 23,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "missed-save",
+    "ignored-atari",
+    "connect-miss"
+   ],
+   "loss": 0.412
+  },
+  {
+   "g": 7221,
+   "t": 27,
+   "tags": [
+    "serial",
+    "edge1"
+   ],
+   "loss": 0.321
+  },
+  {
+   "g": 7221,
+   "t": 29,
+   "tags": [
+    "serial",
+    "edge1"
+   ],
+   "loss": 0.265
+  },
+  {
+   "g": 7221,
+   "t": 31,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge1",
+    "feed-doomed"
+   ],
+   "loss": 0.66
+  },
+  {
+   "g": 7221,
+   "t": 33,
+   "tags": [
+    "game-losing",
+    "serial",
+    "local"
+   ],
+   "loss": 0.866
+  },
+  {
+   "g": 7221,
+   "t": 37,
+   "tags": [
+    "game-losing",
+    "serial",
+    "tenuki"
+   ],
+   "loss": 0.689
+  },
+  {
+   "g": 7222,
+   "t": 10,
+   "tags": [
+    "game-losing",
+    "crawl",
+    "connect-miss"
+   ],
+   "loss": 0.352
+  },
+  {
+   "g": 7223,
+   "t": 7,
+   "tags": [
+    "game-losing",
+    "connect-miss"
+   ],
+   "loss": 0.382
+  },
+  {
+   "g": 7223,
+   "t": 13,
+   "tags": [
+    "edge2",
+    "feed-weak"
+   ],
+   "loss": 0.288
+  },
+  {
+   "g": 7224,
+   "t": 22,
+   "tags": [
+    "game-losing"
+   ],
+   "loss": 0.465
+  },
+  {
+   "g": 7225,
+   "t": 25,
+   "tags": [
+    "game-losing",
+    "local"
+   ],
+   "loss": 0.443
+  },
+  {
+   "g": 7225,
+   "t": 11,
+   "tags": [
+    "game-losing",
+    "serial"
+   ],
+   "loss": 0.273
+  },
+  {
+   "g": 7226,
+   "t": 20,
+   "tags": [
+    "game-losing",
+    "missed-attack",
+    "cut-miss"
+   ],
+   "loss": 0.284
+  },
+  {
+   "g": 7226,
+   "t": 40,
+   "tags": [
+    "game-losing",
+    "serial",
+    "missed-capture",
+    "ignored-atari",
+    "feed-weak",
+    "cut-miss"
+   ],
+   "loss": 0.497
+  },
+  {
+   "g": 7226,
+   "t": 38,
+   "tags": [
+    "game-losing",
+    "serial",
+    "missed-capture",
+    "ignored-atari",
+    "feed-doomed",
+    "cut-miss"
+   ],
+   "loss": 0.413
+  },
+  {
+   "g": 7226,
+   "t": 48,
+   "tags": [
+    "serial",
+    "tenuki",
+    "missed-attack"
+   ],
+   "loss": 0.317
+  },
+  {
+   "g": 7226,
+   "t": 44,
+   "tags": [
+    "serial",
+    "feed-weak"
+   ],
+   "loss": 0.408
+  },
+  {
+   "g": 7226,
+   "t": 46,
+   "tags": [
+    "game-losing",
+    "serial",
+    "feed-weak",
+    "feed-doomed"
+   ],
+   "loss": 0.512
+  },
+  {
+   "g": 7226,
+   "t": 50,
+   "tags": [
+    "serial",
+    "missed-attack",
+    "cut-miss"
+   ],
+   "loss": 0.346
+  },
+  {
+   "g": 7228,
+   "t": 14,
+   "tags": [
+    "local",
+    "missed-attack",
+    "feed-weak",
+    "cut-miss"
+   ],
+   "loss": 0.414
+  },
+  {
+   "g": 7228,
+   "t": 48,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge2"
+   ],
+   "loss": 0.439
+  },
+  {
+   "g": 7228,
+   "t": 44,
+   "tags": [
+    "serial",
+    "feed-weak"
+   ],
+   "loss": 0.423
+  },
+  {
+   "g": 7228,
+   "t": 58,
+   "tags": [
+    "tenuki",
+    "missed-attack",
+    "feed-doomed",
+    "cut-miss"
+   ],
+   "loss": 0.293
+  },
+  {
+   "g": 7231,
+   "t": 21,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.687
+  },
+  {
+   "g": 7230,
+   "t": 14,
+   "tags": [
+    "game-losing",
+    "crawl"
+   ],
+   "loss": 0.469
+  },
+  {
+   "g": 7231,
+   "t": 19,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge2"
+   ],
+   "loss": 0.331
+  },
+  {
+   "g": 7231,
+   "t": 33,
+   "tags": [
+    "crawl",
+    "tenuki",
+    "connect-miss"
+   ],
+   "loss": 0.381
+  },
+  {
+   "g": 7231,
+   "t": 27,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "missed-attack"
+   ],
+   "loss": 0.52
+  },
+  {
+   "g": 7231,
+   "t": 25,
+   "tags": [
+    "game-losing",
+    "serial",
+    "local",
+    "missed-attack"
+   ],
+   "loss": 0.414
+  },
+  {
+   "g": 7232,
+   "t": 18,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "tenuki",
+    "missed-capture",
+    "ignored-atari"
+   ],
+   "loss": 0.56
+  },
+  {
+   "g": 7232,
+   "t": 14,
+   "tags": [
+    "serial",
+    "local",
+    "missed-attack"
+   ],
+   "loss": 0.324
+  },
+  {
+   "g": 7232,
+   "t": 30,
+   "tags": [
+    "game-losing",
+    "serial",
+    "tenuki"
+   ],
+   "loss": 0.595
+  },
+  {
+   "g": 7232,
+   "t": 32,
+   "tags": [
+    "game-losing",
+    "serial",
+    "missed-capture",
+    "missed-attack",
+    "ignored-atari",
+    "cut-miss"
+   ],
+   "loss": 0.377
+  },
+  {
+   "g": 7232,
+   "t": 34,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "tenuki",
+    "missed-capture",
+    "missed-attack",
+    "ignored-atari",
+    "cut-miss"
+   ],
+   "loss": 0.589
+  },
+  {
+   "g": 7232,
+   "t": 36,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "missed-capture",
+    "missed-attack",
+    "ignored-atari",
+    "cut-miss"
+   ],
+   "loss": 0.278
+  },
+  {
+   "g": 7233,
+   "t": 13,
+   "tags": [
+    "game-losing",
+    "serial"
+   ],
+   "loss": 0.431
+  },
+  {
+   "g": 7233,
+   "t": 15,
+   "tags": [
+    "game-losing",
+    "serial",
+    "local"
+   ],
+   "loss": 0.42
+  },
+  {
+   "g": 7233,
+   "t": 17,
+   "tags": [
+    "serial",
+    "crawl",
+    "connect-miss"
+   ],
+   "loss": 0.299
+  },
+  {
+   "g": 7233,
+   "t": 21,
+   "tags": [
+    "serial",
+    "feed-doomed"
+   ],
+   "loss": 0.25
+  },
+  {
+   "g": 7234,
+   "t": 20,
+   "tags": [
+    "crawl",
+    "cut-miss"
+   ],
+   "loss": 0.425
+  },
+  {
+   "g": 7233,
+   "t": 19,
+   "tags": [
+    "serial",
+    "tenuki"
+   ],
+   "loss": 0.272
+  },
+  {
+   "g": 7235,
+   "t": 9,
+   "tags": [
+    "local"
+   ],
+   "loss": 0.287
+  },
+  {
+   "g": 7236,
+   "t": 62,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge1",
+    "missed-attack"
+   ],
+   "loss": 0.374
+  },
+  {
+   "g": 7234,
+   "t": 28,
+   "tags": [
+    "game-losing",
+    "tenuki"
+   ],
+   "loss": 0.415
+  },
+  {
+   "g": 7236,
+   "t": 64,
+   "tags": [
+    "game-losing",
+    "serial",
+    "missed-attack"
+   ],
+   "loss": 0.361
+  },
+  {
+   "g": 7236,
+   "t": 50,
+   "tags": [
+    "game-losing"
+   ],
+   "loss": 0.386
+  },
+  {
+   "g": 7236,
+   "t": 56,
+   "tags": [],
+   "loss": 0.29
+  },
+  {
+   "g": 7237,
+   "t": 15,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl"
+   ],
+   "loss": 0.464
+  },
+  {
+   "g": 7237,
+   "t": 19,
+   "tags": [
+    "game-losing",
+    "serial"
+   ],
+   "loss": 0.294
+  },
+  {
+   "g": 7240,
+   "t": 38,
+   "tags": [
+    "game-losing",
+    "edge1"
+   ],
+   "loss": 0.549
+  },
+  {
+   "g": 7238,
+   "t": 16,
+   "tags": [
+    "game-losing",
+    "crawl",
+    "local",
+    "missed-attack"
+   ],
+   "loss": 0.47
+  },
+  {
+   "g": 7239,
+   "t": 9,
+   "tags": [
+    "game-losing",
+    "local"
+   ],
+   "loss": 0.263
+  },
+  {
+   "g": 7239,
+   "t": 39,
+   "tags": [
+    "game-losing"
+   ],
+   "loss": 0.269
+  },
+  {
+   "g": 7240,
+   "t": 46,
+   "tags": [
+    "game-losing",
+    "tenuki",
+    "missed-attack",
+    "cut-miss"
+   ],
+   "loss": 0.91
+  },
+  {
+   "g": 7241,
+   "t": 7,
+   "tags": [
+    "game-losing",
+    "serial",
+    "missed-attack",
+    "cut-miss"
+   ],
+   "loss": 0.283
+  },
+  {
+   "g": 7241,
+   "t": 9,
+   "tags": [
+    "serial",
+    "crawl",
+    "missed-save",
+    "ignored-atari",
+    "connect-miss"
+   ],
+   "loss": 0.356
+  },
+  {
+   "g": 7242,
+   "t": 36,
+   "tags": [
+    "missed-capture",
+    "cut-miss"
+   ],
+   "loss": 0.315
+  },
+  {
+   "g": 7242,
+   "t": 30,
+   "tags": [
+    "edge1",
+    "missed-attack",
+    "cut-miss"
+   ],
+   "loss": 0.372
+  },
+  {
+   "g": 7243,
+   "t": 29,
+   "tags": [
+    "serial",
+    "crawl",
+    "cut-miss"
+   ],
+   "loss": 0.429
+  },
+  {
+   "g": 7243,
+   "t": 33,
+   "tags": [
+    "game-losing",
+    "serial"
+   ],
+   "loss": 0.887
+  },
+  {
+   "g": 7244,
+   "t": 12,
+   "tags": [
+    "game-losing",
+    "serial",
+    "connect-miss"
+   ],
+   "loss": 0.351
+  },
+  {
+   "g": 7243,
+   "t": 39,
+   "tags": [
+    "crawl",
+    "tenuki",
+    "connect-miss"
+   ],
+   "loss": 0.473
+  },
+  {
+   "g": 7244,
+   "t": 16,
+   "tags": [
+    "game-losing",
+    "serial",
+    "edge2",
+    "missed-attack",
+    "cut-miss"
+   ],
+   "loss": 0.488
+  },
+  {
+   "g": 7244,
+   "t": 18,
+   "tags": [
+    "serial",
+    "tenuki",
+    "missed-save",
+    "ignored-atari",
+    "connect-miss"
+   ],
+   "loss": 0.373
+  },
+  {
+   "g": 7245,
+   "t": 9,
+   "tags": [
+    "game-losing",
+    "serial"
+   ],
+   "loss": 0.261
+  },
+  {
+   "g": 7244,
+   "t": 36,
+   "tags": [
+    "crawl",
+    "tenuki",
+    "feed-weak"
+   ],
+   "loss": 0.465
+  },
+  {
+   "g": 7245,
+   "t": 11,
+   "tags": [
+    "serial"
+   ],
+   "loss": 0.259
+  },
+  {
+   "g": 7245,
+   "t": 51,
+   "tags": [
+    "game-losing",
+    "missed-attack",
+    "feed-weak"
+   ],
+   "loss": 0.306
+  },
+  {
+   "g": 7245,
+   "t": 17,
+   "tags": [
+    "edge2"
+   ],
+   "loss": 0.361
+  },
+  {
+   "g": 7246,
+   "t": 10,
+   "tags": [
+    "local"
+   ],
+   "loss": 0.264
+  },
+  {
+   "g": 7246,
+   "t": 16,
+   "tags": [
+    "game-losing",
+    "connect-miss"
+   ],
+   "loss": 0.535
+  },
+  {
+   "g": 7248,
+   "t": 14,
+   "tags": [
+    "serial",
+    "connect-miss"
+   ],
+   "loss": 0.368
+  },
+  {
+   "g": 7248,
+   "t": 20,
+   "tags": [
+    "game-losing",
+    "serial",
+    "local"
+   ],
+   "loss": 0.332
+  },
+  {
+   "g": 7250,
+   "t": 8,
+   "tags": [
+    "game-losing"
+   ],
+   "loss": 0.292
+  },
+  {
+   "g": 7248,
+   "t": 18,
+   "tags": [
+    "serial",
+    "edge1",
+    "missed-attack"
+   ],
+   "loss": 0.283
+  },
+  {
+   "g": 7249,
+   "t": 11,
+   "tags": [
+    "game-losing"
+   ],
+   "loss": 0.259
+  },
+  {
+   "g": 7250,
+   "t": 14,
+   "tags": [],
+   "loss": 0.251
+  },
+  {
+   "g": 7251,
+   "t": 7,
+   "tags": [
+    "game-losing",
+    "crawl"
+   ],
+   "loss": 0.263
+  },
+  {
+   "g": 7251,
+   "t": 33,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "missed-attack",
+    "own-territory",
+    "cut-miss"
+   ],
+   "loss": 0.352
+  },
+  {
+   "g": 7251,
+   "t": 29,
+   "tags": [
+    "serial",
+    "local"
+   ],
+   "loss": 0.32
+  },
+  {
+   "g": 7251,
+   "t": 31,
+   "tags": [
+    "game-losing",
+    "serial",
+    "local",
+    "connect-miss"
+   ],
+   "loss": 0.516
+  },
+  {
+   "g": 7251,
+   "t": 23,
+   "tags": [
+    "game-losing",
+    "tenuki",
+    "feed-weak"
+   ],
+   "loss": 0.585
+  },
+  {
+   "g": 7251,
+   "t": 35,
+   "tags": [
+    "serial",
+    "crawl",
+    "missed-attack",
+    "feed-weak",
+    "cut-miss"
+   ],
+   "loss": 0.289
+  },
+  {
+   "g": 7252,
+   "t": 24,
+   "tags": [
+    "game-losing",
+    "crawl",
+    "local"
+   ],
+   "loss": 0.476
+  },
+  {
+   "g": 7254,
+   "t": 10,
+   "tags": [
+    "game-losing",
+    "serial",
+    "feed-doomed",
+    "connect-miss"
+   ],
+   "loss": 0.359
+  },
+  {
+   "g": 7254,
+   "t": 12,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "connect-miss"
+   ],
+   "loss": 0.332
+  },
+  {
+   "g": 7254,
+   "t": 14,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "connect-miss"
+   ],
+   "loss": 0.44
+  },
+  {
+   "g": 7254,
+   "t": 16,
+   "tags": [
+    "serial",
+    "edge2"
+   ],
+   "loss": 0.259
+  },
+  {
+   "g": 7255,
+   "t": 17,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "local"
+   ],
+   "loss": 0.286
+  },
+  {
+   "g": 7255,
+   "t": 21,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "cut-miss"
+   ],
+   "loss": 0.756
+  },
+  {
+   "g": 7255,
+   "t": 23,
+   "tags": [
+    "game-losing",
+    "serial",
+    "crawl",
+    "cut-miss"
+   ],
+   "loss": 0.665
+  },
+  {
+   "g": 7255,
+   "t": 27,
+   "tags": [
+    "serial",
+    "crawl",
+    "cut-miss"
+   ],
+   "loss": 0.308
+  }
+ ]
+}
