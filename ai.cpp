@@ -4214,6 +4214,40 @@ static void ownVote(Game &game, uint8_t *own) {
 // verdict scores the way the verdict says. SETTLE_NONE before the
 // endgame — with open space the vote is coin flips, not a count.
 #define SETTLE_NONE (-32768)
+// Premature-pass guard (2026-08-13, Jay's device game): the ownership
+// vote can read a wide-open NN-phase board as decisively won (small
+// playout sample -> lucky unanimity; measured und=2 at 22 stones) and
+// answer a premature pass by passing into adjudication scoring. A pass
+// answer is only trustworthy once territory is CLOSED: any empty region
+// touching both colors and bigger than this means play on. Calibrated
+// over test/saved_games first-pass points: every legit settle pass
+// measures <= 26 (08-01 anchor: 24); the premature class measures
+// 53-73. The und guard cannot separate them (0 vs 2).
+#define OPEN_REGION_MAX 32
+static uint8_t boardOpen(Game &game) {
+    newMark();     // simMark is free pre-search (loadRootBoard runs later)
+    for(uint8_t s = 0; s < BOARD_CELLS; s++) {
+        if(simMark[s] == markEpoch || packedGet(game.board, s) != EMPTY)
+            continue;
+        uint8_t head = 0, cnt = 0, colors = 0;
+        floodScratch[cnt++] = s;
+        simMark[s] = markEpoch;
+        while(head < cnt) {
+            uint8_t nb;
+            FOR_EACH_NEIGHBOR(nb, floodScratch[head]) {
+                uint8_t v = packedGet(game.board, nb);
+                if(v != EMPTY) colors |= v;
+                else if(simMark[nb] != markEpoch) {
+                    simMark[nb] = markEpoch;
+                    floodScratch[cnt++] = nb;
+                }
+            }
+            head++;
+        }
+        if(colors == (BLACK | WHITE) && cnt > OPEN_REGION_MAX) return 1;
+    }
+    return 0;
+}
 static uint8_t countStones(Game &game) {
     uint8_t st = 0;
     for(uint8_t i = 0; i < BOARD_CELLS; i++)
@@ -6002,7 +6036,7 @@ void AI::think(Game &game) {
     // decided; the old outer 45-stone bar kept the honest vote off
     // while the engine filled its own territory and threw dead
     // stones into his until the count flipped to a loss).
-    if(game.consecutivePasses == 1) {
+    if(game.consecutivePasses == 1 && !boardOpen(game)) {
         if(countStones(game) >= 45) {
         // Don't trust the count if the previous search already read
         // this game as bad (under ~30%): dead stones make
