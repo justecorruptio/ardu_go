@@ -5201,7 +5201,8 @@ static void expandNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t last
 // Progressive widening: add the single best not-yet-present candidate.
 // Poisoned children stay in the have-bitmap, so an illegal move is
 // never re-added. Returns 1 if a child was added.
-__attribute__((optimize("O2")))
+// (O2 attribute removed 2026-08-13: traded its ~426 B back to fit the
+// r2s0 opening-net header; the speed cost is re-benched in the commit.)
 static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t last) {
     uint8_t have[11];
     memset(have, 0, sizeof(have));
