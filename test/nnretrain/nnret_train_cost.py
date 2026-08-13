@@ -97,9 +97,16 @@ X2 = csr(cols2, NB + NE + NF)
 print(f"CSR: X1 nnz {X1.nnz}, X2 nnz {X2.nnz}")
 
 rng = np.random.default_rng(SEED)
-w1 = (rng.standard_normal(NB + NW + NF) * 0.01).astype(np.float64)
-w2 = (rng.standard_normal((NB + NE + NF, H)) * 0.01).astype(np.float64)
-b1 = np.zeros(H); v = rng.standard_normal(H) * 0.1
+WARM = __import__('os').environ.get('WARMSTART')
+if WARM:
+    wz = np.load(WARM)
+    w1 = wz['w1'].copy(); w2 = wz['w2'].copy()
+    b1 = wz['b1'].copy(); v = wz['v'].copy()
+    print(f"warm-started from {WARM}")
+else:
+    w1 = (rng.standard_normal(NB + NW + NF) * 0.01).astype(np.float64)
+    w2 = (rng.standard_normal((NB + NE + NF, H)) * 0.01).astype(np.float64)
+    b1 = np.zeros(H); v = rng.standard_normal(H) * 0.1
 
 segs = np.array(seg)
 seglen = segs[:, 1] - segs[:, 0]
