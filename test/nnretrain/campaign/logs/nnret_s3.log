@@ -1,0 +1,17 @@
+29304 positions parsed, NF=73
+29304 positions kept (teacher-mass filter), 1930824 candidate rows
+CSR: X1 nnz 64897396, X2 nnz 57145978
+epoch 1: CE 2.9743 lr 0.100
+epoch 10: CE 2.4929 lr 0.100
+epoch 20: CE 2.3854 lr 0.100
+epoch 30: CE 2.3325 lr 0.100
+epoch 40: CE 2.3078 lr 0.100
+epoch 50: CE 2.3163 lr 0.100
+epoch 60: CE 2.2834 lr 0.100
+epoch 70: CE 2.2884 lr 0.100
+epoch 80: CE 2.2810 lr 0.100
+epoch 90: CE 2.2675 lr 0.100
+epoch 100: CE 2.2539 lr 0.100
+epoch 110: CE 2.2459 lr 0.075
+epoch 120: CE 2.2166 lr 0.000
+saved /tmp/nnret_s3.npz

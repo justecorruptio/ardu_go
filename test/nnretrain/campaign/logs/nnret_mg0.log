@@ -1,0 +1,35 @@
+29304 positions parsed, NF=73
+29304 positions kept, 1930824 candidate rows
+CSR: X1 nnz 64897396, X2 nnz 57145978
+epoch 1: hinge 620.4813 lr 0.050
+epoch 10: hinge 67.9016 lr 0.050
+epoch 20: hinge 69.8142 lr 0.050
+epoch 30: hinge 68.4150 lr 0.050
+epoch 40: hinge 65.4144 lr 0.050
+epoch 50: hinge 66.9206 lr 0.050
+epoch 60: hinge 69.7411 lr 0.050
+epoch 70: hinge 65.2677 lr 0.050
+epoch 80: hinge 68.7578 lr 0.050
+epoch 90: hinge 68.8378 lr 0.050
+epoch 100: hinge 68.3705 lr 0.050
+epoch 110: hinge 68.3041 lr 0.050
+epoch 120: hinge 68.1490 lr 0.050
+epoch 130: hinge 70.5568 lr 0.050
+epoch 140: hinge 69.4126 lr 0.050
+epoch 150: hinge 68.8919 lr 0.050
+epoch 160: hinge 70.1900 lr 0.050
+epoch 170: hinge 68.1108 lr 0.050
+epoch 180: hinge 68.4667 lr 0.050
+epoch 190: hinge 66.9836 lr 0.050
+epoch 200: hinge 69.0282 lr 0.050
+epoch 210: hinge 71.4284 lr 0.050
+epoch 220: hinge 68.0759 lr 0.050
+epoch 230: hinge 71.5511 lr 0.050
+epoch 240: hinge 70.8374 lr 0.050
+epoch 250: hinge 68.3731 lr 0.050
+epoch 260: hinge 68.6761 lr 0.050
+epoch 270: hinge 70.3108 lr 0.050
+epoch 280: hinge 69.8003 lr 0.050
+epoch 290: hinge 66.4643 lr 0.038
+epoch 300: hinge 53.8182 lr 0.000
+saved /tmp/nnret_mg0.npz

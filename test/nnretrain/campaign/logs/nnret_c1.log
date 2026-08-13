@@ -1,0 +1,17 @@
+29304 positions parsed, NF=73
+29304 positions kept, 1930824 candidate rows
+CSR: X1 nnz 64897396, X2 nnz 57145978
+epoch 1: E[cost] 30.955% lr 0.100
+epoch 10: E[cost] 20.773% lr 0.100
+epoch 20: E[cost] 20.092% lr 0.100
+epoch 30: E[cost] 19.857% lr 0.100
+epoch 40: E[cost] 19.613% lr 0.100
+epoch 50: E[cost] 19.467% lr 0.100
+epoch 60: E[cost] 19.384% lr 0.100
+epoch 70: E[cost] 19.163% lr 0.100
+epoch 80: E[cost] 19.119% lr 0.100
+epoch 90: E[cost] 19.052% lr 0.100
+epoch 100: E[cost] 18.878% lr 0.100
+epoch 110: E[cost] 18.784% lr 0.075
+epoch 120: E[cost] 18.675% lr 0.000
+saved /tmp/nnret_c1.npz

@@ -1,0 +1,35 @@
+29304 positions parsed, NF=73
+29304 positions kept, 1930824 candidate rows
+CSR: X1 nnz 64897396, X2 nnz 57145978
+epoch 1: E[cost] 15.630% lr 0.200
+epoch 10: E[cost] 11.014% lr 0.200
+epoch 20: E[cost] 10.327% lr 0.200
+epoch 30: E[cost] 9.889% lr 0.200
+epoch 40: E[cost] 9.617% lr 0.200
+epoch 50: E[cost] 9.448% lr 0.200
+epoch 60: E[cost] 9.274% lr 0.200
+epoch 70: E[cost] 9.091% lr 0.200
+epoch 80: E[cost] 9.067% lr 0.200
+epoch 90: E[cost] 8.877% lr 0.200
+epoch 100: E[cost] 8.866% lr 0.200
+epoch 110: E[cost] 8.774% lr 0.200
+epoch 120: E[cost] 8.751% lr 0.200
+epoch 130: E[cost] 8.684% lr 0.200
+epoch 140: E[cost] 8.704% lr 0.200
+epoch 150: E[cost] 8.578% lr 0.200
+epoch 160: E[cost] 8.599% lr 0.200
+epoch 170: E[cost] 8.613% lr 0.200
+epoch 180: E[cost] 8.564% lr 0.200
+epoch 190: E[cost] 8.503% lr 0.200
+epoch 200: E[cost] 8.443% lr 0.200
+epoch 210: E[cost] 8.628% lr 0.200
+epoch 220: E[cost] 8.427% lr 0.200
+epoch 230: E[cost] 8.349% lr 0.200
+epoch 240: E[cost] 8.380% lr 0.200
+epoch 250: E[cost] 8.300% lr 0.200
+epoch 260: E[cost] 8.339% lr 0.200
+epoch 270: E[cost] 8.277% lr 0.200
+epoch 280: E[cost] 8.259% lr 0.200
+epoch 290: E[cost] 8.195% lr 0.150
+epoch 300: E[cost] 8.020% lr 0.000
+saved /tmp/nnret_v2a.npz

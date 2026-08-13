@@ -1,0 +1,13 @@
+=== R2 seed 1 20:50:24 ===
+epoch 300: E[cost] 10.437% lr 0.000
+=== dg2s0 L0 start 21:41:58 ===
+[L0AXIS dg2s0 n=1000] ship 401 -> 365
+=== dg2s1 L0 start 21:44:37 ===
+[L0AXIS dg2s1 n=1000] ship 401 -> 266
+=== dg2s0 human start 21:47:12 ===
+WINRATE 381/1000 = 38%  median_scoreLead=-7.2
+[dg2s0 vs ship, HUMAN n=1000] 317 -> 381 (+6.4pp)  chi2 9.10 SIG
+=== dg2s1 human start 22:06:51 ===
+WINRATE 349/1000 = 35%  median_scoreLead=-8.6
+[dg2s1 vs ship, HUMAN n=1000] 317 -> 349 (+3.2pp)  chi2 2.22 n.s.
+=== DAGGER R2 EVAL DONE 22:26:12 ===

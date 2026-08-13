@@ -1,0 +1,137 @@
+=== ROUND 4 from /tmp/hcg_r3b.irCYN4 01:39:51 ===
+18231 unique positions (24665 occurrences) from 1 dirs; to-move B 9198 / W 9033
+NOVELTY R4: 16279/18231 = 89%
+0 already labeled, 16279 to go
+chunk 0: +500 (total 500/16279)
+chunk 1: +500 (total 1000/16279)
+chunk 2: +500 (total 1500/16279)
+chunk 3: +500 (total 2000/16279)
+chunk 4: +500 (total 2500/16279)
+chunk 5: +500 (total 3000/16279)
+chunk 6: +500 (total 3500/16279)
+chunk 7: +500 (total 4000/16279)
+chunk 8: +500 (total 4500/16279)
+chunk 9: +500 (total 5000/16279)
+chunk 10: +500 (total 5500/16279)
+chunk 11: +500 (total 6000/16279)
+chunk 12: +500 (total 6500/16279)
+chunk 13: +500 (total 7000/16279)
+chunk 14: +500 (total 7500/16279)
+chunk 15: +500 (total 8000/16279)
+chunk 16: +500 (total 8500/16279)
+chunk 17: +500 (total 9000/16279)
+chunk 18: +500 (total 9500/16279)
+chunk 19: +500 (total 10000/16279)
+chunk 20: +500 (total 10500/16279)
+chunk 21: +500 (total 11000/16279)
+chunk 22: +500 (total 11500/16279)
+chunk 23: +500 (total 12000/16279)
+chunk 24: +500 (total 12500/16279)
+chunk 25: +500 (total 13000/16279)
+chunk 26: +500 (total 13500/16279)
+chunk 27: +500 (total 14000/16279)
+chunk 28: +500 (total 14500/16279)
+chunk 29: +500 (total 15000/16279)
+chunk 30: +500 (total 15500/16279)
+chunk 31: +500 (total 16000/16279)
+chunk 32: +279 (total 16279/16279)
+cost labels done: 16279/16279 -> /tmp/r4_costs.jsonl
+=== R4 train 01:46:29 ===
+epoch 300: E[cost] 10.366% lr 0.000
+=== R4 L0 02:53:41 ===
+[R4s0 L0 n=1000] 400 (best 365, ship 401)
+=== R4 human 02:56:15 ===
+WINRATE 340/1000 = 34%  median_scoreLead=-8.9
+[R4s0 HUMAN n=1000] 340 (best 381, ship 317)
+ROUND 4 SUMMARY: L0=400 HU=340 best=(400,381) declines=0
+=== ROUND 5 from /tmp/hcg_r4s0.fRq4V0 03:15:41 ===
+18065 unique positions (24633 occurrences) from 1 dirs; to-move B 9112 / W 8953
+NOVELTY R5: 15362/18065 = 85%
+0 already labeled, 15362 to go
+chunk 0: +500 (total 500/15362)
+chunk 1: +500 (total 1000/15362)
+chunk 2: +500 (total 1500/15362)
+chunk 3: +500 (total 2000/15362)
+chunk 4: +500 (total 2500/15362)
+chunk 5: +500 (total 3000/15362)
+chunk 6: +500 (total 3500/15362)
+chunk 7: +500 (total 4000/15362)
+chunk 8: +500 (total 4500/15362)
+chunk 9: +500 (total 5000/15362)
+chunk 10: +500 (total 5500/15362)
+chunk 11: +500 (total 6000/15362)
+chunk 12: +500 (total 6500/15362)
+chunk 13: +500 (total 7000/15362)
+chunk 14: +500 (total 7500/15362)
+chunk 15: +500 (total 8000/15362)
+chunk 16: +500 (total 8500/15362)
+chunk 17: +500 (total 9000/15362)
+chunk 18: +500 (total 9500/15362)
+chunk 19: +500 (total 10000/15362)
+chunk 20: +500 (total 10500/15362)
+chunk 21: +500 (total 11000/15362)
+chunk 22: +500 (total 11500/15362)
+chunk 23: +500 (total 12000/15362)
+chunk 24: +500 (total 12500/15362)
+chunk 25: +500 (total 13000/15362)
+chunk 26: +500 (total 13500/15362)
+chunk 27: +500 (total 14000/15362)
+chunk 28: +500 (total 14500/15362)
+chunk 29: +500 (total 15000/15362)
+chunk 30: +362 (total 15362/15362)
+cost labels done: 15362/15362 -> /tmp/r5_costs.jsonl
+=== R5 train 03:21:56 ===
+epoch 300: E[cost] 10.508% lr 0.000
+=== R5 L0 04:43:57 ===
+[R5s0 L0 n=1000] 346 (best 400, ship 401)
+=== R5 human 04:46:40 ===
+WINRATE 349/1000 = 35%  median_scoreLead=-8.7
+[R5s0 HUMAN n=1000] 349 (best 381, ship 317)
+ROUND 5 SUMMARY: L0=346 HU=349 best=(400,381) declines=1
+=== ROUND 6 from /tmp/hcg_r5s0.fnuFJ4 05:06:16 ===
+17965 unique positions (24775 occurrences) from 1 dirs; to-move B 9048 / W 8917
+NOVELTY R6: 15564/17965 = 87%
+0 already labeled, 15564 to go
+chunk 0: +500 (total 500/15564)
+chunk 1: +500 (total 1000/15564)
+chunk 2: +500 (total 1500/15564)
+chunk 3: +500 (total 2000/15564)
+chunk 4: +500 (total 2500/15564)
+chunk 5: +500 (total 3000/15564)
+chunk 6: +500 (total 3500/15564)
+chunk 7: +500 (total 4000/15564)
+chunk 8: +500 (total 4500/15564)
+chunk 9: +500 (total 5000/15564)
+chunk 10: +500 (total 5500/15564)
+chunk 11: +500 (total 6000/15564)
+chunk 12: +500 (total 6500/15564)
+chunk 13: +500 (total 7000/15564)
+chunk 14: +500 (total 7500/15564)
+chunk 15: +500 (total 8000/15564)
+chunk 16: +500 (total 8500/15564)
+chunk 17: +500 (total 9000/15564)
+chunk 18: +500 (total 9500/15564)
+chunk 19: +500 (total 10000/15564)
+chunk 20: +500 (total 10500/15564)
+chunk 21: +500 (total 11000/15564)
+chunk 22: +500 (total 11500/15564)
+chunk 23: +500 (total 12000/15564)
+chunk 24: +500 (total 12500/15564)
+chunk 25: +500 (total 13000/15564)
+chunk 26: +500 (total 13500/15564)
+chunk 27: +500 (total 14000/15564)
+chunk 28: +500 (total 14500/15564)
+chunk 29: +500 (total 15000/15564)
+chunk 30: +500 (total 15500/15564)
+chunk 31: +64 (total 15564/15564)
+cost labels done: 15564/15564 -> /tmp/r6_costs.jsonl
+=== R6 train 05:16:07 ===
+epoch 300: E[cost] 10.285% lr 0.000
+=== R6 L0 06:46:21 ===
+[R6s0 L0 n=1000] 235 (best 400, ship 401)
+=== R6 human 06:48:50 ===
+WINRATE 364/1000 = 36%  median_scoreLead=-9.2
+[R6s0 HUMAN n=1000] 364 (best 381, ship 317)
+ROUND 6 SUMMARY: L0=235 HU=364 best=(400,381) declines=2
+=== CONVERGED (2 non-improving rounds) ===
+=== DAGGER LOOP DONE 07:08:34 ===

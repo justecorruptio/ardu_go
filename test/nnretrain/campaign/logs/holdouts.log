@@ -1,0 +1,8 @@
+=== r4s0 holdout preaz_15k 05:08:22 ===
+WINRATE 157/256 = 61%  median_scoreLead=+1.3
+[r4s0 holdout preaz_15k n=256] wins 157
+=== r4s0 holdout preaz_5k 05:14:58 ===
+WINRATE 25/256 = 10%  median_scoreLead=-20.6
+[r4s0 holdout preaz_5k n=256] wins 25
+ship references: 15k=135/256, 5k=28/256 (same seeds/rank, ship engine)
+=== HOLDOUTS DONE 05:20:05 ===

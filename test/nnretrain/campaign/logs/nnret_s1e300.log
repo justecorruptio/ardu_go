@@ -1,0 +1,35 @@
+29304 positions parsed, NF=73
+29304 positions kept (teacher-mass filter), 1930824 candidate rows
+CSR: X1 nnz 64897396, X2 nnz 57145978
+epoch 1: CE 3.0011 lr 0.100
+epoch 10: CE 2.4358 lr 0.100
+epoch 20: CE 2.3477 lr 0.100
+epoch 30: CE 2.3292 lr 0.100
+epoch 40: CE 2.3029 lr 0.100
+epoch 50: CE 2.2949 lr 0.100
+epoch 60: CE 2.2723 lr 0.100
+epoch 70: CE 2.2795 lr 0.100
+epoch 80: CE 2.2660 lr 0.100
+epoch 90: CE 2.2638 lr 0.100
+epoch 100: CE 2.2542 lr 0.100
+epoch 110: CE 2.2519 lr 0.100
+epoch 120: CE 2.2504 lr 0.100
+epoch 130: CE 2.2499 lr 0.100
+epoch 140: CE 2.2478 lr 0.100
+epoch 150: CE 2.2504 lr 0.100
+epoch 160: CE 2.2382 lr 0.100
+epoch 170: CE 2.2409 lr 0.100
+epoch 180: CE 2.2390 lr 0.100
+epoch 190: CE 2.2485 lr 0.100
+epoch 200: CE 2.2378 lr 0.100
+epoch 210: CE 2.2363 lr 0.100
+epoch 220: CE 2.2422 lr 0.100
+epoch 230: CE 2.2332 lr 0.100
+epoch 240: CE 2.2318 lr 0.100
+epoch 250: CE 2.2268 lr 0.100
+epoch 260: CE 2.2447 lr 0.100
+epoch 270: CE 2.2322 lr 0.100
+epoch 280: CE 2.2322 lr 0.100
+epoch 290: CE 2.2258 lr 0.075
+epoch 300: CE 2.1985 lr 0.000
+saved /tmp/nnret_s1e300.npz

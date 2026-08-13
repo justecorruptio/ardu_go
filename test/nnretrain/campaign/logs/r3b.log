@@ -1,0 +1,8 @@
+=== R3b train (cold, 300ep) 00:17:21 ===
+epoch 300: E[cost] 10.145% lr 0.000
+=== r3b L0 01:16:07 ===
+[r3b L0 n=1000] ship 401 -> 254
+=== r3b human 01:19:03 ===
+WINRATE 324/1000 = 32%  median_scoreLead=-8.8
+[r3b vs ship, HUMAN n=1000] 317 -> 324 (+0.7pp)  chi2 0.09 n.s.
+=== R3B DONE 01:39:30 ===
