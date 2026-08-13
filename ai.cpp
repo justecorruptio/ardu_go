@@ -5950,6 +5950,34 @@ static void adoptStash() {
 #endif // TREUSE
 
 
+#ifdef ARDUINO
+// Think-progress bar, streamed STRAIGHT to the SSD1306: sBuffer is the
+// node pool during think, so the bar cannot go through the buffer -- the
+// panel retains the pre-think frame and we repaint one 56-col strip on
+// page 5 (bits 2-4 = y 42-44), directly under the "AI THINKING..." label
+// at (66,35). Each update sets the controller's column/page window; the
+// final full-window restore (thinkProgressDone) also homes the data
+// pointer to (0,0), which paintScreen()'s wrap-around addressing needs.
+static void thinkProgressBlit(uint8_t px) {
+    Arduboy2Core::LCDCommandMode();
+    Arduboy2Core::SPItransfer(0x21);
+    Arduboy2Core::SPItransfer(66); Arduboy2Core::SPItransfer(121);
+    Arduboy2Core::SPItransfer(0x22);
+    Arduboy2Core::SPItransfer(5); Arduboy2Core::SPItransfer(5);
+    Arduboy2Core::LCDDataMode();
+    for(uint8_t c = 0; c < 56; c++)
+        Arduboy2Core::SPItransfer(c < px ? 0x1C : 0x00);
+}
+static void thinkProgressDone() {
+    Arduboy2Core::LCDCommandMode();
+    Arduboy2Core::SPItransfer(0x21);
+    Arduboy2Core::SPItransfer(0); Arduboy2Core::SPItransfer(127);
+    Arduboy2Core::SPItransfer(0x22);
+    Arduboy2Core::SPItransfer(0); Arduboy2Core::SPItransfer(7);
+    Arduboy2Core::LCDDataMode();
+}
+#endif
+
 void AI::think(Game &game) {
 #if !defined(ARDUINO) && defined(THINK_TRACE)
     fprintf(stderr, "THINK rng=%u epoch=%u vk=%u pool=%u\n",
@@ -6114,10 +6142,20 @@ void AI::think(Game &game) {
     if(rootStones < OPENING_BOOST_STONES) iters += iters / 2;
     uint16_t total = iters;
     uint8_t extended = 0;
+#ifdef ARDUINO
+    thinkProgressBlit(0);
+#endif
 #ifdef DECIDE_PROBE
     dpLastChange = 0; dpPrevBest = 0xFF;
 #endif
     for(uint16_t i = 0; i < total; i++) {
+#ifdef ARDUINO
+        // ~47 updates/think; the uint32 divide + 62-byte SPI burst is
+        // ~1.5k cycles per update, ~0.04% of a think. The bar honestly
+        // regresses if the flat-root extension grows `total`.
+        if((i & 31) == 0)
+            thinkProgressBlit((uint8_t)(((uint32_t)i * 56) / total));
+#endif
 #ifndef ARDUINO
         thinkItersRun++;
 #endif
@@ -6223,6 +6261,10 @@ void AI::think(Game &game) {
             if(2u * (uint16_t)(top1 - top2) > total - 1 - i) break;
         }
     }
+#ifdef ARDUINO
+    thinkProgressBlit(56);           // early-stops snap the bar full
+    thinkProgressDone();
+#endif
 
 #ifndef ARDUINO
     thinkItersBudget += total;
