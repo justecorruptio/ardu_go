@@ -5957,18 +5957,18 @@ static void adoptStash() {
 // page 5 (bits 2-4 = y 42-44), directly under the "AI THINKING..." label
 // at (66,35). The final full-window lcdWin also homes the data pointer
 // to (0,0), which paintScreen()'s wrap-around addressing needs.
+PROGMEM static const uint8_t WIN_BAR[6]  = {0x21, 66, 121, 0x22, 5, 5};
+PROGMEM static const uint8_t WIN_FULL[6] = {0x21, 0, 127, 0x22, 0, 7};
 __attribute__((noinline))
-static void lcdWin(uint8_t c0, uint8_t c1, uint8_t p0, uint8_t p1) {
+static void lcdWin(const uint8_t *t) {
     Arduboy2Core::LCDCommandMode();
-    Arduboy2Core::SPItransfer(0x21);
-    Arduboy2Core::SPItransfer(c0); Arduboy2Core::SPItransfer(c1);
-    Arduboy2Core::SPItransfer(0x22);
-    Arduboy2Core::SPItransfer(p0); Arduboy2Core::SPItransfer(p1);
+    for(uint8_t i = 0; i < 6; i++)
+        Arduboy2Core::SPItransfer(pgm_read_byte(t + i));
     Arduboy2Core::LCDDataMode();
 }
 __attribute__((noinline))
 static void thinkProgressBlit(uint8_t px) {
-    lcdWin(66, 121, 5, 5);
+    lcdWin(WIN_BAR);
     for(uint8_t c = 0; c < 56; c++)
         Arduboy2Core::SPItransfer(c < px ? 0x1C : 0x00);
 }
@@ -6262,7 +6262,7 @@ void AI::think(Game &game) {
     }
 #ifdef ARDUINO
     thinkProgressBlit(56);           // early-stops snap the bar full
-    lcdWin(0, 127, 0, 7);            // restore full window for display()
+    lcdWin(WIN_FULL);                // restore full window for display()
 #endif
 
 #ifndef ARDUINO
