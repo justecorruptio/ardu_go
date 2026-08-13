@@ -149,12 +149,12 @@ ol.changelog b{color:var(--ink);font-weight:600} .dlt{color:var(--accent);font:6
 # ================= per-tab build =================
 TABS = [
   # (tag, label, cycles_M, secs, iters, desc, prev_folded_for_delta)
-  # Opening tab removed: the quiet opening is played instantly by the NN
-  # policy (no search), so MCTS only runs that early on an NN handoff (rare
-  # fight) -- not worth a tab. Midgame is the representative think() profile.
-  ("mid", "Midgame", 196.95, 12.3, 400,
-   "26-stone midgame (the long-standing bench position, White to play) at the shipped <b>400 iterations</b>.",
-   None),  # profile_prev.folded lost to a /tmp cleanup; no b394ae5 delta column
+  ("ship1000", "Ship 1000", 198.75, 12.4, 1000,
+   "The shipped engine: pure-1000 &times; stable-stop-512 on the bench board (contested positions run longer; corpus mean ~18.5s).",
+   None),
+  ("incr2", "HEAD +perf", 192.02, 12.0, 1000,
+   "Ship 1000 plus tonight's perf pair: widenNode O2 (&minus;1.09%) and the incremental near-mask (&minus;2.32%, root-mask copy + descent-stone stamps with capture fallback). Net &minus;3.39%.",
+   "profile_folded_ship1000.folded"),
 ]
 
 def build_tab(tag, full_move_m, prev_path):
