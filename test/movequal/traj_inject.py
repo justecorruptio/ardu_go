@@ -58,21 +58,25 @@ cap_l0 = f"""The median game holds even through the opening and peaks at {peak['
 
 tabs = [("l0", f"vs GnuGo L0 ({NG} games)", build_svg(data), cap_l0)]
 
-p5 = SP + '/traj5k_pct.json'
-if os.path.exists(p5):
-    d5 = json.load(open(p5))
-    meta5 = {}
-    if os.path.exists(SP + '/traj5k_meta.json'):
-        meta5 = json.load(open(SP + '/traj5k_meta.json'))
-    d5 = [d for d in d5 if d['n'] >= 100]
-    e20 = next(d for d in d5 if d['t'] == 20)
-    e35 = next((d for d in d5 if d['t'] == 35), d5[-1])
-    NG5 = d5[0]['n']
-    peak5 = max((d for d in d5 if d['t'] <= 20), key=lambda r: r['p50'])
-    wl = meta5.get('wins')
-    wins_txt = f" ArduGo wins {wl}/{meta5.get('games')} ({100.0*wl/meta5.get('games'):.0f}%) at this rank (vs ~32% against the 10k profile)." if wl is not None else ""
-    cap_5k = f"""Same engine, stronger opponent: the KataGo human-SL <b>5k</b> profile.{wins_txt} The median peaks at {peak5['p50']:.0f}% (move {peak5['t']}) and is down to {e20['p50']:.0f}% by move 20 and ~{e35['p50']:.0f}% by move {e35['t']} — the 5k player converts the midgame harder, and the upper deciles thin out: p70 sits at {e20['p70']:.0f}% by move 20 (vs {d20['p70']:.0f}% against L0). The lost-band forms in the same moves-10-to-25 window; what changes against a stronger human is how few games escape into the won-band."""
-    tabs.append(("h5k", f"vs KataGo-5k human ({NG5} games)", build_svg(d5), cap_5k))
+# human-SL tabs, weakest to strongest; each from traj<key>_pct.json + _meta.json
+for key, rank in (('15k', '15k'), ('10k', '10k'), ('5k', '5k')):
+    pj = SP + f'/traj{key}_pct.json'
+    if not os.path.exists(pj): continue
+    dh = [d for d in json.load(open(pj)) if d['n'] >= 100]
+    meta = json.load(open(SP + f'/traj{key}_meta.json')) if os.path.exists(SP + f'/traj{key}_meta.json') else {}
+    e20 = next(d for d in dh if d['t'] == 20)
+    e35 = next((d for d in dh if d['t'] == 35), dh[-1])
+    NGh = dh[0]['n']
+    peakh = max((d for d in dh if d['t'] <= 20), key=lambda r: r['p50'])
+    wl = meta.get('wins')
+    wins_txt = (f" ArduGo wins {wl}/{meta.get('games')} ({100.0*wl/meta.get('games'):.0f}%) at this rank."
+                if wl is not None else "")
+    cap = (f"Same engine against the KataGo human-SL <b>{rank}</b> profile.{wins_txt} "
+           f"The median peaks at {peakh['p50']:.0f}% (move {peakh['t']}), is {e20['p50']:.0f}% by move 20 "
+           f"and ~{e35['p50']:.0f}% by move {e35['t']}; p70 sits at {e20['p70']:.0f}% by move 20 "
+           f"(vs {d20['p70']:.0f}% against L0). The lost-band forms in the same moves-10-to-25 window — "
+           f"what changes with opponent strength is how few games escape into the won-band.")
+    tabs.append((f'h{key}', f'vs KataGo-{rank} human ({NGh} games)', build_svg(dh), cap))
 
 btns, panes = [], []
 for i, (key, label, svg, cap) in enumerate(tabs):
