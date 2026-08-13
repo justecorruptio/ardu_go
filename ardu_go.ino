@@ -17,7 +17,9 @@ Jaylib jay;
 // upstream of simBoard/simMark moves their lo8 and needs a re-sweep;
 // small RAM savings often get eaten by the required pad growth (the
 // modular tax). checkmagic.sh verifies every constraint, EVERY build.)
-uint8_t magicPad[49] __attribute__((used));
+// (48: retuned 2026-08-13 -- the incremental near-mask's descentCaptured
+// byte shifted sBuffer up 1 and put node 136 on the magic key.)
+uint8_t magicPad[48] __attribute__((used));
 Game game;
 AI ai;
 Display display(jay, game);
