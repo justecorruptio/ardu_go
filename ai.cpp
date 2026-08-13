@@ -649,6 +649,10 @@ static uint8_t poolUsed;
 static uint8_t freeHead;   // recycled nodes, threaded via nextSibling
 static uint8_t path[32];   // current descent, root first (see reclaim)
 static uint8_t pathDepth;
+// Any capture along the current descent invalidates the incremental
+// near-mask (captures shrink halos; a stale mask would admit different
+// widening candidates). Set from simCaptured per descent step.
+static uint8_t descentCaptured;
 static uint8_t rootTurn;
 static uint8_t rootKo;
 static uint8_t rootLast; // opponent's actual last move (0xFF = none)
@@ -4387,6 +4391,31 @@ static uint8_t emptyCorners;
 static uint8_t rootNear[12];
 static uint8_t rootNearAny, rootEmptyCorners, rootNearValid;
 
+// Stamp one stone's distance-2 halo (and its corner claim) into near[].
+// Shared by the full board scan and the incremental descent path.
+__attribute__((optimize("O2"), noinline))
+static void stampNear(uint8_t *near, uint8_t p) {
+    uint8_t sx = p % BOARD_SIZE, sy = p / BOARD_SIZE;
+    if(sx != 4 && sy != 4) {
+        if(sx <= 3 && sy <= 3)      emptyCorners &= ~1;
+        else if(sx >= 5 && sy <= 3) emptyCorners &= ~2;
+        else if(sx <= 3 && sy >= 5) emptyCorners &= ~4;
+        else if(sx >= 5 && sy >= 5) emptyCorners &= ~8;
+    }
+    uint8_t x0 = sx > 2 ? sx - 2 : 0, x1 = sx < 6 ? sx + 2 : 8;
+    uint8_t y0 = sy > 2 ? sy - 2 : 0, y1 = sy < 6 ? sy + 2 : 8;
+    uint8_t run = (uint8_t)((1u << (x1 - x0 + 1)) - 1);
+    uint8_t b = y0 * BOARD_SIZE + x0;
+    uint8_t sh = b & 7;
+    uint16_t m = (uint16_t)run << sh;
+    for(uint8_t yy = y0; yy <= y1; yy++, b += BOARD_SIZE) {
+        near[b >> 3]       |= (uint8_t)m;
+        near[(b >> 3) + 1] |= (uint8_t)(m >> 8);
+        if((b & 7) == 7) m = run;   // offset wraps to 0 next row
+        else m <<= 1;
+    }
+}
+
 // 81-bit bitmap of points within distance 2 of any stone.
 // Returns 0 if the board has no stones (then allow everything).
 __attribute__((optimize("O2")))
@@ -4397,38 +4426,7 @@ static uint8_t buildNearMask(uint8_t *near) {
     for(uint8_t p = 0; p < BOARD_CELLS; p++) {
         if(simBoard[p] == EMPTY) continue;
         anyStone = 1;
-        uint8_t sx = p % BOARD_SIZE, sy = p / BOARD_SIZE;
-
-        // Corner occupancy (stones on the center lines claim none)
-        if(sx != 4 && sy != 4) {
-            if(sx <= 3 && sy <= 3)      emptyCorners &= ~1;
-            else if(sx >= 5 && sy <= 3) emptyCorners &= ~2;
-            else if(sx <= 3 && sy >= 5) emptyCorners &= ~4;
-            else if(sx >= 5 && sy >= 5) emptyCorners &= ~8;
-        }
-
-        uint8_t x0 = sx > 2 ? sx - 2 : 0, x1 = sx < 6 ? sx + 2 : 8;
-        uint8_t y0 = sy > 2 ? sy - 2 : 0, y1 = sy < 6 ? sy + 2 : 8;
-        // The row span [x0,x1] is a contiguous bit-run in the linear
-        // layout (rows are BOARD_SIZE wide and the run never crosses a
-        // row edge), so set the whole run per row instead of one bit
-        // per cell. `run` (the unshifted mask) is constant across the
-        // <=5 rows; b walks the rows by +BOARD_SIZE. The run spans at
-        // most 2 bytes, so near[] is sized 12 (byte 11 is write-only).
-        uint8_t run = (uint8_t)((1u << (x1 - x0 + 1)) - 1);
-        uint8_t b = y0 * BOARD_SIZE + x0;
-        // b += 9 advances the bit offset (b & 7) by exactly 1 mod 8, so
-        // the variable 16-bit shift (a per-row shift loop on AVR) is paid
-        // once per stone; each row then just doubles m, resetting to run
-        // when the offset wraps to 0.
-        uint8_t sh = b & 7;
-        uint16_t m = (uint16_t)run << sh;
-        for(uint8_t yy = y0; yy <= y1; yy++, b += BOARD_SIZE) {
-            near[b >> 3]       |= (uint8_t)m;
-            near[(b >> 3) + 1] |= (uint8_t)(m >> 8);
-            if(++sh == 8) { sh = 0; m = run; }
-            else m <<= 1;
-        }
+        stampNear(near, p);
     }
     return anyStone;
 }
@@ -5234,6 +5232,20 @@ static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t la
         memcpy(near, rootNear, sizeof(rootNear));
         emptyCorners = rootEmptyCorners;
         anyStone = rootNearAny;
+    } else if(rootNearValid && !descentCaptured) {
+        // Incremental: this node's position = root + the descent moves
+        // applied so far (path[1..pathDepth-1] == exactly the stones
+        // added to simBoard). Copy the root mask and stamp only those;
+        // any capture on the path falls back to the full rebuild.
+        memcpy(near, rootNear, sizeof(rootNear));
+        emptyCorners = rootEmptyCorners;
+        anyStone = rootNearAny;
+        for(uint8_t d = 1; d < pathDepth; d++) {
+            uint8_t mv = node(path[d]).move;
+            if(mv >= BOARD_CELLS) continue;   // pass adds no stone
+            stampNear(near, mv);
+            anyStone = 1;
+        }
     } else
         anyStone = buildNearMask(near);
     buildChainMap();
@@ -5561,6 +5573,7 @@ static void mctsIterate(Game &game) {
     pathDepth = 0;
     uint8_t cur = 0;
     path[pathDepth++] = 0;
+    descentCaptured = 0;
     uint8_t retries = 0;
 
     // Selection + expansion: descend the existing tree, add at most
@@ -5618,6 +5631,7 @@ static void mctsIterate(Game &game) {
         }
         if(toMove == rootTurn && node(c).move < BOARD_CELLS)
             raveMark(node(c).move);
+        descentCaptured |= simCaptured;
         ko = nk;
         toMove = 3 - toMove;
         lastMove = node(c).move;
