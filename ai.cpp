@@ -5955,26 +5955,22 @@ static void adoptStash() {
 // node pool during think, so the bar cannot go through the buffer -- the
 // panel retains the pre-think frame and we repaint one 56-col strip on
 // page 5 (bits 2-4 = y 42-44), directly under the "AI THINKING..." label
-// at (66,35). Each update sets the controller's column/page window; the
-// final full-window restore (thinkProgressDone) also homes the data
-// pointer to (0,0), which paintScreen()'s wrap-around addressing needs.
-static void thinkProgressBlit(uint8_t px) {
+// at (66,35). The final full-window lcdWin also homes the data pointer
+// to (0,0), which paintScreen()'s wrap-around addressing needs.
+__attribute__((noinline))
+static void lcdWin(uint8_t c0, uint8_t c1, uint8_t p0, uint8_t p1) {
     Arduboy2Core::LCDCommandMode();
     Arduboy2Core::SPItransfer(0x21);
-    Arduboy2Core::SPItransfer(66); Arduboy2Core::SPItransfer(121);
+    Arduboy2Core::SPItransfer(c0); Arduboy2Core::SPItransfer(c1);
     Arduboy2Core::SPItransfer(0x22);
-    Arduboy2Core::SPItransfer(5); Arduboy2Core::SPItransfer(5);
+    Arduboy2Core::SPItransfer(p0); Arduboy2Core::SPItransfer(p1);
     Arduboy2Core::LCDDataMode();
+}
+__attribute__((noinline))
+static void thinkProgressBlit(uint8_t px) {
+    lcdWin(66, 121, 5, 5);
     for(uint8_t c = 0; c < 56; c++)
         Arduboy2Core::SPItransfer(c < px ? 0x1C : 0x00);
-}
-static void thinkProgressDone() {
-    Arduboy2Core::LCDCommandMode();
-    Arduboy2Core::SPItransfer(0x21);
-    Arduboy2Core::SPItransfer(0); Arduboy2Core::SPItransfer(127);
-    Arduboy2Core::SPItransfer(0x22);
-    Arduboy2Core::SPItransfer(0); Arduboy2Core::SPItransfer(7);
-    Arduboy2Core::LCDDataMode();
 }
 #endif
 
@@ -6143,18 +6139,21 @@ void AI::think(Game &game) {
     uint16_t total = iters;
     uint8_t extended = 0;
 #ifdef ARDUINO
-    thinkProgressBlit(0);
+    uint8_t barPx = 0;
 #endif
 #ifdef DECIDE_PROBE
     dpLastChange = 0; dpPrevBest = 0xFF;
 #endif
     for(uint16_t i = 0; i < total; i++) {
 #ifdef ARDUINO
-        // ~47 updates/think; the uint32 divide + 62-byte SPI burst is
-        // ~1.5k cycles per update, ~0.04% of a think. The bar honestly
-        // regresses if the flat-root extension grows `total`.
-        if((i & 31) == 0)
-            thinkProgressBlit((uint8_t)(((uint32_t)i * 56) / total));
+        // Asymptotic fill: each update advances 1/8 of the REMAINING bar,
+        // so it leaps at the start and crawls near the end (the perceptual
+        // fast-start trick), completing via the snap-full at exit. No
+        // divide, no dependence on `total`.
+        if((i & 63) == 0) {
+            barPx += (uint8_t)(56 - barPx) >> 3;
+            thinkProgressBlit(barPx);
+        }
 #endif
 #ifndef ARDUINO
         thinkItersRun++;
@@ -6263,7 +6262,7 @@ void AI::think(Game &game) {
     }
 #ifdef ARDUINO
     thinkProgressBlit(56);           // early-stops snap the bar full
-    thinkProgressDone();
+    lcdWin(0, 127, 0, 7);            // restore full window for display()
 #endif
 
 #ifndef ARDUINO
