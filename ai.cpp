@@ -713,7 +713,10 @@ uint32_t thinkItersRun, thinkItersBudget;
 // rollouts and scores as well as resolving it.
 static uint8_t rootVitals[3];
 static uint8_t nRootVitals;
-#if defined(EYE_PRIOR) || defined(EYE_PRIOR2)
+#if defined(EYE_PRIOR2) || defined(EYE_FEATS)
+#define EYE_BITMAPS 1
+#endif
+#if defined(EYE_PRIOR) || defined(EYE_BITMAPS)
 // Depth arc (2026-08-14): liberties of WEAK chains (<= EYE_WEAK_MAX
 // exact libs, root board) -- the L&D-critical placement class the
 // batch ranking measurably buries (0/10 ply-2 containment; the ten
@@ -724,6 +727,10 @@ static uint8_t nRootVitals;
 #define EYE_WEAK_MAX 5
 #endif
 static uint8_t weakLibs[11];
+#ifdef EYE_BITMAPS
+static uint8_t weakLibsC[2][11];   // per-color: [0]=BLACK chains, [1]=WHITE
+static uint8_t vitalLibs[11];      // degree-max liberty of each weak chain
+#endif
 #endif
 #ifdef NAKADE
 // Nakade vitals: eyespaces that CONTAIN enclosed prey stones (see
@@ -1219,8 +1226,10 @@ static uint8_t regionVitalCell(const uint8_t *region, uint8_t cnt,
 // demand by regionVital; buildChainMap just clears its cache flags.
 static void buildChainMap() {
     memset(chainId, 0, sizeof(chainId));
-#ifdef EYE_PRIOR2
+#ifdef EYE_BITMAPS
     memset(weakLibs, 0, sizeof(weakLibs));   // fresh per node board
+    memset(weakLibsC, 0, sizeof(weakLibsC));
+    memset(vitalLibs, 0, sizeof(vitalLibs));
 #endif
     uint8_t nextId = 0;
     for(uint8_t s = 0; s < BOARD_CELLS; s++) {
@@ -1228,7 +1237,7 @@ static void buildChainMap() {
         uint8_t color = simBoard[s];
         uint8_t id = nextId < 63 ? ++nextId : 63;
         uint8_t lib1 = 0xFF, lib2 = 0xFF, count = 0;
-#ifdef EYE_PRIOR2
+#ifdef EYE_BITMAPS
         uint8_t exLibs[6], exN = 0, chSz = 0;
 #endif
         // Append-only flood (the hasLiberty pattern): members accumulate
@@ -1241,7 +1250,7 @@ static void buildChainMap() {
         chainId[s] = id;
         while(rp != wp) {
             uint8_t p = *rp++;
-#ifdef EYE_PRIOR2
+#ifdef EYE_BITMAPS
             chSz++;
 #endif
             uint8_t q;
@@ -1252,7 +1261,7 @@ static void buildChainMap() {
                         else if(lib2 == 0xFF) lib2 = q;
                         count++;
                     }
-#ifdef EYE_PRIOR2
+#ifdef EYE_BITMAPS
                     { uint8_t j = 0;
                       while(j < exN && exLibs[j] != q) j++;
                       if(j == exN && exN < 6) exLibs[exN++] = q; }
@@ -1263,38 +1272,34 @@ static void buildChainMap() {
                 }
             }
         }
-#ifdef EYE_PRIOR2
+#ifdef EYE_BITMAPS
         // weak = <=4 exact libs, or 5 with real size (lone 5-lib fresh
         // stones are not fights); 6-dedupe cap means exN==6 reads safe.
         if(exN <= 4 || (exN == 5 && chSz >= 2)) {
-#ifdef EYE_VITALONLY
-            // Flag only the VITAL liberty: max adjacency to the chain's
-            // other liberties (the eyespace-splitting point) -- the
-            // degree rule of regionVitalCell applied to an OPEN group's
-            // liberty set. Ties flag both (small sets, both plausible).
-            uint8_t bestDeg = 0;
+            uint8_t bestDeg = 0, bestJ = 0;
             for(uint8_t j = 0; j < exN; j++) {
                 uint8_t d = 0, q;
                 FOR_EACH_NEIGHBOR(q, exLibs[j]) {
                     for(uint8_t m = 0; m < exN; m++)
                         if(exLibs[m] == q) { d++; break; }
                 }
-                if(d > bestDeg) bestDeg = d;
+                if(d > bestDeg) { bestDeg = d; bestJ = j; }
             }
-            if(bestDeg)
-                for(uint8_t j = 0; j < exN; j++) {
-                    uint8_t d = 0, q;
-                    FOR_EACH_NEIGHBOR(q, exLibs[j]) {
-                        for(uint8_t m = 0; m < exN; m++)
-                            if(exLibs[m] == q) { d++; break; }
-                    }
-                    if(d == bestDeg)
-                        weakLibs[exLibs[j] >> 3] |= bitMask(exLibs[j]);
-                }
-#else
-            for(uint8_t j = 0; j < exN; j++)
-                weakLibs[exLibs[j] >> 3] |= bitMask(exLibs[j]);
+            for(uint8_t j = 0; j < exN; j++) {
+                uint8_t lb = exLibs[j];
+#ifndef EYE_VITALONLY
+                weakLibs[lb >> 3] |= bitMask(lb);
 #endif
+                weakLibsC[color - 1][lb >> 3] |= bitMask(lb);
+            }
+#ifdef EYE_VITALONLY
+            { uint8_t lb = exLibs[bestJ];
+              weakLibs[lb >> 3] |= bitMask(lb); }
+#endif
+            if(bestDeg) {
+                uint8_t lb = exLibs[bestJ];
+                vitalLibs[lb >> 3] |= bitMask(lb);
+            }
         }
 #endif
         // Stamp the capped lib class (count << 6) into every member from
@@ -4050,11 +4055,23 @@ static uint8_t owlHopeless(uint8_t seed) {
 }
 #endif
 
+#if defined(PRIOR_DUMP) && !defined(ARDUINO)
+static uint8_t priorDumpOn;
+static uint32_t priorDumpSeq;
+static uint32_t priorRootHash;   // FNV-1a of the root board, set per think
+#endif
+
 // Fill simBoard from the game and collect the eyespace vital points.
 // Shared by think() and scoreDead().
 static void unpackBoard(Game &game);
 static void loadRootBoard(Game &game) {
     unpackBoard(game);
+#if defined(PRIOR_DUMP) && !defined(ARDUINO)
+    { uint32_t h = 2166136261u;
+      for(uint8_t i = 0; i < BOARD_CELLS; i++)
+          h = (h ^ simBoard[i]) * 16777619u;
+      priorRootHash = h ^ ((uint32_t)game.turn << 24); }
+#endif
     nRootVitals = 0;
     for(uint8_t i = 0; i < BOARD_CELLS && nRootVitals < 3; i++) {
         if(simBoard[i] != EMPTY) continue;
@@ -5078,6 +5095,57 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     else if(pos == nnTop[2]) bonus += NN_PRIOR_TOP - 4;
 #endif
 
+#if defined(PRIOR_DUMP) && !defined(ARDUINO)
+    // Learned-prior arc: emit the 24-feature vector + the hand prior's
+    // verdict for every candidate at sampled widens (priorDumpOn set by
+    // widenNode). One code path computes features for dumps and, later,
+    // inference -- trainer/C parity by construction (the NN_DUMP rule).
+    if(priorDumpOn) {
+        uint8_t rc2 = *chainPtr(pos) >> 6;
+        uint8_t wOwn = 0, wEnm = 0, wAdj = 0, vFlag = 0;
+#ifdef EYE_BITMAPS
+        { uint8_t own = toMove - 1, enm = 2 - toMove;
+          wOwn = (weakLibsC[own][pos >> 3] & bitMask(pos)) ? 1 : 0;
+          wEnm = (weakLibsC[enm][pos >> 3] & bitMask(pos)) ? 1 : 0;
+          vFlag = (vitalLibs[pos >> 3] & bitMask(pos)) ? 1 : 0;
+          uint8_t wq;
+          FOR_EACH_NEIGHBOR(wq, pos)
+              if((weakLibsC[0][wq >> 3] | weakLibsC[1][wq >> 3]) & bitMask(wq)) wAdj++;
+        }
+#endif
+        uint8_t line = x < 8 - x ? x : 8 - x;
+        { uint8_t ly2 = y < 8 - y ? y : 8 - y; if(ly2 < line) line = ly2; }
+        uint8_t dl = adx > ady ? adx : ady;
+        fprintf(stderr,
+            "WC %u %d %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %d\n",
+            pos,
+            (int)patternBonus(x, y, toMove),          // f1 pattern
+            line,                                     // f2
+            dl,                                       // f3 cheb(last)
+            isFar,                                    // f4
+            pathDepth,                                // f5
+            emptyN,                                   // f6
+            fGroups,                                  // f7
+            eGroups,                                  // f8
+            fMinLibs == 0xFF ? 7 : fMinLibs,          // f9
+            eMinLibs == 0xFF ? 7 : eMinLibs,          // f10
+            sawCapture,                               // f11
+            sawSave,                                  // f12
+            sawAtari,                                 // f13
+            sawDoomed,                                // f14
+            connHere,                                 // f15
+            wEnm,                                     // f16
+            wOwn,                                     // f17
+            wAdj,                                     // f18
+            vFlag,                                    // f19
+            rootStones,                               // f20
+            rc2,                                      // f21 region code
+            sawWeakFriend,                            // f22
+            hasOrthFriend,                            // f23
+            vitalHere,                                // f24
+            (int)bonus);                              // hand prior verdict
+    }
+#endif
     return bonus;
 }
 
@@ -5405,6 +5473,20 @@ static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t la
     // bitMask lpm per cell. Same values at every cell.
     uint8_t pos = startPos, scanEnd = BOARD_CELLS;
     uint8_t pb = pos >> 3;
+#if defined(PRIOR_DUMP) && !defined(ARDUINO)
+    // Sampling gate: midgame boards, tree plies 2-6, 1-in-4 widens.
+    priorDumpOn = 0;
+    if(getenv("PRIOR_DUMP_ON") && rootStones >= 14 && rootStones <= 45 &&
+       pathDepth >= 2 && pathDepth <= 6 && ((priorDumpSeq++) & 3) == 0) {
+        priorDumpOn = 1;
+        fprintf(stderr, "WP %lu %08lx %u %u %u", (unsigned long)priorDumpSeq,
+                (unsigned long)priorRootHash,
+                rootStones, pathDepth, toMove);
+        for(uint8_t d = 1; d < pathDepth; d++)
+            fprintf(stderr, " %u", node(path[d]).move & 0x7F);
+        fprintf(stderr, "\n");
+    }
+#endif
 #ifdef EYE_INJECT
     uint8_t bwPos = 0xFF; int8_t bwPrio = -128;
 #endif
@@ -5466,6 +5548,9 @@ static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t la
         bP[WIDEN_BATCH - 1] = bwPrio;
         bPos[WIDEN_BATCH - 1] = bwPos;
     }
+#endif
+#if defined(PRIOR_DUMP) && !defined(ARDUINO)
+    if(priorDumpOn) { fprintf(stderr, "WEND\n"); priorDumpOn = 0; }
 #endif
     if(bPos[0] == 0xFF) {
 #ifdef WIDEN_PROBE
