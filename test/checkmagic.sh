@@ -19,7 +19,10 @@ CLI="/Applications/Arduino IDE.app/Contents/Resources/app/lib/backend/resources/
     "$(dirname "$0")/.." > /dev/null 2>&1
 # node region = NODE_POOL_SB * sizeof(Node); read from source so this check
 # can never go stale when the pool size changes.
-NPSB=$(grep -oE '#define[[:space:]]+NODE_POOL_SB[[:space:]]+[0-9]+' "$(dirname "$0")/../ai.cpp" | grep -oE '[0-9]+$')
+# (two defines exist since the depth arc: the NORAVE=164 branch is a
+# host-only experiment; the device build always takes the #else = the
+# LAST match, and the worst case is the larger pool anyway)
+NPSB=$(grep -oE '#define[[:space:]]+NODE_POOL_SB[[:space:]]+[0-9]+' "$(dirname "$0")/../ai.cpp" | grep -oE '[0-9]+$' | tail -1)
 NODEREGION=$(( NPSB * 6 ))
 if ! grep -aq -- "-mrelax" "$B/ardu_go.ino.elf"; then
     echo "*** SIZE FLAGS MISSING: restore platform.local.txt with"
