@@ -6,8 +6,12 @@
 // on fresh paired games; buys ~2K flash toward the device target.
 // Host experiment builds: -D duplicates are value-1 safe; pass
 // -DNN_FULL_MODEL to build the untrimmed net instead.
+#ifdef NO_NNOPEN
+#undef NNOPEN            /* beats the build system's -DNNOPEN too */
+#else
 #ifndef NNOPEN
 #define NNOPEN 1
+#endif
 #endif
 #ifndef NN_FULL_MODEL
 #ifndef NN_DEVICE_TIER

@@ -519,7 +519,15 @@ uint8_t AI::chooseMove(Game &game) {
 #define WIDEN_CAP 16
 #endif
 // Candidates added per widenNode scan (see the batch comment there)
+#ifdef PRIORNN
+// Net-priored widening: the net makes per-scan cost ~10x the hand
+// prior's, so amortize -- one scan banks 8 candidates (1 active + 7
+// latents) instead of 3, cutting scan count ~2.5x. Latent activation
+// picks best-by-recovered-prior from the larger remembered ranking.
+#define WIDEN_BATCH 8
+#else
 #define WIDEN_BATCH 3
+#endif
 // A leaf must collect this many visits (prior seed included) before it
 // may grow a child: playouts from a cold leaf are as informative as a
 // one-child subtree, and each expansion costs a full prior scan.
@@ -551,11 +559,11 @@ uint8_t AI::chooseMove(Game &game) {
 // exactly where playout evaluation is flattest, and the first search
 // move after book exit was a measured, repeated 14-26 point blunder.
 // 0 disables.
-#ifndef OPENING_BOOST_STONES
-#define OPENING_BOOST_STONES 0 // SHIP: boost off — at 1000 base the extra
-                               // iterations land in the 1200-2000 dead
-                               // plateau (L0 five-way: pure 406 > ship 393)
-#endif
+// Opening boost REMOVED (2026-08-14): the iterations arc measured
+// opening-boosted budgets landing in the 1200-2000 dead plateau at the
+// 1000 base (L0 five-way: pure 406 > ship 393); the knob sat at 0 since,
+// and the dead guard is deleted. Budget is a flat MCTS_ITERATIONS -- the
+// stop rules only ever shrink it.
 #ifndef MERCY_MARGIN
 #define MERCY_MARGIN 25     // capture lead that ends a playout early
 #endif
@@ -1227,7 +1235,9 @@ static uint8_t regionVitalCell(const uint8_t *region, uint8_t cnt,
 static void buildChainMap() {
     memset(chainId, 0, sizeof(chainId));
 #ifdef EYE_BITMAPS
-    memset(weakLibs, 0, sizeof(weakLibs));   // fresh per node board
+#if defined(EYE_PRIOR) || defined(EYE_PRIOR2) || defined(EYE_INJECT)
+    memset(weakLibs, 0, sizeof(weakLibs));   // experiment flags only
+#endif
     memset(weakLibsC, 0, sizeof(weakLibsC));
     memset(vitalLibs, 0, sizeof(vitalLibs));
 #endif
@@ -1287,7 +1297,7 @@ static void buildChainMap() {
             }
             for(uint8_t j = 0; j < exN; j++) {
                 uint8_t lb = exLibs[j];
-#ifndef EYE_VITALONLY
+#if !defined(EYE_VITALONLY) && (defined(EYE_PRIOR) || defined(EYE_PRIOR2) || defined(EYE_INJECT))
                 weakLibs[lb >> 3] |= bitMask(lb);
 #endif
                 weakLibsC[color - 1][lb >> 3] |= bitMask(lb);
@@ -2915,6 +2925,7 @@ static uint16_t pattern3Index(int8_t cx, int8_t cy, uint8_t color,
 #include "pattern_weights.h"
 // Signed data-learned 3x3 pattern weight (replaces the MoGo bit).
 __attribute__((optimize("O2")))
+__attribute__((noinline))
 static int8_t patternBonus(int8_t cx, int8_t cy, uint8_t color) {
     uint8_t cls, stones;
     uint16_t idx = pattern3Index(cx, cy, color, &cls, &stones);
@@ -4060,6 +4071,15 @@ static uint8_t priorDumpOn;
 static uint32_t priorDumpSeq;
 static uint32_t priorRootHash;   // FNV-1a of the root board, set per think
 #endif
+#ifdef PRIORNN
+#include "priornet_weights.h"
+#endif
+#ifdef PRIORLIN
+#include "priorlin_weights.h"
+#endif
+#ifdef PRIOR2PASS
+#include "priorcut_weights.h"
+#endif
 
 // Fill simBoard from the game and collect the eyespace vital points.
 // Shared by think() and scoreDead().
@@ -4621,6 +4641,7 @@ static const uint16_t PROGMEM KEIMA_MY[9] = {0xEAA, 0xEEB, 0xFFF, 0xFFF, 0xFFF, 
 // early-game low-line penalties. Negative = virtual losses. isFar
 // marks a big open point, which can never earn tactical or local
 // credit and gets its own bonus instead.
+__attribute__((noinline))
 static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
                              uint8_t isFar) {
     uint8_t opp = 3 - toMove;
@@ -4697,6 +4718,9 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
         sawRace = 1;
 #endif
 
+#ifdef PRIORNN_V2
+    int8_t bonus = 0;    // the net IS the prior; hand arithmetic deleted
+#else
     int8_t bonus = sawCapture ?
                    PRIOR_CAPTURE :
                    sawSave    ? PRIOR_SAVE :
@@ -4709,6 +4733,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     // group). Countering captures are exempt.
     if(sawDoomed && !sawCapture && !sawSave)
         bonus -= PRIOR_FEED_PENALTY;
+#endif
 
     // Connection: this point joins a 2-liberty chain to another
     // friendly chain — the rescue move for a group about to be split
@@ -4721,11 +4746,15 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     uint8_t connHere = 0;
     if(fGroups >= 2) {
         if(fMinLibs == 2) {
+#ifndef PRIORNN_V2
             bonus += PRIOR_CONNECT_WEAK;
+#endif
             connHere = 1;
         } else if(rootStones >= EARLY_STONES &&
                   soleConnector(fSeed[0], fIds[1])) {
+#ifndef PRIORNN_V2
             bonus += PRIOR_CONNECT;
+#endif
             connHere = 1;
         }
     }
@@ -4751,7 +4780,9 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
             regionVital(pos); // cache side-effect only
         uint8_t rc = *chainPtr(pos) >> 6;
         if(rc == 3) {
+#ifndef PRIORNN_V2
             bonus += PRIOR_VITAL;
+#endif
             vitalHere = 1;
         }
 #ifdef NAKADE
@@ -4759,15 +4790,19 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
         // so this parallel check cannot double-count with rc == 3.
         else if(nNakVitals && (pos == nakVitals[0] ||
                 (nNakVitals > 1 && pos == nakVitals[1]))) {
+#ifndef PRIORNN_V2
             bonus += PRIOR_VITAL;
+#endif
             vitalHere = 1;
         }
 #endif
+#ifndef PRIORNN_V2
         else if(rc && !sawCapture && !sawSave && !sawAtari &&
                   !connHere) {
             bonus -= (rc == toMove) ? PRIOR_OWNFILL_PENALTY
                                     : PRIOR_INVADE_PENALTY;
         }
+#endif
 #if defined(EYE_PRIOR) || defined(EYE_PRIOR2)
         // Weak-group liberty structure (root-board bitmap): the cell is
         // a weak chain's liberty, or adjacent to two of them (the
@@ -4799,24 +4834,38 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
 
     // Urgent defense: reinforcing an own 2-liberty group in the zone
     // of the opponent's last move — don't tenuki from a live fight
+#ifndef PRIORNN_V2
     if(sawWeakFriend && last < BOARD_CELLS && adx <= 2 && ady <= 2)
         bonus += PRIOR_URGENT;
+#endif
 
     // Thin-stretch penalty: tentatively place the stone and count the
     // merged group's liberties. Tactical moves are exempt (a capture
     // would raise the count anyway; a crosscut fight is legitimately
     // sharp). Patterned blocks at 2 libs still net above quiet moves;
     // outright self-atari sinks far below anything playable.
+    // Immediate-liberty fast-path (Pachi). Under the learned-prior
+    // flags the merged-libs class is hoisted unconditionally (feature
+    // f27); the flag-off ship path keeps the original gated shape
+    // byte-for-byte.
+#if defined(PRIOR_DUMP) || defined(PRIORNN)
+    uint8_t mlibs;
+    if(fGroups == 0)     mlibs = emptyN;
+    else if(emptyN >= 3) mlibs = 3;
+    else {
+        simBoard[pos] = toMove;
+        mlibs = (uint8_t)groupLibsFind(pos);
+        simBoard[pos] = EMPTY;
+    }
+#ifndef PRIORNN_V2
     if(!sawCapture && !sawSave && !sawAtari && !vitalHere) {
-        // Immediate-liberty fast-path (Pachi): the merged group's
-        // liberty count is known without a flood in two common cases.
-        // A lone stone (no friendly neighbour) has exactly its own empty
-        // neighbours as liberties; any point with >=3 empty neighbours
-        // has >=3 liberties regardless of what it connects to (and the
-        // flood, capped at 3, would report exactly 3). Both give the
-        // same penalty decision as the flood, so they skip it outright.
-        // Only a friendly-connected point with <=2 empties can gain
-        // extra liberties through the connection and still needs it.
+        if(mlibs <= 2)
+            bonus -= (mlibs <= 1) ? PRIOR_SELFATARI_PENALTY
+                                  : PRIOR_THIN_PENALTY;
+    }
+#endif
+#else
+    if(!sawCapture && !sawSave && !sawAtari && !vitalHere) {
         uint8_t libs;
         if(fGroups == 0)     libs = emptyN;   // lone stone: libs == empties
         else if(emptyN >= 3) libs = 3;        // >=3 empties => >=3 libs
@@ -4829,7 +4878,9 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
             bonus -= (libs <= 1) ? PRIOR_SELFATARI_PENALTY
                                  : PRIOR_THIN_PENALTY;
     }
+#endif
 
+#ifndef PRIORNN_V2
     // Center preference: the edge is worth less than the third line
     uint8_t ex = x < BOARD_SIZE - 1 - x ? x : BOARD_SIZE - 1 - x;
     uint8_t ey = y < BOARD_SIZE - 1 - y ? y : BOARD_SIZE - 1 - y;
@@ -4843,6 +4894,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
         uint8_t cq = (y <= 3 ? 0 : 2) + (x <= 3 ? 0 : 1);
         if(emptyCorners & (1 << cq)) bonus += PRIOR_OPEN_CORNER;
     }
+#endif
 
     // Cuttable-keima check. The knight's-move partner lies OUTSIDE the
     // candidate's 3x3, so neither patterns nor the thin-stretch check
@@ -4853,7 +4905,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     // consistent with the 2026-07 prior-rework finding (-11/300).
     // The prior earns its keep twice over; the flag documents its
     // price: 542 B flash + the hottest prior line (~2.5% of think).
-#ifndef NO_KEIMA
+#if !defined(NO_KEIMA) && !defined(PRIORNN_V2)
     if(!hasOrthFriend && !isFar && !sawCapture && !sawSave && !sawAtari) {
         // (guard order: hasOrthFriend disqualifies most candidates)
         // (isFar: no stone within Chebyshev 2, and every cell this
@@ -4941,6 +4993,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     // lose their shape/locality bonuses: a correct-LOOKING contact
     // answer down there is still usually wrong, and pattern+local
     // (+5) was overpowering the line penalty.
+#ifndef PRIORNN_V2
     uint8_t lowLineBad = 0;
     // Contact-push block detection (midgame hunt, 2026-08): the
     // opponent's last stone touches an own chain, and this candidate
@@ -5087,6 +5140,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
 
     // Big open point: the territory-staking move
     if(isFar) bonus += PRIOR_BIG;
+#endif
 
 #if NN_PRIOR_TOP
     // Net-priored MCTS: tiered bonus for the whole-game net's top-3 root moves.
@@ -5095,12 +5149,12 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     else if(pos == nnTop[2]) bonus += NN_PRIOR_TOP - 4;
 #endif
 
-#if defined(PRIOR_DUMP) && !defined(ARDUINO)
-    // Learned-prior arc: emit the 24-feature vector + the hand prior's
-    // verdict for every candidate at sampled widens (priorDumpOn set by
-    // widenNode). One code path computes features for dumps and, later,
-    // inference -- trainer/C parity by construction (the NN_DUMP rule).
-    if(priorDumpOn) {
+#if defined(PRIOR_DUMP) || defined(PRIORNN)
+    // Learned-prior arc: the 24-feature vector, assembled ONCE and shared
+    // by the training dump and the in-tree net -- parity by construction.
+    // ORDER IS THE TRAINING CONTRACT (f1..f24); never reorder.
+    int8_t pf[28];
+    {
         uint8_t rc2 = *chainPtr(pos) >> 6;
         uint8_t wOwn = 0, wEnm = 0, wAdj = 0, vFlag = 0;
 #ifdef EYE_BITMAPS
@@ -5116,34 +5170,101 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
         uint8_t line = x < 8 - x ? x : 8 - x;
         { uint8_t ly2 = y < 8 - y ? y : 8 - y; if(ly2 < line) line = ly2; }
         uint8_t dl = adx > ady ? adx : ady;
-        fprintf(stderr,
-            "WC %u %d %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %d\n",
-            pos,
-            (int)patternBonus(x, y, toMove),          // f1 pattern
-            line,                                     // f2
-            dl,                                       // f3 cheb(last)
-            isFar,                                    // f4
-            pathDepth,                                // f5
-            emptyN,                                   // f6
-            fGroups,                                  // f7
-            eGroups,                                  // f8
-            fMinLibs == 0xFF ? 7 : fMinLibs,          // f9
-            eMinLibs == 0xFF ? 7 : eMinLibs,          // f10
-            sawCapture,                               // f11
-            sawSave,                                  // f12
-            sawAtari,                                 // f13
-            sawDoomed,                                // f14
-            connHere,                                 // f15
-            wEnm,                                     // f16
-            wOwn,                                     // f17
-            wAdj,                                     // f18
-            vFlag,                                    // f19
-            rootStones,                               // f20
-            rc2,                                      // f21 region code
-            sawWeakFriend,                            // f22
-            hasOrthFriend,                            // f23
-            vitalHere,                                // f24
-            (int)bonus);                              // hand prior verdict
+        pf[0]  = patternBonus(x, y, toMove);
+        pf[1]  = (int8_t)line;
+        pf[2]  = (int8_t)dl;
+        pf[3]  = (int8_t)isFar;
+        pf[4]  = (int8_t)pathDepth;
+        pf[5]  = (int8_t)emptyN;
+        pf[6]  = (int8_t)fGroups;
+        pf[7]  = (int8_t)eGroups;
+        pf[8]  = (int8_t)(fMinLibs == 0xFF ? 7 : fMinLibs);
+        pf[9]  = (int8_t)(eMinLibs == 0xFF ? 7 : eMinLibs);
+        pf[10] = (int8_t)sawCapture;
+        pf[11] = (int8_t)sawSave;
+        pf[12] = (int8_t)sawAtari;
+        pf[13] = (int8_t)sawDoomed;
+        pf[14] = (int8_t)connHere;
+        pf[15] = (int8_t)wEnm;
+        pf[16] = (int8_t)wOwn;
+        pf[17] = (int8_t)wAdj;
+        pf[18] = (int8_t)vFlag;
+        pf[19] = (int8_t)rootStones;
+        pf[20] = (int8_t)rc2;
+        pf[21] = (int8_t)sawWeakFriend;
+        pf[22] = (int8_t)hasOrthFriend;
+        pf[23] = (int8_t)vitalHere;
+        pf[24] = (int8_t)adx;
+        pf[25] = (int8_t)ady;
+        pf[26] = (int8_t)mlibs;
+        { uint8_t ex2 = x < 8 - x ? x : 8 - x;
+          uint8_t ey2 = y < 8 - y ? y : 8 - y;
+          uint8_t oc = 0;
+          if(ex2 >= 2 && ex2 <= 3 && ey2 >= 2 && ey2 <= 3) {
+              uint8_t cq = (y <= 3 ? 0 : 2) + (x <= 3 ? 0 : 1);
+              if(emptyCorners & (1 << cq)) oc = 1;
+          }
+          pf[27] = (int8_t)oc; }
+    }
+#endif
+#ifdef PRIORNN
+    // v1 ADDITIVE: int8 MLP (PN_W1/PN_B1/PN_V), int32 accumulation,
+    // arithmetic >>8 lands p5..p95 on ~[-31,+11] (bonus scale); clamp.
+#ifndef PN_STUB
+    {
+        // int16 kernel: real accumulator range measured +-189 over 788k
+        // candidate rows (17x under int16 even before headroom) -- full
+        // int8 weights, native 8x8->16 muls, no saturation guard needed.
+        int16_t pre[PN_H];
+        for(uint8_t h = 0; h < PN_H; h++)
+            pre[h] = (int16_t)pgm_read_word(&PN_B1[h]);
+        const uint8_t *wp = (const uint8_t *)PN_W1;
+        for(uint8_t i = 0; i < PN_NF; i++, wp += PN_H) {
+            int8_t d = (int8_t)(pf[i] - (int8_t)pgm_read_byte(&PN_FMID[i]));
+            if(!d) continue;
+            for(uint8_t h = 0; h < PN_H; h++)
+                pre[h] += (int16_t)(d * (int8_t)pgm_read_byte(wp + h));
+        }
+        int32_t out = 0;
+        for(uint8_t h = 0; h < PN_H; h++)
+            if(pre[h] > 0) out += (int32_t)pre[h] * (int8_t)pgm_read_byte(&PN_V[h]);
+        int16_t nb = (int16_t)(out >> 8);
+        if(nb > 48) nb = 48;
+        if(nb < -48) nb = -48;
+#ifdef PRIORNN_V2
+        // v2 REPLACEMENT: the net IS the prior; the hand arithmetic above
+        // is dead code retained for the scan's feature side effects until
+        // the flash-refund deletion pass (output-identical either way).
+        bonus = (int8_t)nb;
+#else
+        bonus += nb;
+#endif
+    }
+#endif  /* PN_STUB */
+#endif  /* PRIORNN */
+#if defined(PN_STUB) && defined(PRIORNN_V2)
+    bonus = (int8_t)(pf[0] >> 2);   // stub: pattern-only stand-in, no MAC
+#endif
+#ifdef PRIORLIN
+    // Cut-only prior: the linear distillation of the net, no MLP at all.
+    // Answers "is ordering-precision or mere candidacy the value?"
+    {
+        int16_t ls = 0;
+        for(uint8_t i = 0; i < PL_NF; i++) {
+            int8_t d = (int8_t)(pf[i] - (int8_t)pgm_read_byte(&PL_FMID[i]));
+            if(d) ls += (int16_t)(d * (int8_t)pgm_read_byte(&PL_W[i]));
+        }
+        int16_t nb2 = ls >> 6;
+        if(nb2 > 48) nb2 = 48;
+        if(nb2 < -48) nb2 = -48;
+        bonus = (int8_t)nb2;
+    }
+#endif
+#if defined(PRIOR_DUMP) && !defined(ARDUINO)
+    if(priorDumpOn) {
+        fprintf(stderr, "WC %u", pos);
+        for(uint8_t i = 0; i < 28; i++) fprintf(stderr, " %d", pf[i]);
+        fprintf(stderr, " %d\n", (int)bonus);
     }
 #endif
     return bonus;
@@ -5373,6 +5494,64 @@ static uint8_t childCount(uint8_t nodeIdx) {
     return n;
 }
 
+#ifdef PRIOR2PASS
+// Two-pass widening, pass 1: LITE score for the cut -- chain-map reads
+// only (no ladder, no connector flood), pattern, coords. int8 weights
+// distilled from the judge net (PC_W; zero slots = expensive features
+// excluded from the cut by design). Offline: K=12 costs +0.117pp vs
+// judging every cell.
+__attribute__((noinline))
+static int16_t cutScore(uint8_t pos, uint8_t toMove, uint8_t last,
+                        uint8_t isFar) {
+    uint8_t opp = 3 - toMove;
+    uint8_t fGroups = 0, eGroups = 0, emptyN = 0;
+    uint8_t fMin = 7, eMin = 7;
+    uint8_t cap = 0, sav = 0, ata = 0, weakF = 0, orthF = 0;
+    uint8_t q;
+    FOR_EACH_NEIGHBOR(q, pos) {
+        uint8_t b = simBoard[q];
+        if(b == EMPTY) { emptyN++; continue; }
+        uint8_t cls = LIBS_OF(*chainPtr(q));
+        if(b == toMove) {
+            orthF = 1; fGroups++;
+            if(cls < fMin) fMin = cls;
+            if(cls == 1) sav = 1;
+            if(cls == 2) weakF = 1;
+        } else {
+            eGroups++;
+            if(cls < eMin) eMin = cls;
+            if(cls == 1) cap = 1;
+            if(cls == 2) ata = 1;
+        }
+    }
+    uint8_t xy = posXY(pos);
+    uint8_t x = xy & 0x0F, y = xyHi(xy);
+    uint8_t line = x < 8 - x ? x : 8 - x;
+    { uint8_t ly = y < 8 - y ? y : 8 - y; if(ly < line) line = ly; }
+    uint8_t dl = 8;
+    if(last < BOARD_CELLS) {
+        uint8_t lxy = posXY(last);
+        uint8_t lx = lxy & 0x0F, ly2 = xyHi(lxy);
+        uint8_t ax = x > lx ? x - lx : lx - x;
+        uint8_t ay = y > ly2 ? y - ly2 : ly2 - y;
+        dl = ax > ay ? ax : ay;
+    }
+    int8_t f[24] = {0};
+    f[0] = isFar ? 0 : patternBonus(x, y, toMove);   // far: 3x3 empty, exact 0
+    f[1] = (int8_t)line;  f[2] = (int8_t)dl;   f[3] = (int8_t)isFar;
+    f[5] = (int8_t)emptyN; f[6] = (int8_t)fGroups; f[7] = (int8_t)eGroups;
+    f[8] = (int8_t)fMin;  f[9] = (int8_t)eMin;
+    f[10] = (int8_t)cap;  f[11] = (int8_t)sav;  f[12] = (int8_t)ata;
+    f[21] = (int8_t)weakF; f[22] = (int8_t)orthF;
+    int16_t sc = 0;
+    for(uint8_t i = 0; i < 24; i++) {
+        int8_t wv = (int8_t)pgm_read_byte(&PC_W[i]);
+        if(wv && f[i]) sc += (int16_t)(f[i] * wv);
+    }
+    return sc;
+}
+#endif
+
 // Root expansion, PROGRESSIVE (see ROOT_INIT): pass plus the top
 // prior candidates; the rest arrive via widening as visits grow, so
 // early visits concentrate instead of spreading over everything.
@@ -5487,6 +5666,11 @@ static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t la
         fprintf(stderr, "\n");
     }
 #endif
+#ifdef PRIOR2PASS
+    int16_t ckSc[PRIOR2PASS];
+    uint8_t ckPos[PRIOR2PASS], ckFar[PRIOR2PASS];
+    for(uint8_t k = 0; k < PRIOR2PASS; k++) { ckSc[k] = -32768; ckPos[k] = 0xFF; }
+#endif
 #ifdef EYE_INJECT
     uint8_t bwPos = 0xFF; int8_t bwPrio = -128;
 #endif
@@ -5522,6 +5706,20 @@ static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t la
             isFar = 1;
         }
         if(isOwnEye(pos, toMove)) continue;
+#ifdef PRIOR2PASS
+        // pass 1: cheap cut only; the judge runs on the top-K after
+        {
+            int16_t cs = cutScore(pos, toMove, last, isFar);
+            if(cs > ckSc[PRIOR2PASS - 1]) {
+                uint8_t k = PRIOR2PASS - 1;
+                while(k > 0 && cs > ckSc[k - 1]) {
+                    ckSc[k] = ckSc[k - 1]; ckPos[k] = ckPos[k - 1];
+                    ckFar[k] = ckFar[k - 1]; k--;
+                }
+                ckSc[k] = cs; ckPos[k] = pos; ckFar[k] = isFar;
+            }
+        }
+#else
         int8_t p = candidatePrior(pos, toMove, last, isFar);
         if(p > bP[WIDEN_BATCH - 1]) {
             uint8_t k = WIDEN_BATCH - 1;
@@ -5533,6 +5731,7 @@ static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t la
             bP[k] = p;
             bPos[k] = pos;
         }
+#endif
 #ifdef EYE_INJECT
         // Depth arc: track the best WEAK-LIBERTY candidate separately --
         // the L&D placement class the ranking buries (see weakLibs).
@@ -5547,6 +5746,22 @@ static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t la
        bwPos != bPos[WIDEN_BATCH - 1]) {
         bP[WIDEN_BATCH - 1] = bwPrio;
         bPos[WIDEN_BATCH - 1] = bwPos;
+    }
+#endif
+#ifdef PRIOR2PASS
+    // pass 2: full featurization + judge net on the cut survivors
+    for(uint8_t k = 0; k < PRIOR2PASS && ckPos[k] != 0xFF; k++) {
+        int8_t p = candidatePrior(ckPos[k], toMove, last, ckFar[k]);
+        if(p > bP[WIDEN_BATCH - 1]) {
+            uint8_t j = WIDEN_BATCH - 1;
+            while(j > 0 && p > bP[j - 1]) {
+                bP[j] = bP[j - 1];
+                bPos[j] = bPos[j - 1];
+                j--;
+            }
+            bP[j] = p;
+            bPos[j] = ckPos[k];
+        }
     }
 #endif
 #if defined(PRIOR_DUMP) && !defined(ARDUINO)
@@ -6380,7 +6595,6 @@ void AI::think(Game &game) {
 #endif
 #endif
     uint16_t iters = mctsIterations;
-    if(rootStones < OPENING_BOOST_STONES) iters += iters / 2;
     uint16_t total = iters;
     uint8_t extended = 0;
 #ifdef ARDUINO
