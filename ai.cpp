@@ -4071,8 +4071,8 @@ static uint8_t priorDumpOn;
 static uint32_t priorDumpSeq;
 static uint32_t priorRootHash;   // FNV-1a of the root board, set per think
 #endif
-#ifdef PRIORNN
-#include "priornet_weights.h"
+#if defined(PRIORNN) || defined(PRIOR_DUMP)
+#include "priornet_weights.h"   /* PRIOR_DUMP needs PN_FM_* to un-fold */
 #endif
 #ifdef PRIORLIN
 #include "priorlin_weights.h"
@@ -5172,14 +5172,17 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
         uint8_t dl = adx > ady ? adx : ady;
         pf[0]  = patternBonus(x, y, toMove);
         pf[1]  = (int8_t)line;
-        pf[2]  = (int8_t)dl;
+        // 7 features carry a nonzero FMID: fold the subtraction into the
+        // write (compile-time immediates) so the kernel's d IS pf[i] and
+        // the per-feature lpm+sub disappears from the 24-wide loop.
+        pf[2]  = (int8_t)(dl - PN_FM_2);
         pf[3]  = (int8_t)isFar;
-        pf[4]  = (int8_t)pathDepth;
-        pf[5]  = (int8_t)emptyN;
+        pf[4]  = (int8_t)(pathDepth - PN_FM_4);
+        pf[5]  = (int8_t)(emptyN - PN_FM_5);
         pf[6]  = (int8_t)fGroups;
         pf[7]  = (int8_t)eGroups;
-        pf[8]  = (int8_t)(fMinLibs == 0xFF ? 7 : fMinLibs);
-        pf[9]  = (int8_t)(eMinLibs == 0xFF ? 7 : eMinLibs);
+        pf[8]  = (int8_t)((fMinLibs == 0xFF ? 7 : fMinLibs) - PN_FM_8);
+        pf[9]  = (int8_t)((eMinLibs == 0xFF ? 7 : eMinLibs) - PN_FM_9);
         pf[10] = (int8_t)sawCapture;
         pf[11] = (int8_t)sawSave;
         pf[12] = (int8_t)sawAtari;
@@ -5187,9 +5190,9 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
         pf[14] = (int8_t)connHere;
         pf[15] = (int8_t)wEnm;
         pf[16] = (int8_t)wOwn;
-        pf[17] = (int8_t)wAdj;
+        pf[17] = (int8_t)(wAdj - PN_FM_17);
         pf[18] = (int8_t)vFlag;
-        pf[19] = (int8_t)rootStones;
+        pf[19] = (int8_t)(rootStones - PN_FM_19);
         pf[20] = (int8_t)rc2;
         pf[21] = (int8_t)sawWeakFriend;
         pf[22] = (int8_t)hasOrthFriend;
@@ -5233,7 +5236,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
                 a7 = (int16_t)pgm_read_word(&PN_B1[7]);
         const uint8_t *wp = (const uint8_t *)PN_W1;
         for(uint8_t i = 0; i < PN_NF; i++, wp += 8) {
-            int8_t d = (int8_t)(pf[i] - (int8_t)pgm_read_byte(&PN_FMID[i]));
+            int8_t d = (int8_t)pf[i];   // FMID folded at the write sites
             if(!d) continue;
 #ifdef __AVR__
             // gcc can't keep Z alive here: with 16 accumulator regs held
@@ -5294,7 +5297,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
             pre[h] = (int16_t)pgm_read_word(&PN_B1[h]);
         const uint8_t *wp = (const uint8_t *)PN_W1;
         for(uint8_t i = 0; i < PN_NF; i++, wp += PN_H) {
-            int8_t d = (int8_t)(pf[i] - (int8_t)pgm_read_byte(&PN_FMID[i]));
+            int8_t d = (int8_t)pf[i];   // FMID folded at the write sites
             if(!d) continue;
             for(uint8_t h = 0; h < PN_H; h++)
                 pre[h] += (int16_t)(d * (int8_t)pgm_read_byte(wp + h));
@@ -5337,8 +5340,12 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
 #endif
 #if defined(PRIOR_DUMP) && !defined(ARDUINO)
     if(priorDumpOn) {
+        // un-fold the write-site FMID subtraction: the dump contract is
+        // RAW features (what the trainer/extractor expect)
+        static const int8_t pnFm[28] = {0,0,PN_FM_2,0,PN_FM_4,PN_FM_5,0,0,
+            PN_FM_8,PN_FM_9,0,0,0,0,0,0,0,PN_FM_17,0,PN_FM_19,0,0,0,0,0,0,0,0};
         fprintf(stderr, "WC %u", pos);
-        for(uint8_t i = 0; i < 28; i++) fprintf(stderr, " %d", pf[i]);
+        for(uint8_t i = 0; i < 28; i++) fprintf(stderr, " %d", pf[i] + pnFm[i]);
         fprintf(stderr, " %d\n", (int)bonus);
     }
 #endif
