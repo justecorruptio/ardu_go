@@ -188,6 +188,11 @@ uint8_t AI::chooseMove(Game &game) {
 
 // ==================== MCTS + UCB1 ====================
 
+#ifdef NORAVE
+#define NODE_POOL_SB 164    // depth-arc arm: RAVE tables surrendered to the pool
+                            // (164*6=984 <= 1024; HOST-ONLY experiment flag --
+                            // 0x800 would land mid-pool on device)
+#else
 #define NODE_POOL_SB 137    // nodes in the borrowed screen buffer (137*6=822 keeps
                             // the node region below RAM 0x800; the magic key then
                             // lands in the tolerant raveV table, not a live node)
@@ -198,6 +203,7 @@ uint8_t AI::chooseMove(Game &game) {
 // the UI strings to PROGMEM bought the budget back — keep total free
 // RAM >= ~250 for the stack. Total pool must stay < 255 (8-bit
 // links, 0xFF = null).
+#endif
 #define NODE_POOL_EXT 69
 #define NODE_POOL (NODE_POOL_SB + NODE_POOL_EXT) // must stay < 255 (8-bit links)
 #ifndef MCTS_ITERATIONS
@@ -707,6 +713,18 @@ uint32_t thinkItersRun, thinkItersBudget;
 // rollouts and scores as well as resolving it.
 static uint8_t rootVitals[3];
 static uint8_t nRootVitals;
+#if defined(EYE_PRIOR) || defined(EYE_PRIOR2)
+// Depth arc (2026-08-14): liberties of WEAK chains (<= EYE_WEAK_MAX
+// exact libs, root board) -- the L&D-critical placement class the
+// batch ranking measurably buries (0/10 ply-2 containment; the ten
+// missed replies were all zero-own-contact cells in weak groups'
+// liberty structures). Root-computed once per think; read as a prior
+// bonus at every widen depth.
+#ifndef EYE_WEAK_MAX
+#define EYE_WEAK_MAX 5
+#endif
+static uint8_t weakLibs[11];
+#endif
 #ifdef NAKADE
 // Nakade vitals: eyespaces that CONTAIN enclosed prey stones (see
 // nakadeVital). Separate list — these regions read as contested to
@@ -1201,12 +1219,18 @@ static uint8_t regionVitalCell(const uint8_t *region, uint8_t cnt,
 // demand by regionVital; buildChainMap just clears its cache flags.
 static void buildChainMap() {
     memset(chainId, 0, sizeof(chainId));
+#ifdef EYE_PRIOR2
+    memset(weakLibs, 0, sizeof(weakLibs));   // fresh per node board
+#endif
     uint8_t nextId = 0;
     for(uint8_t s = 0; s < BOARD_CELLS; s++) {
         if(simBoard[s] == EMPTY || chainId[s]) continue;
         uint8_t color = simBoard[s];
         uint8_t id = nextId < 63 ? ++nextId : 63;
         uint8_t lib1 = 0xFF, lib2 = 0xFF, count = 0;
+#ifdef EYE_PRIOR2
+        uint8_t exLibs[6], exN = 0, chSz = 0;
+#endif
         // Append-only flood (the hasLiberty pattern): members accumulate
         // in floodScratch as the BFS consumes them front-to-back (rp reads,
         // wp appends), so the whole chain is still listed when rp meets wp
@@ -1217,6 +1241,9 @@ static void buildChainMap() {
         chainId[s] = id;
         while(rp != wp) {
             uint8_t p = *rp++;
+#ifdef EYE_PRIOR2
+            chSz++;
+#endif
             uint8_t q;
             FOR_EACH_NEIGHBOR(q, p) {
                 if(boardAt(q) == EMPTY) {
@@ -1225,12 +1252,51 @@ static void buildChainMap() {
                         else if(lib2 == 0xFF) lib2 = q;
                         count++;
                     }
+#ifdef EYE_PRIOR2
+                    { uint8_t j = 0;
+                      while(j < exN && exLibs[j] != q) j++;
+                      if(j == exN && exN < 6) exLibs[exN++] = q; }
+#endif
                 } else if(boardAt(q) == color && !chainId[q]) {
                     chainId[q] = id;
                     *wp++ = q;
                 }
             }
         }
+#ifdef EYE_PRIOR2
+        // weak = <=4 exact libs, or 5 with real size (lone 5-lib fresh
+        // stones are not fights); 6-dedupe cap means exN==6 reads safe.
+        if(exN <= 4 || (exN == 5 && chSz >= 2)) {
+#ifdef EYE_VITALONLY
+            // Flag only the VITAL liberty: max adjacency to the chain's
+            // other liberties (the eyespace-splitting point) -- the
+            // degree rule of regionVitalCell applied to an OPEN group's
+            // liberty set. Ties flag both (small sets, both plausible).
+            uint8_t bestDeg = 0;
+            for(uint8_t j = 0; j < exN; j++) {
+                uint8_t d = 0, q;
+                FOR_EACH_NEIGHBOR(q, exLibs[j]) {
+                    for(uint8_t m = 0; m < exN; m++)
+                        if(exLibs[m] == q) { d++; break; }
+                }
+                if(d > bestDeg) bestDeg = d;
+            }
+            if(bestDeg)
+                for(uint8_t j = 0; j < exN; j++) {
+                    uint8_t d = 0, q;
+                    FOR_EACH_NEIGHBOR(q, exLibs[j]) {
+                        for(uint8_t m = 0; m < exN; m++)
+                            if(exLibs[m] == q) { d++; break; }
+                    }
+                    if(d == bestDeg)
+                        weakLibs[exLibs[j] >> 3] |= bitMask(exLibs[j]);
+                }
+#else
+            for(uint8_t j = 0; j < exN; j++)
+                weakLibs[exLibs[j] >> 3] |= bitMask(exLibs[j]);
+#endif
+        }
+#endif
         // Stamp the capped lib class (count << 6) into every member from
         // the accumulated list. count==0 (a 0-liberty chain, only on an
         // illegal board) leaves bits==0 -> the OR is a no-op, so the guard
@@ -3996,6 +4062,34 @@ static void loadRootBoard(Game &game) {
         if((uint8_t)rv && (rv >> 8) == i)
             rootVitals[nRootVitals++] = i;
     }
+#ifdef EYE_PRIOR
+    memset(weakLibs, 0, sizeof(weakLibs));
+    newMark();
+    for(uint8_t s0 = 0; s0 < BOARD_CELLS; s0++) {
+        if(simBoard[s0] == EMPTY || simMark[s0] == markEpoch) continue;
+        uint8_t col = simBoard[s0];
+        uint8_t members[81], mc = 0, head = 0;
+        uint8_t libs[8], lc = 0;
+        members[mc++] = s0; simMark[s0] = markEpoch;
+        while(head < mc) {
+            uint8_t q;
+            FOR_EACH_NEIGHBOR(q, members[head]) {
+                uint8_t v = simBoard[q];
+                if(v == EMPTY) {
+                    uint8_t j = 0;
+                    while(j < lc && libs[j] != q) j++;
+                    if(j == lc && lc < 8) libs[lc++] = q;
+                } else if(v == col && simMark[q] != markEpoch) {
+                    simMark[q] = markEpoch; members[mc++] = q;
+                }
+            }
+            head++;
+        }
+        if(lc <= EYE_WEAK_MAX)
+            for(uint8_t j = 0; j < lc; j++)
+                weakLibs[libs[j] >> 3] |= bitMask(libs[j]);
+    }
+#endif
 #ifdef CONTESTED_VITAL
     // Contested-eyespace pass: pick the SMALLEST admitted region (most
     // lethal), then build the campaign target list: the victim wall's
@@ -4367,6 +4461,15 @@ static uint8_t reclaim() {
             return 1;
         }
     }
+#ifdef NO_SUBTREE_EVICT
+    // Depth arc: subtree eviction under pool pressure CHURNS -- the
+    // least-visited victim is disproportionately the critical-but-
+    // disliked line (measured: kataBest children with 36-81 visits and
+    // ZERO surviving children). Freeze instead: latents were already
+    // freed above; with none left the tree keeps its shape and visits
+    // keep refining what exists.
+    return 0;
+#endif
     uint8_t victim = 0xFF;
     uint16_t worst = 0xFFFF;
     for(uint8_t d = 0; d < pathDepth; d++) {
@@ -4648,6 +4751,21 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
             bonus -= (rc == toMove) ? PRIOR_OWNFILL_PENALTY
                                     : PRIOR_INVADE_PENALTY;
         }
+#if defined(EYE_PRIOR) || defined(EYE_PRIOR2)
+        // Weak-group liberty structure (root-board bitmap): the cell is
+        // a weak chain's liberty, or adjacent to two of them (the
+        // placement/vital class open regionVital cannot see mid-game).
+#ifdef EYE_PRIOR2
+#define EYE_PRIOR EYE_PRIOR2
+#endif
+        if(weakLibs[rb] & bitMask(pos)) bonus += EYE_PRIOR;
+        else {
+            uint8_t wq, wn = 0;
+            FOR_EACH_NEIGHBOR(wq, pos)
+                if(weakLibs[wq >> 3] & bitMask(wq)) wn++;
+            if(wn >= 2) bonus += EYE_PRIOR - 4;
+        }
+#endif
     }
 
     // pos coords (x,y) and |offset| to last (adx,ady): decoded once here
@@ -5287,6 +5405,9 @@ static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t la
     // bitMask lpm per cell. Same values at every cell.
     uint8_t pos = startPos, scanEnd = BOARD_CELLS;
     uint8_t pb = pos >> 3;
+#ifdef EYE_INJECT
+    uint8_t bwPos = 0xFF; int8_t bwPrio = -128;
+#endif
     uint8_t pm = bitMask(pos);
     for(;; pos++,
            pm = (uint8_t)(pm << 1), pm || (pm = 1, ++pb)) {
@@ -5297,6 +5418,17 @@ static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t la
         }
         if(boardAt(pos) != EMPTY || pos == ko) continue;
         if(have[pb] & pm) continue;
+#ifdef DEEP_LOCAL
+        // Depth arc arm (c): deep in the tree a fight continuation stays
+        // LOCAL -- candidates restricted to Chebyshev<=2 of the last move
+        // once pathDepth >= DEEP_LOCAL (the pass child stays as the
+        // tenuki escape; candidacy is local, evaluation stays global).
+        if(pathDepth >= DEEP_LOCAL && last < BOARD_CELLS) {
+            int8_t dx = (int8_t)(pos % 9) - (int8_t)(last % 9);
+            int8_t dy = (int8_t)(pos / 9) - (int8_t)(last / 9);
+            if(dx < -2 || dx > 2 || dy < -2 || dy > 2) continue;
+        }
+#endif
         uint8_t isFar = 0;
         if(anyStone && !(near[pb] & pm)) {
             // "Big open point" = >=2 from every edge AND not near a
@@ -5319,7 +5451,22 @@ static uint8_t widenNode(uint8_t nodeIdx, uint8_t toMove, uint8_t ko, uint8_t la
             bP[k] = p;
             bPos[k] = pos;
         }
+#ifdef EYE_INJECT
+        // Depth arc: track the best WEAK-LIBERTY candidate separately --
+        // the L&D placement class the ranking buries (see weakLibs).
+        if((weakLibs[pb] & pm) && p > bwPrio) { bwPrio = p; bwPos = pos; }
+#endif
     }
+#ifdef EYE_INJECT
+    // Guaranteed candidacy: one batch slot for the weak-lib class. The
+    // injected candidate keeps its true prior (latent activation picks
+    // by recovered prior, so it queues fairly behind the naturals).
+    if(bwPos != 0xFF && bwPos != bPos[0] && bwPos != bPos[1] &&
+       bwPos != bPos[WIDEN_BATCH - 1]) {
+        bP[WIDEN_BATCH - 1] = bwPrio;
+        bPos[WIDEN_BATCH - 1] = bwPos;
+    }
+#endif
     if(bPos[0] == 0xFF) {
 #ifdef WIDEN_PROBE
         wpCalls++; wpEmpty++;
@@ -5536,7 +5683,11 @@ static uint8_t selectChild(uint8_t nodeIdx) {
         // graduate to their own record. (β from the parent's count
         // kept even a 130-visit leader half-AMAF and flattened the
         // root.) Never lift a poisoned (illegal) child back via RAVE.
-        if(atRoot && nv < POISONED &&
+        if(
+#ifdef NORAVE
+           0 &&
+#endif
+           atRoot && nv < POISONED &&
            n.move < BOARD_CELLS && raveV[n.move]
            ) {
             uint16_t beta = (nv < 32)
@@ -5550,7 +5701,15 @@ static uint8_t selectChild(uint8_t nodeIdx) {
             q = (uint16_t)((int32_t)q + (((int32_t)beta * d) >> 12));
         }
 
+#ifdef DEPTH_TSHAPE
+        // Depth arc arm (a): T-shaped reading -- exploration halves every
+        // DEPTH_TSHAPE plies, so deep subtrees commit to their line
+        // instead of paying refutation tax nobody will ever play.
+        uint16_t u = q + (isqrtLUT((uint32_t)lnOverN * v) >>
+                          (UCB_EXPLORE_SHIFT + pathDepth / DEPTH_TSHAPE));
+#else
         uint16_t u = q + (isqrtLUT((uint32_t)lnOverN * v) >> UCB_EXPLORE_SHIFT);
+#endif
         if(u > best) {
             best = u;
             bestC = cur;
@@ -5678,6 +5837,7 @@ static void mctsIterate(Game &game) {
     // per-cell test becomes a constant-mask AND on a cached byte
     // (same cells, same ascending order).
     uint8_t rootWin = (winner == rootTurn);
+#ifndef NORAVE
     for(uint8_t b = 0; b < (BOARD_CELLS + 7) / 8; b++) {
         uint8_t m = raveMask[b];
         if(!m) continue;
@@ -5692,6 +5852,7 @@ static void mctsIterate(Game &game) {
             raveW[i] += rootWin;   // rootWin is 0/1: branchless
         }
     }
+#endif
 
     // Backprop. path[1] was played by rootTurn, path[2] by the opponent, ...
     // win-by-parity is loop-invariant; precompute both flags once.
@@ -6115,7 +6276,9 @@ void AI::think(Game &game) {
 #endif
     loadRootBoard(game);
 
+#ifndef NORAVE
     memset(raveV, 0, 2 * BOARD_CELLS);   // raveW == raveV + BOARD_CELLS, contiguous
+#endif
 
 #ifndef TREUSE
 #ifdef PONDER_SIM
