@@ -46,3 +46,21 @@ PROGMEM static const int8_t PN_FMID[24] = {
 #define PN_FM_9  7
 #define PN_FM_17 1
 #define PN_FM_19 32
+// zero-FMID features (explicit so all 24 sites can subtract)
+#define PN_FM_0 0
+#define PN_FM_1 0
+#define PN_FM_3 0
+#define PN_FM_6 0
+#define PN_FM_7 0
+#define PN_FM_10 0
+#define PN_FM_11 0
+#define PN_FM_12 0
+#define PN_FM_13 0
+#define PN_FM_14 0
+#define PN_FM_15 0
+#define PN_FM_16 0
+#define PN_FM_18 0
+#define PN_FM_20 0
+#define PN_FM_21 0
+#define PN_FM_22 0
+#define PN_FM_23 0

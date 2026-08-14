@@ -5170,33 +5170,33 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
         uint8_t line = x < 8 - x ? x : 8 - x;
         { uint8_t ly2 = y < 8 - y ? y : 8 - y; if(ly2 < line) line = ly2; }
         uint8_t dl = adx > ady ? adx : ady;
-        pf[0]  = patternBonus(x, y, toMove);
-        pf[1]  = (int8_t)line;
+        pf[0]  = (int8_t)(patternBonus(x, y, toMove) - PN_FM_0);
+        pf[1]  = (int8_t)(line - PN_FM_1);
         // 7 features carry a nonzero FMID: fold the subtraction into the
         // write (compile-time immediates) so the kernel's d IS pf[i] and
         // the per-feature lpm+sub disappears from the 24-wide loop.
         pf[2]  = (int8_t)(dl - PN_FM_2);
-        pf[3]  = (int8_t)isFar;
+        pf[3]  = (int8_t)(isFar - PN_FM_3);
         pf[4]  = (int8_t)(pathDepth - PN_FM_4);
         pf[5]  = (int8_t)(emptyN - PN_FM_5);
-        pf[6]  = (int8_t)fGroups;
-        pf[7]  = (int8_t)eGroups;
+        pf[6]  = (int8_t)(fGroups - PN_FM_6);
+        pf[7]  = (int8_t)(eGroups - PN_FM_7);
         pf[8]  = (int8_t)((fMinLibs == 0xFF ? 7 : fMinLibs) - PN_FM_8);
         pf[9]  = (int8_t)((eMinLibs == 0xFF ? 7 : eMinLibs) - PN_FM_9);
-        pf[10] = (int8_t)sawCapture;
-        pf[11] = (int8_t)sawSave;
-        pf[12] = (int8_t)sawAtari;
-        pf[13] = (int8_t)sawDoomed;
-        pf[14] = (int8_t)connHere;
-        pf[15] = (int8_t)wEnm;
-        pf[16] = (int8_t)wOwn;
+        pf[10] = (int8_t)(sawCapture - PN_FM_10);
+        pf[11] = (int8_t)(sawSave - PN_FM_11);
+        pf[12] = (int8_t)(sawAtari - PN_FM_12);
+        pf[13] = (int8_t)(sawDoomed - PN_FM_13);
+        pf[14] = (int8_t)(connHere - PN_FM_14);
+        pf[15] = (int8_t)(wEnm - PN_FM_15);
+        pf[16] = (int8_t)(wOwn - PN_FM_16);
         pf[17] = (int8_t)(wAdj - PN_FM_17);
-        pf[18] = (int8_t)vFlag;
+        pf[18] = (int8_t)(vFlag - PN_FM_18);
         pf[19] = (int8_t)(rootStones - PN_FM_19);
-        pf[20] = (int8_t)rc2;
-        pf[21] = (int8_t)sawWeakFriend;
-        pf[22] = (int8_t)hasOrthFriend;
-        pf[23] = (int8_t)vitalHere;
+        pf[20] = (int8_t)(rc2 - PN_FM_20);
+        pf[21] = (int8_t)(sawWeakFriend - PN_FM_21);
+        pf[22] = (int8_t)(hasOrthFriend - PN_FM_22);
+        pf[23] = (int8_t)(vitalHere - PN_FM_23);
         pf[24] = (int8_t)adx;
         pf[25] = (int8_t)ady;
         pf[26] = (int8_t)mlibs;
@@ -5365,8 +5365,10 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     if(priorDumpOn) {
         // un-fold the write-site FMID subtraction: the dump contract is
         // RAW features (what the trainer/extractor expect)
-        static const int8_t pnFm[28] = {0,0,PN_FM_2,0,PN_FM_4,PN_FM_5,0,0,
-            PN_FM_8,PN_FM_9,0,0,0,0,0,0,0,PN_FM_17,0,PN_FM_19,0,0,0,0,0,0,0,0};
+        static const int8_t pnFm[28] = {PN_FM_0,PN_FM_1,PN_FM_2,PN_FM_3,
+            PN_FM_4,PN_FM_5,PN_FM_6,PN_FM_7,PN_FM_8,PN_FM_9,PN_FM_10,PN_FM_11,
+            PN_FM_12,PN_FM_13,PN_FM_14,PN_FM_15,PN_FM_16,PN_FM_17,PN_FM_18,
+            PN_FM_19,PN_FM_20,PN_FM_21,PN_FM_22,PN_FM_23,0,0,0,0};
         fprintf(stderr, "WC %u", pos);
         for(uint8_t i = 0; i < 28; i++) fprintf(stderr, " %d", pf[i] + pnFm[i]);
         fprintf(stderr, " %d\n", (int)bonus);
