@@ -494,7 +494,9 @@ uint8_t AI::chooseMove(Game &game) {
 #endif
 
 // Progressive widening (non-root): children allowed = 1 + visits/RATE
+#ifndef WIDEN_RATE
 #define WIDEN_RATE 6
+#endif
 // Root progressive widening: start with the best ROOT_INIT prior
 // candidates (plus pass) and widen by visits. Full root expansion
 // diluted 400-600 iterations over 25-40 candidates (~15 visits each)
@@ -507,7 +509,9 @@ uint8_t AI::chooseMove(Game &game) {
 #ifndef ROOT_WIDEN_RATE
 #define ROOT_WIDEN_RATE 12
 #endif
+#ifndef WIDEN_CAP
 #define WIDEN_CAP 16
+#endif
 // Candidates added per widenNode scan (see the batch comment there)
 #define WIDEN_BATCH 3
 // A leaf must collect this many visits (prior seed included) before it
@@ -566,12 +570,13 @@ struct Node {
 };
 
 // The tree spans two regions, routed by index in node():
-//   indices 0..142  -> the borrowed 1KB screen buffer (see below)
-//   indices 143..175 -> poolExt in ordinary statics
+//   indices 0..NODE_POOL_SB-1 (136)  -> the borrowed 1KB screen buffer
+//   indices NODE_POOL_SB..205        -> poolExt in ordinary statics
 // The buffer borrow works because the search is blocking: the OLED
 // retains the last display()ed frame while we trash the buffer, and
 // the next jay.clear() redraw wipes any residue.
-// Buffer layout: 143 nodes * 6 = 858, then two 81-byte RAVE tables = 1020.
+// Buffer layout: 137 nodes * 6 = 822, then two 81-byte RAVE tables
+// (raveV[0] deliberately sits ON the 0x800 magic key -- see checkmagic).
 static Node * const pool = (Node *)Arduboy2Base::sBuffer;
 
 // Root-only RAVE (AMAF): for each board point, how often the root
