@@ -5,6 +5,7 @@
 // the 1200-baud upload auto-reset in CDC_Setup are what must survive.
 
 
+#ifndef ARDU_NOUSB  // sketch objects always link; guard the whole file
 /* Copyright (c) 2010, Peter Barrett
 ** Sleep/Wakeup support added by Michael Dreher
 **  
@@ -849,3 +850,5 @@ bool USBDevice_::isSuspended()
 
 
 #endif /* if defined(USBCON) */
+
+#endif  // ARDU_NOUSB

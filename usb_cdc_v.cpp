@@ -5,6 +5,7 @@
 // the 1200-baud upload auto-reset in CDC_Setup are what must survive.
 
 
+#ifndef ARDU_NOUSB  // sketch objects always link; guard the whole file
 /* Copyright (c) 2011, Peter Barrett  
 **  
 ** Permission to use, copy, modify, and/or distribute this software for  
@@ -197,3 +198,5 @@ bool CDC_Setup(USBSetup& setup)
 
 #endif /* if defined(CDC_ENABLED) */
 #endif /* if defined(USBCON) */
+
+#endif  // ARDU_NOUSB

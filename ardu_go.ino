@@ -93,6 +93,13 @@ void endTurnCheck() {
 // every critical region clears 0x800 — it replaced the old runtime
 // startup check (redundant: game/ai addresses are fixed at link time).
 
+#ifdef ARDU_NOUSB
+// Drop the last ~1.3K of USB (enumeration + auto-reset). Upload then
+// requires holding DOWN at power-on (Arduboy2's mainNoUSB checks it
+// and jumps to the bootloader); flashlight/UP stays as fallback.
+ARDUBOY_NO_USB
+#endif
+
 void setup() {
     jay.boot();
     // Hold UP at power-on for safe-upload mode. This sketch constantly
