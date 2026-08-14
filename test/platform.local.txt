@@ -1,0 +1,11 @@
+# Size optimizations for ArduGo (and all AVR sketches): frame-setup
+# helpers + linker relaxation, ~4% flash. If another project breaks,
+# delete this file. NOTE: a Boards Manager core update (1.8.6 ->
+# newer) silently removes it — ardu_go/test/checkmagic.sh guards
+# against builds losing the flags.
+# 2026-08-13: -flto added (-302B on the full game). Verified: emulator
+# node-pool hash byte-identical LTO vs non-LTO (deterministic think),
+# bss unchanged, checkmagic green, emu bench within noise.
+compiler.c.extra_flags=-mcall-prologues -mrelax -flto
+compiler.cpp.extra_flags=-mcall-prologues -mrelax -flto
+compiler.c.elf.extra_flags=-flto -mrelax

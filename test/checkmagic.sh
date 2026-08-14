@@ -23,7 +23,14 @@ NPSB=$(grep -oE '#define[[:space:]]+NODE_POOL_SB[[:space:]]+[0-9]+' "$(dirname "
 NODEREGION=$(( NPSB * 6 ))
 if ! grep -aq -- "-mrelax" "$B/ardu_go.ino.elf"; then
     echo "*** SIZE FLAGS MISSING: restore platform.local.txt with"
-    echo "*** '-mcall-prologues -mrelax' in the AVR core dir"
+    echo "*** '-mcall-prologues -mrelax -flto' in the AVR core dir"
+    echo "*** (canonical copy: test/platform.local.txt)"
+    exit 1
+fi
+# LTO fingerprint: an LTO link's producer is "GNU GIMPLE", not "GNU C++"
+if ! grep -aq "GNU GIMPLE" "$B/ardu_go.ino.elf"; then
+    echo "*** -flto MISSING (costs +302 B): restore platform.local.txt"
+    echo "*** from test/platform.local.txt into the AVR core dir"
     exit 1
 fi
 NM=~/Library/Arduino15/packages/arduino/tools/avr-gcc/7.3.0-atmel3.6.1-arduino7/bin/avr-nm
