@@ -5215,6 +5215,46 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
         // int16 kernel: real accumulator range measured +-189 over 788k
         // candidate rows (17x under int16 even before headroom) -- full
         // int8 weights, native 8x8->16 muls, no saturation guard needed.
+#if PN_H == 8
+        // h-UNROLLED: all 8 accumulators live in registers across the
+        // feature loop (candidatePrior is noinline = its own register
+        // file; 8x int16 = 16 GPRs, fits). The rolled loop bounced every
+        // pre[h] through the stack -- 8 ld/st pairs per nonzero feature,
+        // ~144 cyc vs ~66 unrolled. The !d skip stays: features are 70%
+        // zero vs FMID (cache-measured nz mean 7.3/24). w++ reads keep
+        // the weight walk on lpm Z+ (no displacement mode on AVR).
+        int16_t a0 = (int16_t)pgm_read_word(&PN_B1[0]),
+                a1 = (int16_t)pgm_read_word(&PN_B1[1]),
+                a2 = (int16_t)pgm_read_word(&PN_B1[2]),
+                a3 = (int16_t)pgm_read_word(&PN_B1[3]),
+                a4 = (int16_t)pgm_read_word(&PN_B1[4]),
+                a5 = (int16_t)pgm_read_word(&PN_B1[5]),
+                a6 = (int16_t)pgm_read_word(&PN_B1[6]),
+                a7 = (int16_t)pgm_read_word(&PN_B1[7]);
+        const uint8_t *wp = (const uint8_t *)PN_W1;
+        for(uint8_t i = 0; i < PN_NF; i++, wp += 8) {
+            int8_t d = (int8_t)(pf[i] - (int8_t)pgm_read_byte(&PN_FMID[i]));
+            if(!d) continue;
+            const uint8_t *w = wp;
+            a0 += (int16_t)(d * (int8_t)pgm_read_byte(w)); w++;
+            a1 += (int16_t)(d * (int8_t)pgm_read_byte(w)); w++;
+            a2 += (int16_t)(d * (int8_t)pgm_read_byte(w)); w++;
+            a3 += (int16_t)(d * (int8_t)pgm_read_byte(w)); w++;
+            a4 += (int16_t)(d * (int8_t)pgm_read_byte(w)); w++;
+            a5 += (int16_t)(d * (int8_t)pgm_read_byte(w)); w++;
+            a6 += (int16_t)(d * (int8_t)pgm_read_byte(w)); w++;
+            a7 += (int16_t)(d * (int8_t)pgm_read_byte(w));
+        }
+        int32_t out = 0;
+        if(a0 > 0) out += (int32_t)a0 * (int8_t)pgm_read_byte(&PN_V[0]);
+        if(a1 > 0) out += (int32_t)a1 * (int8_t)pgm_read_byte(&PN_V[1]);
+        if(a2 > 0) out += (int32_t)a2 * (int8_t)pgm_read_byte(&PN_V[2]);
+        if(a3 > 0) out += (int32_t)a3 * (int8_t)pgm_read_byte(&PN_V[3]);
+        if(a4 > 0) out += (int32_t)a4 * (int8_t)pgm_read_byte(&PN_V[4]);
+        if(a5 > 0) out += (int32_t)a5 * (int8_t)pgm_read_byte(&PN_V[5]);
+        if(a6 > 0) out += (int32_t)a6 * (int8_t)pgm_read_byte(&PN_V[6]);
+        if(a7 > 0) out += (int32_t)a7 * (int8_t)pgm_read_byte(&PN_V[7]);
+#else
         int16_t pre[PN_H];
         for(uint8_t h = 0; h < PN_H; h++)
             pre[h] = (int16_t)pgm_read_word(&PN_B1[h]);
@@ -5228,6 +5268,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
         int32_t out = 0;
         for(uint8_t h = 0; h < PN_H; h++)
             if(pre[h] > 0) out += (int32_t)pre[h] * (int8_t)pgm_read_byte(&PN_V[h]);
+#endif
         int16_t nb = (int16_t)(out >> 8);
         if(nb > 48) nb = 48;
         if(nb < -48) nb = -48;
