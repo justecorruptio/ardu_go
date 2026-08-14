@@ -5226,6 +5226,28 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
         // ~144 cyc vs ~66 unrolled. The !d skip stays: features are 70%
         // zero vs FMID (cache-measured nz mean 7.3/24). w++ reads keep
         // the weight walk on lpm Z+ (no displacement mode on AVR).
+#ifdef __AVR__
+        // B1 is one contiguous 16-byte PROGMEM row: walk it with lpm Z+
+        // once instead of 8 pgm_read_word address rebuilds. No upper-reg
+        // temps involved, so this stays clear of the reload wall the
+        // V-pass rewrite hit.
+        int16_t a0, a1, a2, a3, a4, a5, a6, a7;
+        {
+            const uint8_t *bp = (const uint8_t *)PN_B1;
+            asm(
+                "lpm %A[a0], Z+ \n\t" "lpm %B[a0], Z+ \n\t"
+                "lpm %A[a1], Z+ \n\t" "lpm %B[a1], Z+ \n\t"
+                "lpm %A[a2], Z+ \n\t" "lpm %B[a2], Z+ \n\t"
+                "lpm %A[a3], Z+ \n\t" "lpm %B[a3], Z+ \n\t"
+                "lpm %A[a4], Z+ \n\t" "lpm %B[a4], Z+ \n\t"
+                "lpm %A[a5], Z+ \n\t" "lpm %B[a5], Z+ \n\t"
+                "lpm %A[a6], Z+ \n\t" "lpm %B[a6], Z+ \n\t"
+                "lpm %A[a7], Z+ \n\t" "lpm %B[a7], Z+ \n\t"
+                : [a0]"=r"(a0), [a1]"=r"(a1), [a2]"=r"(a2), [a3]"=r"(a3),
+                  [a4]"=r"(a4), [a5]"=r"(a5), [a6]"=r"(a6), [a7]"=r"(a7),
+                  "+z"(bp));
+        }
+#else
         int16_t a0 = (int16_t)pgm_read_word(&PN_B1[0]),
                 a1 = (int16_t)pgm_read_word(&PN_B1[1]),
                 a2 = (int16_t)pgm_read_word(&PN_B1[2]),
@@ -5234,6 +5256,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
                 a5 = (int16_t)pgm_read_word(&PN_B1[5]),
                 a6 = (int16_t)pgm_read_word(&PN_B1[6]),
                 a7 = (int16_t)pgm_read_word(&PN_B1[7]);
+#endif
         const uint8_t *wp = (const uint8_t *)PN_W1;
         for(uint8_t i = 0; i < PN_NF; i++, wp += 8) {
             int8_t d = (int8_t)pf[i];   // FMID folded at the write sites
