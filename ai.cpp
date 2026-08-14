@@ -1497,33 +1497,6 @@ static uint8_t nakadeVital(uint8_t seed, uint8_t *seen) {
 }
 #endif // NAKADE
 
-// Pass-decision helper: the single stone colour bordering the empty region
-// containing `seed`, or 0 if it touches both colours (contested) or no stone
-// (open board). Unlike regionVital this has NO size cap -- a large territory
-// is still settled, and a region of >=8 empty cells is trivially two eyes, so
-// its bordering group is alive and non-vital fills there are pure own-fill
-// losses. Runs once per move (post-search) so a full flood into the free
-// floodScratch is fine.
-__attribute__((noinline)) static uint8_t settledRegionColor(uint8_t seed) {
-    newMark();
-    uint8_t cnt = 1, head = 0, owner = 0;
-    floodSlot(0) = seed;
-    simMark[seed] = markEpoch;
-    while(head < cnt) {
-        uint8_t p = floodSlot(head++), q;
-        FOR_EACH_NEIGHBOR(q, p) {
-            uint8_t s = boardAt(q);
-            if(s == EMPTY) {
-                if(simMark[q] != markEpoch) { simMark[q] = markEpoch; floodSlot(cnt++) = q; }
-            } else if(!owner) {
-                owner = s;
-            } else if(owner != s) {
-                return 0;                 // both colours border it -> contested
-            }
-        }
-    }
-    return owner;                         // 0 = no bordering stone (open board)
-}
 
 // Bit pos set iff cell pos is >=2 from every board edge (the interior
 // 5x5): the "big open point" edge test (widenNode) and, complemented,
@@ -6037,35 +6010,20 @@ void AI::think(Game &game) {
     // while the engine filled its own territory and threw dead
     // stones into his until the count flipped to a loss).
     if(game.consecutivePasses == 1 && !boardOpen(game)) {
-        if(countStones(game) >= 45) {
-        // Don't trust the count if the previous search already read
-        // this game as bad (under ~30%): dead stones make
-        // computeScore miscount in both directions, and a massacre
-        // position full of our corpses can neutralize enough enemy
-        // territory to read as a "win" — passing then gifts the game.
-        // Floor raised 30% -> 55%: the static count this pass relies
-        // on scores dead-but-eyespaced groups as alive (see
-        // scoreDead), so near-even evals must keep playing instead
-        // of passing into a miscounted "win".
-        uint8_t evalOK = !thinkSims ||
-            (uint32_t)thinkSimWins * 20 >= (uint32_t)thinkSims * 11;
-        if(evalOK) {
-            if(game.areaWinner() == game.turn) {   // area (was territory)
-                passToWin = 1;
-                resignCount = 0;
-                return;
-            }
-        }
-        }
-        // Ownership-corrected settle gate (endgame only). The naive
-        // count above scores dead stones as alive and trusts a stale
-        // eval; the scoreDead-style vote reads the board honestly —
-        // and it is the SAME vote game-over scoring applies, so a pass
-        // taken here scores the way the vote says. Clearly winning →
-        // pass and bank it (catches wins the naive count undercounts
-        // and the evalOK gate skips). Clearly lost → pass and accept
-        // the count instead of flailing stones into groups the vote
-        // already reads as dead. Contested → play on.
+        // Pass-mechanism collapse (2026-08-13): the settle vote below is
+        // the ONLY pass-answer authority. The old naive path (>=45
+        // stones + stale eval + areaWinner) judged by the count that
+        // scores dead stones as alive, while the game is scored by the
+        // scoreDead vote -- pass decisions and scoring must share one
+        // truth. Same collapse deleted the settled-territory tail pass
+        // in bestMove (it could fire inside the vote's deliberate
+        // keep-playing band, passing into a vote-read loss).
+        // Ownership-corrected settle gate: the scoreDead-style vote
+        // reads the board honestly — and it is the SAME vote game-over
+        // scoring applies, so a pass taken here scores the way the
+        // vote says. Clearly winning → pass and bank it. Clearly lost
+        // → pass and accept the count instead of flailing stones into
+        // groups the vote already reads as dead. Contested → play on.
         int16_t m2c = settleVote(game);
         // Pre-endgame the gate only BANKS WINS: accepting a loss
         // early forfeits swindle equity vs fallible opponents (the
@@ -6504,40 +6462,6 @@ uint8_t AI::bestMove(Game &game, uint8_t &x, uint8_t &y) {
         if(statVisits) statPct = pct100(nWins(bestC), statVisits);
     }
     if(best == MOVE_PASS) return 0;
-
-    // The search's favorite landing inside settled territory — ours
-    // or theirs — means nothing meaningful is left on the board: an
-    // own fill loses a point, a hopeless invasion gifts a prisoner.
-    // Pass, but only while WINNING by the current count: the detector
-    // cannot tell settled territory from a living group's own
-    // eyespace, and a forced pass must never deny a losing position
-    // its defensive tries. (Hopeless games are handled by resignation
-    // now; real threats also re-enable moves automatically, since an
-    // invaded region touches both colors and stops counting as
-    // settled.)
-    // Endgame only (>= 45 stones) and only with the search agreeing
-    // we are winning (55%, same floor as passToWin): early on the
-    // whole empty space is ONE mixed region, so the static count
-    // "wins" by bare komi from move zero — and a noise favorite
-    // poking a 1-point enemy pocket once turned that into a
-    // mid-game free pass (real game, move 18).
-    // best lands in a region bordered by a single colour -- our own territory
-    // (own fill: -1 pt) or a hopeless invasion of theirs (gifts a prisoner) --
-    // of ANY size (settledRegionColor is uncapped, so large territories that
-    // regionVital drops as "too open" are caught). Still defer to a small
-    // killable region's vital point, which is a real life-and-death move.
-    // simBoard still holds the root position from above
-    uint16_t rv;
-    if(game.consecutivePasses >= 1 &&   // only pass in RESPONSE to the opponent's
-                                        // pass -- a unilateral settle-pass while
-                                        // they keep playing gives away free moves
-                                        // (measured 49% of such fires lost the game)
-       rootStones >= 45 &&
-       (uint32_t)thinkSimWins * 20 >= (uint32_t)thinkSims * 11 &&
-       settledRegionColor(best) &&
-       !((uint8_t)(rv = regionVital(best)) && (rv >> 8) == best)) {
-        if(game.areaWinner() == game.turn) return 0;   // area (was territory)
-    }
 
     x = best % BOARD_SIZE;
     y = best / BOARD_SIZE;
