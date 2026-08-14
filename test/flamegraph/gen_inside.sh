@@ -44,9 +44,52 @@ def build(leafset, selfname):
         out.append({'fn':f"{selfname} (own code)" if f==selfname else f,'pct':round(pm,2),'lines':lines})
         acc+=pm
     return {'total':round(100*lt/tot,1),'parts':out}
+def build_regions(leafset, regions, srcfile='ai.cpp'):
+    # Bucket a noinline function's own PCs by SEMANTIC REGION (source
+    # line ranges found by anchor strings at runtime, so edits don't
+    # silently skew the split). Non-ai.cpp rows -> "inlined helpers".
+    lines_src=src[srcfile]
+    def anchor(s, frm=0):
+        for i in range(frm, len(lines_src)):
+            if s in lines_src[i]: return i+1
+        return None
+    bounds=[]; frm=0
+    for name, marker in regions:
+        ln=anchor(marker, frm)
+        if ln is None: return None
+        bounds.append((name, ln)); frm=ln
+    byreg=collections.Counter(); byregline=collections.defaultdict(collections.Counter)
+    byregex=collections.defaultdict(collections.Counter); lt=0
+    for pc,c,h,leaf in rows:
+        if leaf not in leafset: continue
+        lt+=c
+        m=re.match(r'ai\.cpp:(\d+)', loc[pc])
+        if not m:
+            reg='inlined helpers ('+originfn[pc][:24]+')'
+        else:
+            n=int(m.group(1)); reg=bounds[0][0]
+            for name, ln in bounds:
+                if n>=ln: reg=name
+        byreg[reg]+=c; byregline[reg][loc[pc]]+=c; byregex[reg][loc[pc]]+=h
+    out=[]
+    for f,c in byreg.most_common():
+        pm=100*c/tot
+        if pm<0.15 and len(out)>=6: break
+        lines=[{'pct':round(100*lc/tot,2),'ex':byregex[f][l],'loc':l,'text':txt(l)}
+               for l,lc in byregline[f].most_common(7) if 100*lc/tot>=0.08]
+        out.append({'fn':f,'pct':round(pm,2),'lines':lines})
+    return {'total':round(100*lt/tot,1),'parts':out}
 # think()'s own code + everything inlined into it lands under the bench's
 # 'main' symbol; widenNode keeps its own symbol.
 res={'think':build({'main'},'main'),'widenNode':build({'widenNode'},'widenNode')}
+_cp=build_regions({'candidatePrior'}, [
+    ('tactical scan (capt/atari/libs)', 'static int8_t candidatePrior('),
+    ('keima / shape block',             'pgm_read_byte(KEIMA_A'),
+    ('feature assembly pf[]',           'defined(PRIOR_DUMP) || defined(PRIORNN)'),
+    ('MLP kernel (d-loop + MAC)',       '#if PN_H == 8'),
+    ('V pass + clamp',                  'int32_t out = 0;'),
+])
+if _cp: res['candidatePrior']=_cp
 tag=sys.argv[6]
 json.dump(res,open(scr+f'/inside_{tag}.json','w'),indent=0)
 print(f"inside_{tag}: think {res['think']['total']}% ({len(res['think']['parts'])} parts), "

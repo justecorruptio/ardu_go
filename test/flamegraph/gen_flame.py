@@ -155,8 +155,8 @@ TABS = [
   ("incr2", "HEAD +perf", 192.02, 12.0, 1000,
    "Ship 1000 plus tonight's perf pair: widenNode O2 (&minus;1.09%) and the incremental near-mask (&minus;2.32%, root-mask copy + descent-stone stamps with capture fallback). Net &minus;3.39%.",
    "profile_folded_ship1000.folded"),
-  ("v2prior", "NN prior", 313.91, 19.6, 1000,
-   "The learned-prior ship candidate (no-cut v2): the 24&rarr;8&rarr;1 int8 MLP judges every widened candidate and REPLACES the hand prior arithmetic. +58% think vs Ship 1000 buys L0 +4.4pp; device flash 27,676 (996 free).",
+  ("v2prior", "NN prior", 261.68, 16.4, 1000,
+   "The learned-prior ship candidate (no-cut v2) after the kernel arc (h-unroll to 8 register accumulators + lpm Z+ asm, &minus;16.6% vs the first cut): the 24&rarr;8&rarr;1 int8 MLP judges every widened candidate and REPLACES the hand prior arithmetic. +32% think vs Ship 1000 buys L0 +4.4pp; device flash 27,840 (832 free).",
    "profile_folded_ship1000.folded"),
 ]
 
@@ -179,6 +179,9 @@ def build_tab(tag, full_move_m, prev_path):
     inject(root, _inside['think']['parts'])
     _wn = root.kids.get('widenNode')
     if _wn: inject(_wn, _inside['widenNode']['parts'])
+    if 'candidatePrior' in _inside and _wn:
+        _cp = _wn.kids.get('candidatePrior')
+        if _cp: inject(_cp, _inside['candidatePrior']['parts'])
     flame = frames_html(layout(root))
 
     newp = {k: v / total * 100 for k, v in leaves.items()}
@@ -260,7 +263,10 @@ def build_tab(tag, full_move_m, prev_path):
         out.append('</div>')
         return ''.join(out)
     inside_html = ('<div class="insidegrid">' + inside_card('think', 'think()')
-                   + inside_card('widenNode', 'widenNode') + '</div>')
+                   + inside_card('widenNode', 'widenNode')
+                   + (inside_card('candidatePrior', 'candidatePrior')
+                      if 'candidatePrior' in inside else '')
+                   + '</div>')
     return flame, table, perline_html, inside_html
 
 def fmtex(n):
