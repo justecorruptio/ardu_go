@@ -155,8 +155,8 @@ TABS = [
   ("incr2", "HEAD +perf", 192.02, 12.0, 1000,
    "Ship 1000 plus tonight's perf pair: widenNode O2 (&minus;1.09%) and the incremental near-mask (&minus;2.32%, root-mask copy + descent-stone stamps with capture fallback). Net &minus;3.39%.",
    "profile_folded_ship1000.folded"),
-  ("v2prior", "NN prior", 261.68, 16.4, 1000,
-   "The learned-prior ship candidate (no-cut v2) after the kernel arc (h-unroll to 8 register accumulators + lpm Z+ asm, &minus;16.6% vs the first cut): the 24&rarr;8&rarr;1 int8 MLP judges every widened candidate and REPLACES the hand prior arithmetic. +32% think vs Ship 1000 buys L0 +4.4pp; device flash 27,840 (832 free).",
+  ("v2prior", "NN prior", 256.14, 16.0, 1000,
+   "THE SHIPPED ENGINE (2107ccf + kernel arc &minus;18.4%: register-accumulator unroll, lpm Z+ asm MAC, FMID folded at the pf write sites, B1 walk): the 24&rarr;8&rarr;1 int8 MLP judges every widened candidate and REPLACES the hand prior arithmetic. +29% think vs the old Ship 1000 buys L0 +4.4pp with human flat (774/2000 vs anchor 37.8%); device flash 27,796 (876 free).",
    "profile_folded_ship1000.folded"),
 ]
 
