@@ -13,6 +13,21 @@
 #define NNOPEN 1
 #endif
 #endif
+/* Learned widen prior (24->8->1 int8 MLP) replacing the hand prior —
+ * SHIP DEFAULT 2026-08-14: L0 1477/3000 vs anchor 1346, human 774/2000
+ * vs anchor 378/1000, no-cut config, kernel arc 261.68M = 16.35 s/move.
+ * -DNO_PRIORNN restores the hand-prior engine for A/B harness arms. */
+#ifdef NO_PRIORNN
+#undef PRIORNN
+#undef PRIORNN_V2
+#else
+#ifndef PRIORNN
+#define PRIORNN 1
+#endif
+#ifndef PRIORNN_V2
+#define PRIORNN_V2 1
+#endif
+#endif
 #ifndef NN_FULL_MODEL
 #ifndef NN_DEVICE_TIER
 #define NN_DEVICE_TIER 1
