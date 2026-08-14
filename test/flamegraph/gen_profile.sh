@@ -12,13 +12,14 @@ HERE="${HERE:-$DIR/../emu}"
 SK="${SK:-$DIR/../bench_avr}"
 TAG="${TAG:-mid}"
 EXTRA="${EXTRA:-}"
+ITERS="${ITERS:-400}"
 OUT=/tmp/ardugo_prof_$TAG
 CLI="/Applications/Arduino IDE.app/Contents/Resources/app/lib/backend/resources/arduino-cli"
 BIN=~/Library/Arduino15/packages/arduino/tools/avr-gcc/7.3.0-atmel3.6.1-arduino7/bin
 NM="$BIN/avr-nm"; A2L="$BIN/avr-addr2line"
-echo "[1/4] compile bench_avr @ 400 iters (default flags)"
+echo "[1/4] compile bench_avr @ $ITERS iters"
 "$CLI" compile --clean --fqbn arduino:avr:leonardo \
-  --build-property "compiler.cpp.extra_flags=-DMCTS_ITERATIONS=400 $EXTRA" \
+  --build-property "compiler.cpp.extra_flags=-DMCTS_ITERATIONS=$ITERS $EXTRA" \
   --output-dir "$OUT" "$SK" >/dev/null
 ELF="$OUT/bench_avr.ino.elf"; HEX="$OUT/bench_avr.ino.hex"
 "$NM" -CnS --defined-only "$ELF" > "$OUT/sym.nm"
