@@ -5235,6 +5235,39 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
         for(uint8_t i = 0; i < PN_NF; i++, wp += 8) {
             int8_t d = (int8_t)(pf[i] - (int8_t)pgm_read_byte(&PN_FMID[i]));
             if(!d) continue;
+#ifdef __AVR__
+            // gcc can't keep Z alive here: with 16 accumulator regs held
+            // it loads the weight byte into r30 itself and rebuilds Z per
+            // element (movw+adiw, ~11 cyc). Hand asm with a dedicated
+            // upper-reg temp keeps the walk on lpm Z+ (7 cyc/element) and
+            // clears __zero_reg__ once instead of per-muls. Same adds in
+            // the same order — value-identical (pool-hash checked).
+            const uint8_t *w = wp;
+            uint8_t wt;
+            asm(
+                "lpm %[wt], Z+      \n\t" "muls %[wt], %[d]  \n\t"
+                "add %A[a0], r0     \n\t" "adc %B[a0], r1    \n\t"
+                "lpm %[wt], Z+      \n\t" "muls %[wt], %[d]  \n\t"
+                "add %A[a1], r0     \n\t" "adc %B[a1], r1    \n\t"
+                "lpm %[wt], Z+      \n\t" "muls %[wt], %[d]  \n\t"
+                "add %A[a2], r0     \n\t" "adc %B[a2], r1    \n\t"
+                "lpm %[wt], Z+      \n\t" "muls %[wt], %[d]  \n\t"
+                "add %A[a3], r0     \n\t" "adc %B[a3], r1    \n\t"
+                "lpm %[wt], Z+      \n\t" "muls %[wt], %[d]  \n\t"
+                "add %A[a4], r0     \n\t" "adc %B[a4], r1    \n\t"
+                "lpm %[wt], Z+      \n\t" "muls %[wt], %[d]  \n\t"
+                "add %A[a5], r0     \n\t" "adc %B[a5], r1    \n\t"
+                "lpm %[wt], Z+      \n\t" "muls %[wt], %[d]  \n\t"
+                "add %A[a6], r0     \n\t" "adc %B[a6], r1    \n\t"
+                "lpm %[wt], Z+      \n\t" "muls %[wt], %[d]  \n\t"
+                "add %A[a7], r0     \n\t" "adc %B[a7], r1    \n\t"
+                "clr __zero_reg__   \n\t"
+                : [a0]"+r"(a0), [a1]"+r"(a1), [a2]"+r"(a2), [a3]"+r"(a3),
+                  [a4]"+r"(a4), [a5]"+r"(a5), [a6]"+r"(a6), [a7]"+r"(a7),
+                  [wt]"=&d"(wt), "+z"(w)
+                : [d]"d"(d)
+                : "r0", "r1");
+#else
             const uint8_t *w = wp;
             a0 += (int16_t)(d * (int8_t)pgm_read_byte(w)); w++;
             a1 += (int16_t)(d * (int8_t)pgm_read_byte(w)); w++;
@@ -5244,6 +5277,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
             a5 += (int16_t)(d * (int8_t)pgm_read_byte(w)); w++;
             a6 += (int16_t)(d * (int8_t)pgm_read_byte(w)); w++;
             a7 += (int16_t)(d * (int8_t)pgm_read_byte(w));
+#endif
         }
         int32_t out = 0;
         if(a0 > 0) out += (int32_t)a0 * (int8_t)pgm_read_byte(&PN_V[0]);
