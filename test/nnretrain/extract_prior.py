@@ -35,8 +35,8 @@ for wd in sorted(glob.glob(os.path.join(CORP, "*_w*"))):
             # WP <seq> <roothash-hex8> <stones> <depth> <toMove> <path...>
             cur = (wd, int(p[2], 16), int(p[3]), int(p[4]), int(p[5]),
                    [int(x) for x in p[6:]], [])
-        elif p[0] == "WC" and cur is not None and len(p) >= 27:
-            cell = int(p[1]); feats = [int(x) for x in p[2:26]]; hand = int(p[26])
+        elif p[0] == "WC" and cur is not None and len(p) >= 5:
+            cell = int(p[1]); feats = [int(x) for x in p[2:-1]]; hand = int(p[-1])
             cur[6].append((cell, feats, hand))
         elif p[0] == "WEND" and cur is not None:
             if cur[6]: recs.append(cur)
@@ -84,10 +84,29 @@ for wd, h, stones, depth, tomove, path, cands in recs:
                 "cands": [{"c": c, "f": f, "hand": hd} for c, f, hd in cands]})
 print(f"joined {len(out)} unique node positions ({misses} misses)")
 
-random.seed(7)
-if len(out) > MAXL:
-    out = random.sample(out, MAXL)
-    for i, r in enumerate(out): r["id"] = i
+MATCH = os.environ.get("MATCHKEYS")
+if MATCH:
+    # rebuild an existing labeled cache's positions with THIS corpus's
+    # features: key on (game-basename, t, path); adopt the old ids.
+    oldk = {}
+    for l in gzip.open(MATCH, "rt"):
+        r = json.loads(l)
+        oldk[(os.path.basename(r["sgf"]), r["t"], tuple(r["path"]))] = r["id"]
+    out2 = []
+    seen2 = set()
+    for r in out:
+        k = (os.path.basename(r["sgf"]), r["t"], tuple(r["path"]))
+        if k in oldk and k not in seen2:
+            seen2.add(k)
+            r["id"] = oldk[k]
+            out2.append(r)
+    print(f"MATCHKEYS: {len(out2)}/{len(oldk)} labeled positions rebuilt")
+    out = out2
+else:
+    random.seed(7)
+    if len(out) > MAXL:
+        out = random.sample(out, MAXL)
+        for i, r in enumerate(out): r["id"] = i
 with gzip.open(OUT + "_prior.jsonl.gz", "wt") as f:
     for r in out: f.write(json.dumps(r) + "\n")
 print(f"wrote {len(out)} -> {OUT}_prior.jsonl.gz")
