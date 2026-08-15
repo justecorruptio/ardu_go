@@ -1376,6 +1376,7 @@ static void buildChainMap() {
 // playing here splits us for real; two or more is miai (no urgency —
 // bonusing those over-concentrated and measurably tanked an earlier
 // connect prior).
+__attribute__((optimize("O2")))
 static uint8_t soleConnector(uint8_t seedA, uint8_t idB) {
     uint8_t colorA = simBoard[seedA];
     uint8_t connectors = 0;
