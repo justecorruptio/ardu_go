@@ -6516,6 +6516,7 @@ static void unpackBoard(Game &game) {
     *dst = *src & 3;   // cell 80
 }
 
+static void backprop(uint8_t winner);
 static void mctsIterate(Game &game) {
     unpackBoard(game);
     memset(raveMask, 0, sizeof(raveMask));
@@ -6637,6 +6638,14 @@ static void mctsIterate(Game &game) {
 #endif
 
     // Backprop. path[1] was played by rootTurn, path[2] by the opponent, ...
+    // win-by-parity is loop-invariant; precompute both flags once.
+    backprop(winner);
+}
+// Backprop, extracted at O2 (2026-08-15): whole-function mctsIterate O2
+// measured -1.30% but +484 B; this slice keeps its share for +34 B.
+__attribute__((optimize("O2"), noinline))
+static void backprop(uint8_t winner) {
+    // path[1] was played by rootTurn, path[2] by the opponent, ...
     // win-by-parity is loop-invariant; precompute both flags once.
     uint8_t winOdd = (rootTurn == winner);
     uint8_t winEven = ((uint8_t)(3 - rootTurn) == winner);
