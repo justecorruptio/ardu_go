@@ -14,7 +14,7 @@ CLI="/Applications/Arduino IDE.app/Contents/Resources/app/lib/backend/resources/
 BIN=~/Library/Arduino15/packages/arduino/tools/avr-gcc/7.3.0-atmel3.6.1-arduino7/bin
 NM="$BIN/avr-nm"; A2L="$BIN/avr-addr2line"
 ITERS="${1:-}"
-PROP=""; [ -n "$ITERS" ] && PROP="--build-property compiler.cpp.extra_flags=-DMCTS_ITERATIONS=$ITERS"
+PROP="--build-property compiler.cpp.extra_flags=-DBENCH_PAD=${BENCH_PAD:-12}"; [ -n "$ITERS" ] && PROP="--build-property compiler.cpp.extra_flags=-DBENCH_PAD=${BENCH_PAD:-12} -DMCTS_ITERATIONS=$ITERS"
 "$CLI" compile --fqbn arduino:avr:leonardo $PROP --output-dir "$OUT" "$SK" >/dev/null
 ELF="$OUT/bench_avr.ino.elf"
 "$NM" -CnS --defined-only "$ELF" > "$OUT/sym.nm"
