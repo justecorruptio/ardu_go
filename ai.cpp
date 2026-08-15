@@ -1703,10 +1703,14 @@ __attribute__((noinline)) static uint8_t simPlay(uint8_t pos, uint8_t color, uin
     uint8_t a = 0xFF, b = 0xFF;
     uint8_t ec = noSelfAtari ? 0x40 : 0;
     uint8_t q;
+    // Same-chain dedup (2026-08-15): see comment in the eyefold variant.
+    uint8_t e0 = markEpoch;
     FOR_EACH_NEIGHBOR(q, pos) {
         uint8_t s = boardAt(q);
         if(s == opp) {
-            if(!hasLiberty(q, opp))
+            if(markEpoch != e0 && *markPtr(q) == markEpoch)
+                ;   // same chain as an already-flooded neighbour: alive
+            else if(!hasLiberty(q, opp))
                 captured += removeGroup(q);
         } else if(s == EMPTY) {
             if(a == 0xFF) a = q; else if(b == 0xFF) b = q;
