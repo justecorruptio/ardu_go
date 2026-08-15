@@ -3037,19 +3037,19 @@ static int8_t patternBonus(int8_t cx, int8_t cy, uint8_t color) {
 // margin (black - white, komi not applied) for the virtual verdict
 static int16_t lastMargin2;
 static uint8_t scoreWinner() {
-    uint8_t black = 0, white = 0;
+    int8_t diff = 0;   // black minus white; margin = 2*diff exactly
     for(uint8_t i = 0; i < BOARD_CELLS; i++) {
-        if(simBoard[i] == BLACK) { black++; continue; }
-        if(simBoard[i] == WHITE) { white++; continue; }
+        if(simBoard[i] == BLACK) { diff++; continue; }
+        if(simBoard[i] == WHITE) { diff--; continue; }
         // OR-fold: cells are 0/1/2, so the OR of the neighbours is
         // BLACK iff only-black borders, WHITE iff only-white, 3 iff
         // mixed -- one accumulate replaces two compare/branch pairs.
         uint8_t mm = 0, q;
         FOR_EACH_NEIGHBOR(q, i) mm |= simBoard[q];
-        if(mm == BLACK) black++;
-        else if(mm == WHITE) white++;
+        if(mm == BLACK) diff++;
+        else if(mm == WHITE) diff--;
     }
-    lastMargin2 = (int16_t)black * 2 - (int16_t)white * 2;
+    lastMargin2 = (int16_t)diff * 2;
     return lastMargin2 > (int16_t)simKomi ? BLACK : WHITE;
 }
 
