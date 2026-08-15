@@ -106,15 +106,73 @@ recurring lessons (see *Measurement discipline*).
   and +4pp human. The score→seed exchange rate (`out >> 8`) sits on a
   measured two-sided optimum.
 
-**A distilled opening network plays the quiet opening outright.**
-An int8 policy net (distilled from KataGo, trained on the
-expected-winrate-loss objective) picks moves instantly below 24 stones,
-with per-candidate 8-symmetry canonicalization and an empty-board
-komoku-with-random-symmetry opener for variety. Removing it costs
-−13pp vs L0 *and* −6pp vs humans — the single most valuable 1.5 KB in
-the image. (Deterministic argmax means mirrored openings can get
-non-mirrored replies on exact score ties; measured benign — the model
-is indifferent between tied moves.)
+A second, larger network handles the opening — see
+*The opening network* below.
+
+## The opening network
+
+The quiet opening is where tree search is weakest: playouts are nearly
+uninformative on an empty board, the widen prior's tactical features
+have nothing to bite on, and unaided thinks ran their longest exactly
+where their output was most generic. The fix is a **distilled KataGo
+opening policy** that plays the first phase outright — instant moves,
+no search — until the board has 24 stones or the position stops being
+quiet.
+
+**Training.** The corpus is the engine's own games; labels come from
+KataGo evaluating every legal candidate, and the net trains on a
+*competitive* objective — softmax expected winrate-loss versus the best
+move — rather than move-matching, so it learns the cost structure of
+the position, not just the oracle's favorite. The shipped weights are
+the survivor of a DAGGER-style loop (play with the current net, relabel
+the positions it actually reaches, retrain) plus a seed-lottery over
+random inits, gated by a strict ship rule: **better-or-equal on all
+four referees** (GnuGo L0 and three human-SL ranks) before replacing
+the incumbent.
+
+**Architecture.** Not a dense-input net — an indexed-embedding design
+sized for PROGMEM. Per candidate point, ~26 feature indices activate
+(resulting liberties, capture and escape classes, neighbor and density
+buckets, cut/block shapes, distance-to-last, dilation-distance classes,
+a fight block over adjacent chains) selecting rows from ~120 learned
+buckets stored as **4-bit weights** (296 bytes); every stone on the
+board additionally contributes a pairwise feature — one of 98 clamped
+offset-class embeddings plus an exact-offset linear term from a
+17×17×2 table. Quantization is at its measured floor: 4-bit equals
+8-bit statistically, while every 3-bit encoding tried (clamping,
+companding, log/root scales) craters — the "is 4-bit enough" question
+was answered with gauntlets, not intuition.
+
+**Symmetry.** Each candidate is scored in a canonical orientation
+(minimizing its edge-distance pair over the 8 board symmetries with a
+deterministic tie-break), so the learned tables never spend capacity on
+mirrored duplicates. The empty-board opener applies a random symmetry
+to a komoku-cluster choice for game-to-game variety. One audited quirk:
+because selection is a deterministic argmax, *exact* score ties break
+by scan order, so mirrored positions can get non-mirrored replies —
+measured to be pure ties (the model is indifferent), documented and
+kept (`symprobe` verifies).
+
+**Runtime.** The net evaluates in think-scoped scratch (it borrows the
+simulation buffers; its only standing RAM is a one-byte last-move
+tracker) and returns before the display frame turns over. Past the
+stone gate — or when its confidence rule defers a decision — the move
+falls through to full MCTS, and the two interleave; the net also feeds
+its top-3 root suggestions to the search prior when the search does
+run. In handicap games the empty-board opener is skipped (the engine
+may face a non-empty board on move one).
+
+**Why it stays.** The ablation is the sharpest in the project: without
+the opening net the engine drops **13 points vs GnuGo and 6 vs
+humans** — the most valuable ~1.5 KB in the image. It also carries the
+project's clearest epistemological lesson: KataGo grades some of the
+net's deep second-line opening play as clearly suboptimal (−5 to −7
+points), but every attempt to "fix" it toward oracle-optimal play
+*lost* games — the net's opening style is co-adapted with what this
+search can convert, and oracle-optimality is not the objective.
+A second weight set for the same architecture, trained as a root-prior
+(`NN_TWONET`), remains the strongest measured-but-unshipped arm in the
+repository, one flash budget away.
 
 ## The playouts
 
