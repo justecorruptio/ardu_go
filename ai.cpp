@@ -3054,10 +3054,6 @@ static uint8_t vKomiWinner() {
 // Playout capture tallies (statics so the shared move helper can
 // update them; reset at each playout start)
 static uint8_t capArr[3];   // captures by color: [_, BLACK, WHITE] (mercy rule)
-static uint8_t mercyHit;    // set by the capture sites, read at playout loop top
-static inline __attribute__((always_inline)) void mercyCheck(uint8_t mover) {
-    if(capArr[mover] > capArr[3 - mover] + MERCY_MARGIN) mercyHit = 1;
-}
 
 // Attempt one playout move at pos (0xFF = none): the legality gate,
 // gated play, and bookkeeping shared by every playout heuristic.
@@ -3098,7 +3094,6 @@ static uint16_t playoutTryOpen(uint8_t pos, uint8_t toMove, uint8_t ko,
     if(toMove == rootTurn && m < RAVE_HORIZON) raveMark(pos);
     if(simCaptured) {
         capArr[toMove] += simCaptured;
-        mercyCheck(toMove);
     }
     return 0x100 | nk;
 }
@@ -3116,7 +3111,6 @@ static uint16_t playoutTryPat(uint8_t pos, uint8_t toMove, uint8_t ko,
     if(toMove == rootTurn && m < RAVE_HORIZON) raveMark(pos);
     if(simCaptured) {
         capArr[toMove] += simCaptured;
-        mercyCheck(toMove);
     }
     return 0x100 | nk;
 }
@@ -3156,7 +3150,6 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
     uint8_t eyeBanB[2][11];
 #endif
     capArr[BLACK] = capArr[WHITE] = 0;
-    mercyHit = 0;
 #ifdef PLAYOUT_STATS
     uint8_t psM = 0, psMercy = 0;
 #define PS_TICK psM = m + 1;
@@ -3166,10 +3159,8 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
     for(uint8_t m = 0; m < PLAYOUT_CAP && passes < 2; m++) {
         PS_TICK
         // Mercy rule: a lopsided capture balance has decided the game;
-        // the area score already reflects it, skip the remaining fill.
-        // The balance only moves on captures, so the capture sites keep
-        // a one-byte flag and this per-move test is a load+branch.
-        if(mercyHit) {
+        // the area score already reflects it, skip the remaining fill
+        if(capArr[BLACK] > capArr[WHITE] + MERCY_MARGIN || capArr[WHITE] > capArr[BLACK] + MERCY_MARGIN) {
 #ifdef PLAYOUT_STATS
             psMercy = 1;
 #endif
@@ -3225,7 +3216,6 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                     passes = 0;
                     if(simCaptured) {
                         capArr[toMove] += simCaptured;
-                        mercyCheck(toMove);
                         elMode = 0;   // board changed shape: recount + rebuild
                     } else {
                         elist[i2] = elist[--elN];
@@ -3317,7 +3307,6 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                     if(toMove == rootTurn && m < RAVE_HORIZON) raveMark(tac);
                     if(simCaptured) {
                         capArr[toMove] += simCaptured;
-                        mercyCheck(toMove);
                     }
                     ko = nk;
                     last = tac;
