@@ -51,10 +51,11 @@ def build_svg(data):
 data = json.load(open(SP + '/traj_pct.json'))
 data = [d for d in data if d['n'] >= 100]
 d20 = next(d for d in data if d['t'] == 20)
+d26 = next((d for d in data if d['t'] == 26), d20)
 d35 = next(d for d in data if d['t'] == 35)
 NG = data[0]['n']
 peak = max((d for d in data if d['t'] <= 20), key=lambda r: r['p50'])
-cap_l0 = f"""The median game holds even through the opening and peaks at {peak['p50']:.0f}% around move {peak['t']} — the learned NN opening keeps ArduGo level or ahead well into the midgame (the earlier hand-crafted opening peaked near 55% by move 6). The median then slides below 40% by move 26 and to ~{d35['p50']:.0f}% by move 35. The upper deciles run the other way: p70 climbs past {d20['p70']:.0f}% by move 20 and p90 rides near {d20['p90']:.0f}% — games that clear the opening are usually already won. The lower deciles collapse fastest: p30 is at {d20['p30']:.0f}% and p10 in single digits ({d20['p10']:.0f}%) by move 20. The decile fan makes the shape plain: the distribution splits into a won-band and a lost-band inside the moves-10-to-25 window, with little in between after that."""
+cap_l0 = f"""The median game holds even through the opening and peaks at {peak['p50']:.0f}% around move {peak['t']} — the learned NN opening keeps ArduGo level or ahead well into the midgame (the earlier hand-crafted opening peaked near 55% by move 6). The median sits at {d26['p50']:.0f}% by move 26 and ~{d35['p50']:.0f}% by move 35. The upper deciles run the other way: p70 climbs past {d20['p70']:.0f}% by move 20 and p90 rides near {d20['p90']:.0f}% — games that clear the opening are usually already won. The lower deciles collapse fastest: p30 is at {d20['p30']:.0f}% and p10 in single digits ({d20['p10']:.0f}%) by move 20. The decile fan makes the shape plain: the distribution splits into a won-band and a lost-band inside the moves-10-to-25 window, with little in between after that."""
 
 tabs = [("l0", f"vs GnuGo L0 ({NG} games)", build_svg(data), cap_l0)]
 
