@@ -3411,11 +3411,17 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                     uint8_t pp = p0;
                     for(int8_t dx = -1; dx <= 1; dx++, pp++) {
                         // no (0,0) skip: the centre is `last`, always
-                        // occupied, so the EMPTY check rejects it
+                        // occupied, so the EMPTY check rejects it.
+                        // Filter ORDER (2026-08-15): pattern first, eye
+                        // second -- the predicates commute (both pure
+                        // reads of the current board, same match set),
+                        // but bonus>0 passes ~2/8 while isOwnEye rejects
+                        // only ~1/20, so the cheap-to-fail test should
+                        // gate the other, not vice versa.
                         if(boardAt(pp) != EMPTY || pp == ko) continue;
+                        if(patternBonus(lpx + dx, cy, toMove) <= 0) continue;
                         if(isOwnEye(pp, toMove)) continue;
-                        if(patternBonus(lpx + dx, cy, toMove) > 0)
-                            matches[nMatches++] = pp;
+                        matches[nMatches++] = pp;
                     }
                 }
             } else
@@ -3434,11 +3440,9 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                     if((uint8_t)cx >= BOARD_SIZE) continue;
                     uint8_t pos = rowBase + (uint8_t)cx;
                     if(boardAt(pos) != EMPTY || pos == ko) continue;
-                    if(isOwnEye(pos, toMove)) continue;
-                    if(
-                       patternBonus(cx, cy, toMove) > 0
-                      )
-                        matches[nMatches++] = pos;
+                    if(patternBonus(cx, cy, toMove) <= 0) continue;
+                    if(isOwnEye(pos, toMove)) continue;   // (order: see above)
+                    matches[nMatches++] = pos;
                 }
             }
             if(nMatches) {
