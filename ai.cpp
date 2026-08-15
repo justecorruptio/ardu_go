@@ -3250,7 +3250,7 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                 elPasses++;
 #endif
             }
-            toMove = 3 - toMove;
+            toMove ^= 3;
             continue;
         }
 #endif
@@ -3330,7 +3330,7 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                     ko = nk;
                     last = tac;
                     passes = 0;
-                    toMove = 3 - toMove;
+                    toMove ^= 3;
                     continue;
                 }
             }
@@ -3363,7 +3363,7 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                 ko = (uint8_t)r;
                 last = vcand;
                 passes = 0;
-                toMove = 3 - toMove;
+                toMove ^= 3;
                 continue;
             }
         }
@@ -3408,7 +3408,7 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                 ko = (uint8_t)r;
                 last = vp;
                 passes = 0;
-                toMove = 3 - toMove;
+                toMove ^= 3;
                 continue;
             }
         }
@@ -3475,7 +3475,7 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                     ko = (uint8_t)r;
                     last = mp;
                     passes = 0;
-                    toMove = 3 - toMove;
+                    toMove ^= 3;
                     continue;
                 }
             }
@@ -3558,7 +3558,7 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                     ko = (uint8_t)r;
                     last = pos;
                     passes = 0;
-                    toMove = 3 - toMove;
+                    toMove ^= 3;
                     continue;
                 }
             }
@@ -3626,7 +3626,7 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
             last = 0xFF;
             ko = NO_KO;
         }
-        toMove = 3 - toMove;
+        toMove ^= 3;
     }
 #ifdef PLAYOUT_STATS
     plN++; plMoves += psM;
@@ -6616,7 +6616,7 @@ static void mctsIterate(Game &game) {
             raveMark(node(c).move);
         descentCaptured |= simCaptured;
         ko = nk;
-        toMove = 3 - toMove;
+        toMove ^= 3;
         lastMove = node(c).move;
         cur = c;
         path[pathDepth++] = c;
