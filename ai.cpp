@@ -789,6 +789,9 @@ static uint8_t cvKiller2;          // the invading color (probes killer-only)
 static uint8_t cacheLibsPos; // group's stone position, 0xFF = invalid
 static uint8_t cacheLibs, cacheL1, cacheL2;
 static uint8_t simCaptured;  // stones captured by the last simPlay
+#if defined(ENDLIST_STATS) && !defined(ARDUINO)
+uint32_t elEnters, elMoves, elPasses;   // endgame-list instrumentation
+#endif
 static uint8_t simBoard[BOARD_CELLS];
 #ifdef ARDUINO
 // simBoard[q] in 3 instructions instead of the 4-cycle 16-bit index
@@ -3091,6 +3094,21 @@ uint16_t wpCalls, wpAdded, wpEmpty, wpAllocFail;
 // attribute to buy the 1.64% back if the flash is ever wanted for speed.
 static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
     uint8_t passes = 0;
+#ifdef PLAYOUT_ENDLIST
+    // Endgame list mode (Jay's design, 2026-08-15): at <=16 empties,
+    // extract the empty points once and pick uniformly from the list —
+    // no scan, no tactical/pattern machinery. Own-eye rejects are
+    // banned per color by CELL bitmap (without captures, eye status
+    // only turns ON; the enemy-diagonal false-eye edge self-corrects
+    // at the next capture, which discards the list). Self-atari stays
+    // a pick-time simPlay check: those bans go stale WITHOUT captures.
+    uint8_t elMode = 0, elN = 0, empties = 0;
+#ifndef PL_ENDLIST_MAX
+#define PL_ENDLIST_MAX 16
+#endif
+    uint8_t elist[PL_ENDLIST_MAX + 2];
+    uint8_t eyeBanB[2][11];
+#endif
     capArr[BLACK] = capArr[WHITE] = 0;
 #ifdef PLAYOUT_STATS
     uint8_t psM = 0, psMercy = 0;
@@ -3109,6 +3127,78 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
             break;
         }
 
+#ifdef PLAYOUT_ENDLIST
+        if(!elMode && (uint8_t)(rootStones + m) >= 60 && (m & 3) == 0) {
+            // (A quietness gate was tried here — enter only when the
+            // last move's group has 3+ libs — and measured SLOWER than
+            // ship: trigger overhead persists while mode time evaporates.
+            // The gate family is dead; base first-fit is the frontier.)
+            empties = 0;
+            for(uint8_t p2 = 0; p2 < BOARD_CELLS; p2++)
+                if(simBoard[p2] == EMPTY) empties++;
+            if(empties <= PL_ENDLIST_MAX) {
+                elN = 0;
+                for(uint8_t p2 = 0; p2 < BOARD_CELLS; p2++)
+                    if(simBoard[p2] == EMPTY) elist[elN++] = p2;
+                memset(eyeBanB, 0, sizeof(eyeBanB));
+                elMode = 1;
+#ifdef ENDLIST_STATS
+                elEnters++;
+#endif
+            }
+        }
+        if(elMode) {
+            uint8_t done = 0;
+            if(elN) {
+                uint8_t st = rnd(elN);
+                // First-fit from a random start — KEPT deliberately
+                // (Jay, 08-15): the adjacency correlation this induces is
+                // LOCALITY — consecutive picks cluster in the same board
+                // region, resolving fights the way real endgames do (and
+                // the way MoGo-style local-answer policies do on purpose).
+                // The uniform/mod-skip variant measured SLOWER (kills by
+                // random walk) — locality is the speed AND the realism.
+                uint8_t *ban = eyeBanB[toMove - 1];
+                for(uint8_t t = 0; t < elN; t++) {
+                    uint8_t i2 = (uint8_t)(st + t); if(i2 >= elN) i2 -= elN;
+                    uint8_t cell = elist[i2];
+                    if(cell == ko) continue;
+                    if(ban[cell >> 3] & bitMask(cell)) continue;
+                    if(isOwnEye(cell, toMove)) {
+                        ban[cell >> 3] |= bitMask(cell);
+                        continue;
+                    }
+                    uint8_t nk = simPlay(cell, toMove, ko, 1);
+                    if(nk == ILLEGAL) continue;
+                    if(toMove == rootTurn && m < RAVE_HORIZON) raveMark(cell);
+                    ko = nk;
+                    last = cell;
+                    passes = 0;
+                    if(simCaptured) {
+                        capArr[toMove] += simCaptured;
+                        elMode = 0;   // board changed shape: recount + rebuild
+                    } else {
+                        elist[i2] = elist[--elN];
+                    }
+#ifdef ENDLIST_STATS
+                    elMoves++;
+#endif
+                    done = 1;
+                    break;
+                }
+            }
+            if(!done) {
+                passes++;
+                last = 0xFF;
+                ko = NO_KO;
+#ifdef ENDLIST_STATS
+                elPasses++;
+#endif
+            }
+            toMove = 3 - toMove;
+            continue;
+        }
+#endif
         // Tactical: if the opponent's just-moved group is in atari,
         // capture it. Uniform-random playouts ignore atari, which
         // wrecks every life-and-death estimate.
