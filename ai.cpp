@@ -959,7 +959,7 @@ static inline __attribute__((always_inline)) uint8_t lpmNext(const uint8_t *&p) 
     for(const uint8_t *_ne = NEIGHBOR_TABLE + (pos) * 5; \
         ((q) = lpmNext(_ne)) != 0xFF; )
 
-static void newMark() {
+static inline __attribute__((always_inline)) void newMark() {
     if(++markEpoch == 0) {
         memset(simMark, 0, sizeof(simMark));
         markEpoch = 1;
