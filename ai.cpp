@@ -4905,7 +4905,12 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     // consistent with the 2026-07 prior-rework finding (-11/300).
     // The prior earns its keep twice over; the flag documents its
     // price: 542 B flash + the hottest prior line (~2.5% of think).
-#if !defined(NO_KEIMA) && !defined(PRIORNN_V2)
+#if !defined(NO_KEIMA) && (!defined(PRIORNN_V2) || defined(PRIOR_DUMP))
+    // keimaCut: rc3 feature candidate — 1 = cuttable one-point jump,
+    // 2 = cuttable keima (waist-supported). Under PRIORNN_V2 the
+    // penalties don't apply (net owns the prior) but the DUMP build
+    // still detects the shape so the net can learn it (pf[28]).
+    uint8_t keimaCut = 0; (void)keimaCut;
     if(!hasOrthFriend && !isFar && !sawCapture && !sawSave && !sawAtari) {
         // (guard order: hasOrthFriend disqualifies most candidates)
         // (isFar: no stone within Chebyshev 2, and every cell this
@@ -4957,7 +4962,10 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
                                simBoard[pos + m + 1] == opp) hit = 1;
                         }
                         if(hit) {
+#ifndef PRIORNN_V2
                             bonus -= PRIOR_JUMP_PENALTY;
+#endif
+                            keimaCut = 1;
                             penalized = 1;
                         }
                         continue;
@@ -4976,7 +4984,10 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
                     // firings, mostly false; strength-equal at 1000 games L0.)
                     if(simBoard[pos + w1] == opp ||
                        simBoard[pos + w2] == opp) {
+#ifndef PRIORNN_V2
                         bonus -= PRIOR_KEIMA_PENALTY;
+#endif
+                        keimaCut = 2;
                         penalized = 1;
                     }
                 }
@@ -5153,7 +5164,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     // Learned-prior arc: the 24-feature vector, assembled ONCE and shared
     // by the training dump and the in-tree net -- parity by construction.
     // ORDER IS THE TRAINING CONTRACT (f1..f24); never reorder.
-    int8_t pf[28];
+    int8_t pf[29];
     {
         uint8_t rc2 = *chainPtr(pos) >> 6;
         uint8_t wOwn = 0, wEnm = 0, wAdj = 0, vFlag = 0;
@@ -5170,6 +5181,51 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
         uint8_t line = x < 8 - x ? x : 8 - x;
         { uint8_t ly2 = y < 8 - y ? y : 8 - y; if(ly2 < line) line = ly2; }
         uint8_t dl = adx > ady ? adx : ady;
+        // rc2 mover-relativization (2026-08-14): raw region code
+        // 1=black/2=white is color-ALIASED for the net (toMove is not a
+        // feature). The recode (0=open,1=own,2=enemy,3=vital) ships ONLY
+        // with a net trained on it — the exporter emits PN_RC_RELATIVE
+        // for such nets; feeding a raw-trained net recoded input is
+        // train/inference skew. Training-data remapping happens offline
+        // (records carry toMove), so the dump may emit either encoding.
+#ifdef PN_RC_RELATIVE
+        uint8_t rcv = rc2;
+        if(rc2 == 1 || rc2 == 2) rcv = (rc2 == toMove) ? 1 : 2;
+#else
+        uint8_t rcv = rc2;
+#endif
+#if PN_NF == 19
+        // F19 PACKED LAYOUT (ship 2026-08-14): the 19 live features sit
+        // contiguous in FMASK order [0,1,2,5,6,7,8,9,10,11,12,13,14,15,
+        // 16,18,20,21,22] so the kernel iterates 0..18 with no index
+        // map. The five ablation-dead features (isFar, pathDepth, wAdj,
+        // rootStones, vitalHere) move to slots 19-23, raw (still dumped
+        // for future corpora — extraction contract notes the layout).
+        pf[0]  = (int8_t)(patternBonus(x, y, toMove) - PN_FM_0);
+        pf[1]  = (int8_t)(line - PN_FM_1);
+        pf[2]  = (int8_t)(dl - PN_FM_2);
+        pf[3]  = (int8_t)(emptyN - PN_FM_3);
+        pf[4]  = (int8_t)(fGroups - PN_FM_4);
+        pf[5]  = (int8_t)(eGroups - PN_FM_5);
+        pf[6]  = (int8_t)((fMinLibs == 0xFF ? 7 : fMinLibs) - PN_FM_6);
+        pf[7]  = (int8_t)((eMinLibs == 0xFF ? 7 : eMinLibs) - PN_FM_7);
+        pf[8]  = (int8_t)(sawCapture - PN_FM_8);
+        pf[9]  = (int8_t)(sawSave - PN_FM_9);
+        pf[10] = (int8_t)(sawAtari - PN_FM_10);
+        pf[11] = (int8_t)(sawDoomed - PN_FM_11);
+        pf[12] = (int8_t)(connHere - PN_FM_12);
+        pf[13] = (int8_t)(wEnm - PN_FM_13);
+        pf[14] = (int8_t)(wOwn - PN_FM_14);
+        pf[15] = (int8_t)(vFlag - PN_FM_15);
+        pf[16] = (int8_t)(rcv - PN_FM_16);
+        pf[17] = (int8_t)(sawWeakFriend - PN_FM_17);
+        pf[18] = (int8_t)(hasOrthFriend - PN_FM_18);
+        pf[19] = (int8_t)isFar;
+        pf[20] = (int8_t)pathDepth;
+        pf[21] = (int8_t)wAdj;
+        pf[22] = (int8_t)rootStones;
+        pf[23] = (int8_t)vitalHere;
+#else
         pf[0]  = (int8_t)(patternBonus(x, y, toMove) - PN_FM_0);
         pf[1]  = (int8_t)(line - PN_FM_1);
         // 7 features carry a nonzero FMID: fold the subtraction into the
@@ -5193,10 +5249,11 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
         pf[17] = (int8_t)(wAdj - PN_FM_17);
         pf[18] = (int8_t)(vFlag - PN_FM_18);
         pf[19] = (int8_t)(rootStones - PN_FM_19);
-        pf[20] = (int8_t)(rc2 - PN_FM_20);
+        pf[20] = (int8_t)(rcv - PN_FM_20);
         pf[21] = (int8_t)(sawWeakFriend - PN_FM_21);
         pf[22] = (int8_t)(hasOrthFriend - PN_FM_22);
         pf[23] = (int8_t)(vitalHere - PN_FM_23);
+#endif
         pf[24] = (int8_t)adx;
         pf[25] = (int8_t)ady;
         pf[26] = (int8_t)mlibs;
@@ -5208,6 +5265,9 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
               if(emptyCorners & (1 << cq)) oc = 1;
           }
           pf[27] = (int8_t)oc; }
+#ifdef PRIOR_DUMP
+        pf[28] = (int8_t)keimaCut;   // rc3 candidate (dump-only for now)
+#endif
     }
 #endif
 #ifdef PRIORNN
@@ -5365,12 +5425,19 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
     if(priorDumpOn) {
         // un-fold the write-site FMID subtraction: the dump contract is
         // RAW features (what the trainer/extractor expect)
-        static const int8_t pnFm[28] = {PN_FM_0,PN_FM_1,PN_FM_2,PN_FM_3,
+#if PN_NF == 19
+        static const int8_t pnFm[29] = {PN_FM_0,PN_FM_1,PN_FM_2,PN_FM_3,
             PN_FM_4,PN_FM_5,PN_FM_6,PN_FM_7,PN_FM_8,PN_FM_9,PN_FM_10,PN_FM_11,
             PN_FM_12,PN_FM_13,PN_FM_14,PN_FM_15,PN_FM_16,PN_FM_17,PN_FM_18,
-            PN_FM_19,PN_FM_20,PN_FM_21,PN_FM_22,PN_FM_23,0,0,0,0};
+            0,0,0,0,0,0,0,0,0,0};
+#else
+        static const int8_t pnFm[29] = {PN_FM_0,PN_FM_1,PN_FM_2,PN_FM_3,
+            PN_FM_4,PN_FM_5,PN_FM_6,PN_FM_7,PN_FM_8,PN_FM_9,PN_FM_10,PN_FM_11,
+            PN_FM_12,PN_FM_13,PN_FM_14,PN_FM_15,PN_FM_16,PN_FM_17,PN_FM_18,
+            PN_FM_19,PN_FM_20,PN_FM_21,PN_FM_22,PN_FM_23,0,0,0,0,0};
+#endif
         fprintf(stderr, "WC %u", pos);
-        for(uint8_t i = 0; i < 28; i++) fprintf(stderr, " %d", pf[i] + pnFm[i]);
+        for(uint8_t i = 0; i < 29; i++) fprintf(stderr, " %d", pf[i] + pnFm[i]);
         fprintf(stderr, " %d\n", (int)bonus);
     }
 #endif
@@ -6022,6 +6089,16 @@ static uint16_t isqrtLUT(uint32_t x) {
     uint16_t r = pgm_read_byte(SQRT_LUT + (((uint16_t)x >> 8) - 64));
     return sh >= 0 ? (uint16_t)(r << (sh >> 1)) : (uint16_t)(r >> ((-sh) >> 1));
 }
+#if defined(UCB_SHADOW) && !defined(ARDUINO)
+// Differential audit (2026-08-14): recompute every selection in double
+// precision against the canonical UCB1-Tuned formula and count argmax
+// disagreements with the Q12 integer path. Disagreements are expected
+// only at near-ties (quantization); a biased or frequent mismatch means
+// a fixed-point bug.
+uint32_t shadowSel, shadowMismatch;   // read by the harness after think()
+double shadowGapSum;
+#include <math.h>
+#endif
 static uint8_t selectChild(uint8_t nodeIdx) {
     // UCB1-Tuned in Q12 fixed point — software floats cost several ms
     // per root scan, so everything here is integer.
@@ -6122,6 +6199,57 @@ static uint8_t selectChild(uint8_t nodeIdx) {
             bestC = cur;
         }
     }
+#if defined(UCB_SHADOW) && !defined(ARDUINO)
+    {
+        // exact-math pass, same policy (RAVE blend included at root)
+        double fb = -1; uint8_t fbC = 0xFF;
+        uint8_t atR = (nodeIdx == 0);
+        double flnN = log((double)nVisits(nodeIdx) + 1);
+        for(uint8_t c2 = node(nodeIdx).firstChild; c2 != 0xFF;
+            c2 = node(c2).nextSibling) {
+            Node &n2 = node(c2);
+            if(n2.move & 0x80) continue;
+            double nv = nRefVisits(n2);
+            double qRaw = nRefWins(n2) / nv;
+            // mirror the integer policy exactly: variance from the RAW
+            // win rate; the RAVE blend applies only to the exploitation
+            // term afterward (root only)
+            double V = qRaw * (1 - qRaw) + sqrt(2 * flnN / nv);
+            if(V > 0.25) V = 0.25;
+            double q = qRaw;
+            if(atR && nv < POISONED && n2.move < BOARD_CELLS && raveV[n2.move]) {
+                double beta = sqrt(409600.0 / ((nv + 100.0) * 4096.0));
+                double qr = (double)raveW[n2.move] / raveV[n2.move];
+                q = q + beta * (qr - q);
+            }
+            double u2 = q + sqrt(flnN / nv * V) / (double)(1 << UCB_EXPLORE_SHIFT);
+            if(u2 > fb) { fb = u2; fbC = c2; }
+        }
+        shadowSel++;
+        if(fbC != bestC) {
+            shadowMismatch++;
+            // gap: how much exact-math value the int pick gave up
+            double picked = -1;
+            for(uint8_t c2 = node(nodeIdx).firstChild; c2 != 0xFF;
+                c2 = node(c2).nextSibling)
+                if(c2 == bestC) {
+                    Node &n2 = node(c2);
+                    double nv = nRefVisits(n2);
+                    double qRaw = nRefWins(n2) / nv;
+                    double V = qRaw * (1 - qRaw) + sqrt(2 * flnN / nv);
+                    if(V > 0.25) V = 0.25;
+                    double q = qRaw;
+                    if(atR && nv < POISONED && n2.move < BOARD_CELLS && raveV[n2.move]) {
+                        double beta = sqrt(409600.0 / ((nv + 100.0) * 4096.0));
+                        double qr = (double)raveW[n2.move] / raveV[n2.move];
+                        q = q + beta * (qr - q);
+                    }
+                    picked = q + sqrt(flnN / nv * V) / (double)(1 << UCB_EXPLORE_SHIFT);
+                }
+            if(picked >= 0) shadowGapSum += fb - picked;
+        }
+    }
+#endif
     return bestC;
 }
 

@@ -851,6 +851,13 @@ int main(int argc, char **argv) {
         ai.think(game);
         uint8_t tx = 0xFF, ty = 0xFF;
         uint8_t tmv = ai.bestMove(game, tx, ty) ? (uint8_t)(ty * 9 + tx) : 81;
+#ifdef UCB_SHADOW
+        { extern uint32_t shadowSel, shadowMismatch; extern double shadowGapSum;
+          printf("UCBSHADOW selections=%u mismatches=%u (%.4f%%) meanGapQ=%.6f\n",
+                 (unsigned)shadowSel, (unsigned)shadowMismatch,
+                 shadowSel ? 100.0*shadowMismatch/shadowSel : 0.0,
+                 shadowMismatch ? shadowGapSum/shadowMismatch : 0.0); }
+#endif
         printf("FINGERPRINT prior(D5)=%+d iters=%u pw=%d/200 think=%u/%u\n",
                pr, (unsigned)mctsIterations, pw, tmv, thinkSims);
         return 0;
