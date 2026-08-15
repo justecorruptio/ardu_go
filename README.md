@@ -258,6 +258,101 @@ The techniques that survived (numbers are shipped deltas):
   and had to be re-discovered by profiling. Data that looks cold
   often isn't.
 
+## Making it fast (the speed campaigns)
+
+Move time fell from ~35 s to 15.6 s across the project's life. The
+shipped wins, by layer (deltas as measured on the cycle-exact bench):
+
+**Search-level (behavioral, gauntlet-cleared)**
+- **Concentration over exploration**: the c=¼ exploration constant is a
+  *speed* feature as much as a strength one — a decisive leader fires
+  the stable-stop earlier (−16% wall-clock when shipped).
+- **Shrink-only stopping**: stable-leader-512 plus a probabilistic
+  decided-position stop (check every 16 iterations, stop when the lead
+  exceeds the remaining budget's reach) harvest ~⅓ of mean move time
+  from positions that are already settled. Rule learned the hard way:
+  stop changes are measured by harness *iteration ratios* over real
+  games, never by the fixed bench — stop timing and per-iteration cost
+  confound on any single board.
+- **Latent batch widening**: one widen scan yields three children,
+  two dormant until the schedule wants them — scans ÷3, −5.0% think,
+  gauntlet-neutral because the visit schedule is preserved exactly.
+- **The throw-in exception**: letting rollouts kill dead groups ends
+  playouts through the mercy rule many moves earlier (−10.8%) *and*
+  improved life-and-death evals.
+- **Lazy region/eyespace cache**: the first candidate in a region pays
+  the flood; the rest of the widen batch reads the cached region code.
+
+**Playout-level**
+- **One RNG draw per move** feeding every probabilistic gate through
+  disjoint bit slices (−2%; the replaced draws were pure overhead).
+- **Pachi's immediate-liberty fast path**: a lone stone's liberties are
+  its empty neighbors — no flood; 89% of playout-policy rejects
+  resolve in this path (measured by census).
+- **One-entry liberty cache** carried between consecutive playout
+  moves: the tactical classifier's flood is usually free because the
+  gated simPlay just computed it on an unchanged board.
+- **Two-phase circular scan** in the global probe: the per-cell wrap
+  check — once the hottest inlined line in the engine — replaced by a
+  single phase switch.
+- **Packed returns across true call boundaries**: playoutTry returns
+  ko-and-status in one word (−2.2%), groupLibsCore packs
+  count-and-liberties into a uint32 (−0.4%). The measured law: the
+  out-param tax exists only across real calls — packing an *inlined*
+  function's returns is pure cost (tried, reverted).
+
+**Arithmetic and kernels**
+- **Table sqrt** (`isqrtLUT`, 192-byte LUT + range normalization)
+  replacing a bit-by-bit integer sqrt in UCB: −3.6% think by itself —
+  the single largest micro-win; the sqrt sat on every child of every
+  selection.
+- **Restoring divides sized to their domains**: Q6 win rate as a
+  7-step unrolled divide, RAVE β's divide reduced to 12 bits by exact
+  factoring — replacing libgcc's general 32-bit routines on the
+  hottest paths.
+- **Reciprocal-multiply for `ln N / n`** with a one-step floor
+  correction (~70 cycles per child cheaper than the divide it
+  replaced, exact).
+- **The prior-net kernel arc** (−18.4% total, every step
+  pool-hash-identical): accumulators pinned across the feature loop in
+  register pairs, `lpm Z+` weight walks via hand asm (the compiler,
+  register-starved, reloaded its pointer per element), feature
+  normalization folded into compile-time constants at the assembly
+  write sites, the bias row loaded in one straight-line walk.
+- **simPlay's working-set pack**: flag bits share a byte, the ko point
+  recomputes in its rare branch — two fewer callee-saved registers on
+  a 130k-calls/think function (−1.3%).
+- **Fused neighbor walk** in simPlay: capture check, liberty
+  classification and ko material from one pass (was three).
+- **`unpackBoard`** walks packed bytes with constant shifts that
+  unroll flat, instead of per-cell variable-shift extraction.
+
+**Compiler and memory access**
+- **Selective O2**: `-Os` globally, `optimize("O2")` on measured hot
+  functions (the playout core, widenNode) where the speed buys back
+  its flash; each promotion is a logged two-way trade.
+- **`noinline` for register-file isolation**: hot leaves get their own
+  register file, which is what makes the pinned-accumulator kernels
+  allocatable at all. The inverse law — *nothing inlines into
+  register-saturated callers* — is measured; violating it converts
+  prologue cost into per-access spill cost.
+- **`pgm_read_ptr` for pointers** (not `pgm_read_word` + cast) and
+  static-geometry offset tables for fixed shapes around a point — no
+  y×9 multiplies on hot shape probes.
+- **Sub-64-byte stack frames** on hot functions (avr-gcc's large-frame
+  addressing taxes every local access).
+
+**The graveyard (measured, don't retry)**
+- Value-identical micro-rewrites of already-inlined code: six attempts,
+  six washes — the compiler's CSE already had them.
+- Reciprocal multiply *loses* to the cheap 16-bit divide where the
+  domain is small.
+- Friend-proximity masks to skip prior scan blocks: the candidates
+  near friends are exactly the ones that need the scan.
+- Playout work-removal (looser mercy, endgame move-lists): buys real
+  wall-clock, costs real human-referee strength — the one speed
+  currency this project refuses to spend.
+
 ## Measurement discipline
 
 The project's real engine. Everything above shipped through it:
