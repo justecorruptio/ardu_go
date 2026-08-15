@@ -1150,7 +1150,7 @@ static uint8_t soleLiberty(uint8_t start) {
 // with zeroed-register ORs and every caller pays shift chains to
 // unpack -- two sts here + two lds at the caller beat both.)
 static uint8_t groupLibsCore(uint8_t start, uint8_t markAll, uint8_t cap) {
-    uint8_t color = simBoard[start];
+    uint8_t color = boardAt(start);
     uint8_t lib1 = 0xFF, lib2 = 0xFF;
     uint8_t count = 0;
     uint8_t sp = 0;
@@ -1382,7 +1382,7 @@ static void buildChainMap() {
 // connect prior).
 __attribute__((optimize("O2")))
 static uint8_t soleConnector(uint8_t seedA, uint8_t idB) {
-    uint8_t colorA = simBoard[seedA];
+    uint8_t colorA = boardAt(seedA);
     uint8_t connectors = 0;
     newMark();
     uint8_t sp = 0;
@@ -2641,7 +2641,7 @@ uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uint8_t &oy) {
 // Ko is ignored while reading. NOT reentrant (single snapshot).
 static uint8_t ladderEscapes(uint8_t defStart, uint8_t esc,
                              uint8_t maxSteps = 20) {
-    uint8_t defColor = simBoard[defStart];
+    uint8_t defColor = boardAt(defStart);
     uint8_t atkColor = 3 - defColor;
     uint8_t escaped = 1;
     // Journal-undo protocol (see ladderSnapNow above): no snapshot up
@@ -2736,7 +2736,7 @@ static uint8_t ladderEscapes(uint8_t defStart, uint8_t esc,
 // Distinct liberties of the chain at start, up to cap(<=4), into out[].
 // Fresh mark epoch; returns the count.
 static uint8_t groupLibsList(uint8_t start, uint8_t *out, uint8_t cap) {
-    uint8_t color = simBoard[start];
+    uint8_t color = boardAt(start);
     uint8_t n = 0;
     newMark();
     uint8_t sp = 0;
@@ -3711,7 +3711,7 @@ static uint8_t ldCellStatus(uint8_t cell) {
 // Exact liberty count of the chain at `start` (cap 12). Uses newMark,
 // so ONLY callable outside the region sweep (which owns the epoch).
 static uint8_t ldChainLibs(uint8_t start) {
-    uint8_t color = simBoard[start];
+    uint8_t color = boardAt(start);
     uint8_t libs = 0, sp = 0;
     newMark();
     simMark[start] = markEpoch;
