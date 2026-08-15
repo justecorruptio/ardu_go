@@ -155,8 +155,8 @@ TABS = [
   ("incr2", "HEAD +perf", 192.02, 12.0, 1000,
    "Ship 1000 plus tonight's perf pair: widenNode O2 (&minus;1.09%) and the incremental near-mask (&minus;2.32%, root-mask copy + descent-stone stamps with capture fallback). Net &minus;3.39%.",
    "profile_folded_ship1000.folded"),
-  ("v2prior", "NN prior", 300.44, 18.8, 1000,
-   "THE SHIPPED ENGINE, profiled over the NEW 5-position bench (opening&rarr;endgame rotation; mean reproduces the ~18.5s field move time — single-board numbers compare via -DBENCH_SINGLE). Kernel arc &minus;18.4% shipped; the 24&rarr;8&rarr;1 int8 MLP replaces the hand prior: L0 +4.4pp, human flat; candidatePrior = 14.3% of the full-game move (the old midgame-only profile overweighted it at 24%). Flash 27,796 (876 free).",
+  ("v2prior", "NN prior + shift-2", 251.44, 15.7, 1000,
+   "THE SHIPPED ENGINE (learned prior + exploration shift-2), profiled over the 5-position full-game bench. L0 51.5% / human 41.9% vs the old ship&rsquo;s 44.9/37.8; the kernel arc (&minus;18.4%) and the shift dividend (&minus;16%) took the mean move from ~18.5 s to 15.7 s. Flash 27,800 (872 free).",
    "profile_folded_ship1000.folded"),
 ]
 
