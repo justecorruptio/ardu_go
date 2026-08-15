@@ -258,11 +258,20 @@ uint8_t AI::chooseMove(Game &game) {
 // child's q from 0.50 to 0.67 and selection chased noise; at weight 8
 // early q is stable and selection follows the bonus ordering until
 // real evidence accumulates.
+// SHIP V2/W1 (2026-08-15): that stability reasoning dated from the
+// hand-prior era. With the learned prior's ordering, the even-prior
+// ballast was pure dilution — the sweep is monotone to the floor
+// (V24:1446 V16:1505 V8:1544 V4:1552 V2:1598 L0), and the human leg
+// confirmed the campaign's best: 461/1000 vs ship's 421 on the same
+// block (+replication pending in log). Neutral children become
+// first-playout-volatile by design: with a prior this good, neutrals
+// are rarely the answer — let them thrash and resolve cheaply.
+// V0 impossible (winRate6 0/0); V1 can't express the even prior.
 #ifndef PRIOR_BASE_V
-#define PRIOR_BASE_V 8
+#define PRIOR_BASE_V 2
 #endif
 #ifndef PRIOR_BASE_W
-#define PRIOR_BASE_W 4
+#define PRIOR_BASE_W 1
 #endif
 #ifndef PRIOR_CAPTURE
 #define PRIOR_CAPTURE 6     // captures an enemy group (its last liberty)
@@ -5396,7 +5405,14 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
         for(uint8_t h = 0; h < PN_H; h++)
             if(pre[h] > 0) out += (int32_t)pre[h] * (int8_t)pgm_read_byte(&PN_V[h]);
 #endif
-        int16_t nb = (int16_t)(out >> 8);
+        // PN_OUT_SHIFT: the net-score -> bonus exchange rate. 8 was
+        // inherited from the hand prior's output range (p5-p95 lands on
+        // ~[-31,+11]); 7 doubles the prior's voltage. Swept 08-14 with
+        // the seed-base factorial (scale x ballast = one ratio).
+#ifndef PN_OUT_SHIFT
+#define PN_OUT_SHIFT 8
+#endif
+        int16_t nb = (int16_t)(out >> PN_OUT_SHIFT);
         if(nb > 48) nb = 48;
         if(nb < -48) nb = -48;
 #ifdef PRIORNN_V2
