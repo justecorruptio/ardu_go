@@ -1089,8 +1089,8 @@ prescanDone:;
     // (two list entries of one chain) dedups here at mark time exactly
     // as the old push-time check did.
     *rp++ = start;
-    simMark[start] = em;
-    for(uint8_t *dp = rp; dp != wp; dp++) simMark[*dp] = em;
+    *markPtr(start) = em;
+    for(uint8_t *dp = rp; dp != wp; dp++) *markPtr(*dp) = em;
     while(rp != wp) {
         uint8_t p = *rp++;
         // NOT unrolled: +0.88% pre-always_inline, retested +3.3%
@@ -1203,13 +1203,13 @@ static uint8_t groupLibsCore(uint8_t start, uint8_t markAll, uint8_t cap) {
 #undef GL_CAP
 glcSeedTally:;
         { uint8_t em = newMark();
-          simMark[start] = em;
+          *markPtr(start) = em;
           for(uint8_t k = 0; k < sp; k++)
-              simMark[floodSlot(k)] = em; }
+              *markPtr(floodSlot(k)) = em; }
     } else {
         // markAll floods into the CURRENT epoch (see header) -- no newMark
         floodSlot(sp++) = start;
-        simMark[start] = markEpoch;
+        *markPtr(start) = markEpoch;
     }
 
     while(sp && (markAll || count < cap)) {
