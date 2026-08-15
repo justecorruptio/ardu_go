@@ -2932,7 +2932,11 @@ static const uint8_t PROGMEM EDGE_OFFS[9 * 6] = {
     0xF6, 0xF7, 0xF8, 0xFF, 0x01, 0x00,  // cls 7: S edge
     0xF6, 0xF7, 0xFF, 0x00, 0x00, 0x00,  // cls 8: SE corner
 };
-__attribute__((noinline)) static uint32_t pattern3Edge(int8_t cx, int8_t cy, uint8_t color) {
+static uint8_t p3eCls, p3eStones;   // edge-path out-params (the packed
+                                    // uint32 return cost a 4-register
+                                    // marshal both sides — glcL1/L2
+                                    // precedent: statics beat packing)
+__attribute__((noinline)) static uint16_t pattern3Edge(int8_t cx, int8_t cy, uint8_t color) {
     uint8_t clsx = (cx == 0) ? 0 : (cx == BOARD_SIZE - 1) ? 2 : 1;
     uint8_t clsy = (cy == 0) ? 0 : (cy == BOARD_SIZE - 1) ? 2 : 1;
     uint8_t cls = (uint8_t)(clsy * 3 + clsx);
@@ -2954,8 +2958,9 @@ __attribute__((noinline)) static uint32_t pattern3Edge(int8_t cx, int8_t cy, uin
         idx += v * mult;
         mult = (uint8_t)(mult + (mult << 1));   // mult *= 3, 8-bit
     }
-    return (uint32_t)idx | ((uint32_t)stones << 16) |
-           ((uint32_t)cls << 24);
+    p3eCls = cls;
+    p3eStones = stones;
+    return idx;
 }
 
 static uint16_t pattern3Index(int8_t cx, int8_t cy, uint8_t color,
@@ -2993,10 +2998,10 @@ static uint16_t pattern3Index(int8_t cx, int8_t cy, uint8_t color,
         idx = pgm_read_word(FOLD_M + M) + pgm_read_word(FOLD_TRI + L) +
               (uint8_t)(R - L);
     } else {
-        uint32_t r = pattern3Edge(cx, cy, color);
-        *pcls = (uint8_t)(r >> 24);
-        *pstones = (uint8_t)(r >> 16);
-        return (uint16_t)r;
+        uint16_t r = pattern3Edge(cx, cy, color);
+        *pcls = p3eCls;
+        *pstones = p3eStones;
+        return r;
     }
     *pcls = 4;   // interior: clsy*3+clsx == 4 by construction
     *pstones = stones;
