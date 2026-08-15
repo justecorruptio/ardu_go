@@ -148,13 +148,8 @@ ol.changelog b{color:var(--ink);font-weight:600} .dlt{color:var(--accent);font:6
 
 # ================= per-tab build =================
 TABS = [
-  # (tag, label, cycles_M, secs, iters, desc, prev_folded_for_delta)
-  ("ship1000", "Ship 1000", 198.75, 12.4, 1000,
-   "The shipped engine: pure-1000 &times; stable-stop-512 on the bench board (contested positions run longer; corpus mean ~18.5s).",
-   None),
-  ("incr2", "HEAD +perf", 192.02, 12.0, 1000,
-   "Ship 1000 plus tonight's perf pair: widenNode O2 (&minus;1.09%) and the incremental near-mask (&minus;2.32%, root-mask copy + descent-stone stamps with capture fallback). Net &minus;3.39%.",
-   "profile_folded_ship1000.folded"),
+  # single tab: the shipped engine. The delta column still compares
+  # against the archived old-ship profile (profile_folded_ship1000).
   ("v2prior", "NN prior + shift-2", 251.44, 15.7, 1000,
    "THE SHIPPED ENGINE (learned prior + exploration shift-2), profiled over the 5-position full-game bench. L0 51.5% / human 41.9% vs the old ship&rsquo;s 44.9/37.8; the kernel arc (&minus;18.4%) and the shift dividend (&minus;16%) took the mean move from ~18.5 s to 15.7 s. Flash 27,800 (872 free).",
    "profile_folded_ship1000.folded"),
