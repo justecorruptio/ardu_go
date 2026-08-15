@@ -3262,7 +3262,10 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
         // were ~2% of think. Modulo sites keep full draws (narrow
         // slices bias the remainder).
         uint16_t rb = rnd16();
-        if(last < BOARD_CELLS && boardAt(last) != EMPTY && (rb & 7)) {
+        // (boardAt(last) != EMPTY dropped 2026-08-15: a just-played
+        // stone cannot be captured before the next move -- no path
+        // leaves `last` on an empty cell; pool-hash-verified.)
+        if(last < BOARD_CELLS && (rb & 7)) {
             uint8_t tac = 0xFF, isSave = 0;
 
             // Classify the opponent's just-moved group — free when
@@ -3482,7 +3485,7 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
         // remaining coin, ~7/8 total: without that, random invasions
         // of settled territory live far too often, the single
         // biggest playout evaluation bias.
-        if(last < BOARD_CELLS && boardAt(last) != EMPTY) {
+        if(last < BOARD_CELLS) {   // (dead EMPTY guard dropped, see above)
             // NOT rb's spare bits: xorshift16 outputs carry strong
             // intra-word bit correlations (the <<7/>>9/<<8 taps copy
             // bit patterns around), and feeding the local answer from
