@@ -51,8 +51,10 @@ $NM -S -td "$B/ardu_go.ino.elf" | awk -v nr="$NODEREGION" '
   # wrong page. Assert lo8 <= 0xAF.
   / [bBdD] _ZL7simMark$/ {
     lo = ($1 % 8388608) % 256
-    # markPtr is now carry-CORRECT (ldi 0 / subi / sbci), layout-independent.
-    printf "%-16s lo8=0x%X  ok (markPtr carry-correct)\n", "simMark", lo
+    # markPtr carry-FREE again (2026-08-15 asm audit): assert like boardAt.
+    printf "%-16s lo8=0x%X", "simMark", lo
+    if (lo > 175) { print "  *** markPtr CARRY: lo8(simMark)+80 > 0xFF ***"; bad = 1 }
+    else print "  ok (markPtr carry-free)"
     seen_simmark = 1
   }
   / [bBdD] _ZL8simBoard$/ {

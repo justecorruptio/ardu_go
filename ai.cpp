@@ -829,11 +829,14 @@ static uint8_t simMark[BOARD_CELLS];   // epoch marks for flood fill
 // lo8(simMark) <= 0xAF). Returns a pointer: the flood loops both
 // read and write the mark.
 static inline __attribute__((always_inline)) uint8_t *markPtr(uint8_t q) {
+    // carry-FREE form (2026-08-15 asm audit): lo8(simMark) <= 0xAF is
+    // now asserted by the bench driver AND checkmagic alongside
+    // simBoard's, so the hi byte is a link-time constant — one
+    // instruction and one cycle less at eight hot flood sites.
     uint8_t *p;
     asm("mov %A0,%1\n\t"
         "subi %A0,lo8(-(%2))\n\t"
-        "ldi %B0,0\n\t"
-        "sbci %B0,hi8(-(%2))"
+        "ldi %B0,hi8(%2)"
         : "=&d"(p) : "r"(q), "i"(simMark));
     return p;
 }
