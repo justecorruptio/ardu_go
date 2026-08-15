@@ -6198,6 +6198,12 @@ static uint8_t selectChild(uint8_t nodeIdx) {
         // instead of paying refutation tax nobody will ever play.
         uint16_t u = q + (isqrtLUT((uint32_t)lnOverN * v) >>
                           (UCB_EXPLORE_SHIFT + pathDepth / DEPTH_TSHAPE));
+#elif defined(UCB_EXPLORE_NUM)
+        // Fractional exploration constant c = NUM/2^NSH for sweep points
+        // between the power-of-two shifts (one extra 16x8 multiply per
+        // child; ship keeps the pure shift).
+        uint16_t u = q + (uint16_t)(((uint32_t)isqrtLUT((uint32_t)lnOverN * v)
+                                     * UCB_EXPLORE_NUM) >> UCB_EXPLORE_NSH);
 #else
         uint16_t u = q + (isqrtLUT((uint32_t)lnOverN * v) >> UCB_EXPLORE_SHIFT);
 #endif
