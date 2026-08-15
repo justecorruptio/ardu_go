@@ -305,7 +305,7 @@ static int areaMargin() {
         if(tb && !tw) black++;
         else if(tw && !tb) white++;
     }
-    return black * 2 - white * 2 - 13; // half-points, komi 6.5
+    return black * 2 - white * 2 - game.kpieces; // half-points
 }
 
 // Play one game; aiColor is our AI's color. Returns +1 if our AI wins,
@@ -321,11 +321,39 @@ static bool recordFirst = false;
 static int playGame(int gameNo, int level, uint8_t aiColor, bool verbose) {
     bool useGnugo = level >= 0;
     if(useGnugo) gtpStart(level, gameNo + 1);
+    const char *handiEnv = getenv("ARDU_HANDI");
+    uint8_t handi = handiEnv ? (uint8_t)atoi(handiEnv) : 0;
+    const char *oppEnv = getenv("ARDU_HANDI_OPP");
+    uint8_t oppHandi = oppEnv ? (uint8_t)atoi(oppEnv) : 0;
+    uint8_t noKomiGame = (handiEnv || oppEnv) ? 1 : 0;  // any calib mode: komi 0.5
+    if(oppEnv) { handi = oppHandi; aiColor = WHITE; }  // opponent takes stones (0 = just no-komi)
+    else if(handi) aiColor = BLACK;   // calibration: our engine takes the stones
     if(useGnugo && getenv("KATAGO_HUMAN")) {   // KataGo needs board/komi via GTP
-        std::string r; gtpCmd("boardsize 9", r); gtpCmd("komi 6.5", r);
+        std::string r; gtpCmd("boardsize 9", r);
+        gtpCmd(noKomiGame ? "komi 0.5" : "komi 6.5", r);
     }
     game.reset();
     ai.reset();
+    if(noKomiGame) game.kpieces = 1;
+    if(handi) {
+        // difficulty-ladder calibration (2026-08-15): engine = Black with
+        // N hoshi stones, komi 0.5, opponent (White) moves first. Same
+        // point order as the device's HPTS table.
+        static const uint8_t HHP[4] = { 6+2*9, 2+6*9, 6+6*9, 2+2*9 };
+        for(uint8_t i = 0; i < handi && i < 4; i++) {
+            uint8_t p = HHP[i];
+            game.set(p % 9, p / 9, BLACK);
+            sgfAdd(BLACK, p % 9, p / 9);
+            if(useGnugo) {
+                std::string r, v;
+                v = std::string(1, "ABCDEFGHJ"[p % 9]) + std::to_string(9 - p / 9);
+                gtpCmd(std::string("play black ") + v, r);
+            }
+        }
+        memcpy(game.prevBoard, game.board, sizeof(game.board));
+        game.turn = WHITE;
+        ai.notifyPass();   // clear firstMove/komoku state on a non-empty board
+    }
 #ifdef PONDER_SIM
     psWarmValid = psTreeFresh = 0;   // never carry a tree across games
 #endif
@@ -896,6 +924,11 @@ int main(int argc, char **argv) {
         ai.think(game);
         uint8_t tx = 0xFF, ty = 0xFF;
         uint8_t tmv = ai.bestMove(game, tx, ty) ? (uint8_t)(ty * 9 + tx) : 81;
+#ifdef ENDLIST_STATS
+        { extern uint32_t elEnters, elMoves, elPasses;
+          printf("ENDLIST enters=%u moves=%u passes=%u\n",
+                 (unsigned)elEnters, (unsigned)elMoves, (unsigned)elPasses); }
+#endif
 #ifdef UCB_SHADOW
         { extern uint32_t shadowSel, shadowMismatch; extern double shadowGapSum;
           printf("UCBSHADOW selections=%u mismatches=%u (%.4f%%) meanGapQ=%.6f\n",
