@@ -1712,20 +1712,10 @@ __attribute__((noinline)) static void ladderSnapNow(void) {
 // placed group at one liberty (the playout policy). Cheap by
 // construction: when nothing was captured the only mutation is the
 // placed stone, so rejection is a one-byte undo — no snapshot needed.
-__attribute__((noinline)) static uint8_t simPlayCore(uint8_t pos, uint8_t color, uint8_t ko,
-                       uint8_t noSelfAtari);
-// Checked entry: callers that can pass MOVE_PASS, a ko cell or an
-// occupied cell (descent's tree moves, the tactical block, ladder
-// reads). The playout try helpers pre-verify all three and call the
-// core directly.
-static inline __attribute__((always_inline)) uint8_t simPlay(uint8_t pos, uint8_t color, uint8_t ko,
+__attribute__((noinline)) static uint8_t simPlay(uint8_t pos, uint8_t color, uint8_t ko,
                        uint8_t noSelfAtari = 0) {
     if(pos == MOVE_PASS) return NO_KO;
     if(pos == ko || simBoard[pos] != EMPTY) return ILLEGAL;
-    return simPlayCore(pos, color, ko, noSelfAtari);
-}
-__attribute__((noinline)) static uint8_t simPlayCore(uint8_t pos, uint8_t color, uint8_t ko,
-                       uint8_t noSelfAtari) {
 
     uint8_t opp = 3 - color;
     simBoard[pos] = color;
@@ -3109,7 +3099,7 @@ static inline __attribute__((always_inline)) uint16_t playoutTry(uint8_t pos, ui
 static uint16_t playoutTryOpen(uint8_t pos, uint8_t toMove, uint8_t ko,
                                uint8_t m) {
     if(isOwnEye(pos, toMove)) return 0;
-    uint8_t nk = simPlayCore(pos, toMove, ko, !scoreMode);
+    uint8_t nk = simPlay(pos, toMove, ko, !scoreMode);
     if(nk == ILLEGAL) return 0;
     // barrier: raveMark below re-derives its bitmap address from this
     // one register instead of GCC also keeping a zero-extended copy of
@@ -3130,7 +3120,7 @@ static uint16_t playoutTryOpen(uint8_t pos, uint8_t toMove, uint8_t ko,
 // chaining through playoutTryOpen taxed the global probe's entry.
 static uint16_t playoutTryPat(uint8_t pos, uint8_t toMove, uint8_t ko,
                               uint8_t m) {
-    uint8_t nk = simPlayCore(pos, toMove, ko, !scoreMode);
+    uint8_t nk = simPlay(pos, toMove, ko, !scoreMode);
     if(nk == ILLEGAL) return 0;
     asm volatile("" : "+r"(pos));   // same barrier as playoutTryOpen
     if(toMove == rootTurn && m < RAVE_HORIZON) raveMark(pos);
