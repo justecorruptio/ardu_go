@@ -433,6 +433,21 @@ fixed a corrupted bench firmware: the emulator build's RAM layout had
 silently broken `boardAt`'s carry-free precondition, and the bench
 driver now asserts the layout after every build.
 
+Two follow-on rounds took the total to **−14.7%** (17.4 s → 14.9 s per
+move). Round two's find: `candidatePrior` — the largest function in the
+engine — had simply never been given an optimization attribute (−2.4%
+net, funded by trimming the RAVE β table to its measured-optimal 64
+entries). Round three's find was a *family*: board positions fit in
+seven bits, so bit 7 **is** the 0xFF walk-sentinel — replacing every
+`!= 0xFF` terminator test with a sign-bit test (the FOR_EACH_NEIGHBOR
+macro, both flood cores' seed scans and liberty pairs, isOwnEye, the
+contact walk) bought −3.2% for *negative* flash. The boundary matters:
+tree moves include PASS (81) and ko uses 0xFE/0xFF, so move guards and
+result tests keep their full compares. Buys are governed by a
+perf-per-byte rule — anything under the historical exchange rate
+(0.35%/100 B, playout-O2's price) is reverted or stays banked — and
+wash-measured changes that shrink flash are taken as sales.
+
 ## Measurement discipline
 
 The project's real engine. Everything above shipped through it:
