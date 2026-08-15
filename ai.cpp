@@ -1676,25 +1676,30 @@ __attribute__((noinline)) static uint8_t simPlay(uint8_t pos, uint8_t color, uin
     //   the placed lone stone = e + 1 (the captured cell), no other
     //   neighbour changed; lone = !connected. So the old third walk is
     //   `!connected && e == 0`.
-    uint8_t captured = 0, capPos = 0;
-    uint8_t a = 0xFF, b = 0xFF, e = 0, connected = 0;
+    // Working-set pack (2026-08-15): e (bits 0-3), noSelfAtari (bit 6)
+    // and connected (bit 7) share one byte, and capPos is recomputed in
+    // the rare ko branch instead of held across the flood calls — three
+    // fewer callee-saved registers on a ~130k-calls/think function
+    // (prologue/epilogue was 7.7% of think). e <= 4 so the low nibble
+    // never carries into the flag bits.
+    uint8_t captured = 0;
+    uint8_t a = 0xFF, b = 0xFF;
+    uint8_t ec = noSelfAtari ? 0x40 : 0;
     uint8_t q;
     FOR_EACH_NEIGHBOR(q, pos) {
         uint8_t s = boardAt(q);
         if(s == opp) {
-            if(!hasLiberty(q, opp)) {
-                capPos = q;
+            if(!hasLiberty(q, opp))
                 captured += removeGroup(q);
-            }
         } else if(s == EMPTY) {
             if(a == 0xFF) a = q; else if(b == 0xFF) b = q;
-            e++;
+            ec++;
         } else
-            connected = 1;
+            ec |= 0x80;
     }
 
     if(!captured) {
-        if(noSelfAtari) {
+        if(ec & 0x40) {
             // Immediate-liberty fast-path (Pachi): a placement with no
             // same-colour neighbour is its own group, so its liberties
             // are exactly its empty neighbours -- in the same order
@@ -1704,20 +1709,20 @@ __attribute__((noinline)) static uint8_t simPlay(uint8_t pos, uint8_t color, uin
             // (1); the result is cached for the next playout move, which
             // classifies this same group on an unchanged board.
             uint8_t libs;
-            if(connected) {
+            if(ec & 0x80) {
                 libs = groupLibsFind(pos);
                 a = glcL1;
                 b = glcL2;
             } else
-                libs = e;
+                libs = ec & 0x0F;
 #ifdef PLAYOUT_STATS
-            if(libs >= 2) { if(connected) spFloodOK++; else spLoneOK++; }
-            else          { if(connected) spFloodRej++; else spLoneRej++; }
+            if(libs >= 2) { if(ec & 0x80) spFloodOK++; else spLoneOK++; }
+            else          { if(ec & 0x80) spFloodRej++; else spLoneRej++; }
 #endif
             if(libs < 2) {
 #if PLAYOUT_THROWIN_RATE
                 // throw-in exception (see PLAYOUT_THROWIN_RATE above)
-                if(!(!connected && libs == 1 &&
+                if(!(!(ec & 0x80) && libs == 1 &&
                      (PLAYOUT_THROWIN_RATE == 1 ||
                       (rnd16() & (PLAYOUT_THROWIN_RATE - 1)) == 0)))
 #endif
@@ -1749,8 +1754,15 @@ __attribute__((noinline)) static uint8_t simPlay(uint8_t pos, uint8_t color, uin
     }
     simCaptured = captured;
 
-    // Simple ko (see the fused-walk comment above)
-    if(captured == 1 && !connected && e == 0) return capPos;
+    // Simple ko (see the fused-walk comment above). capPos recompute:
+    // with e==0 there were NO pre-capture empty neighbours, so after a
+    // single-stone capture the ONLY empty neighbour IS the captured
+    // cell — a 4-cell rescan recovers it exactly, in the rare branch,
+    // instead of a callee-saved register on every call.
+    if(captured == 1 && !(ec & 0x8F)) {
+        FOR_EACH_NEIGHBOR(q, pos)
+            if(boardAt(q) == EMPTY) return q;
+    }
     return NO_KO;
 }
 
