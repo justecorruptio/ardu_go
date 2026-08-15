@@ -411,6 +411,28 @@ shipped wins, by layer (deltas as measured on the cycle-exact bench):
   wall-clock, costs real human-referee strength — the one speed
   currency this project refuses to spend.
 
+**The 100-cycle grind (post-1.0).** A systematic
+hypothesize→implement→verify→commit campaign took think another **−8.3%**
+(17.4 s → 16.0 s per move at the fixed 1000-iteration budget), every
+change proven move-identical by pool-hash and host parity except one
+gauntlet-gated RNG-map swap. The winners, roughly by size: same-chain
+dedup in simPlay's capture walk (a flood this walk stamps its chain's
+mark epoch; a later neighbour already marked is that chain, alive —
+−2.1%); `newMark` forced inline (five instructions the flood entries
+were calling out of line — −1.7%); a journal-undo for ladder reads
+(plays on empty cells are journaled, a lazy snapshot fires inside
+simPlay only before a read's first capture — kills the per-read 81-byte
+memcpy, −1.1%); RAVE β by table through 128 visits (−1.2%); testing the
+selective pattern predicate before the permissive eye predicate in the
+playout pattern scan (−0.6%); Lemire reduction for the compile-time
+moduli (trace-changing, L0-gauntlet-gated); and a tail of small wins
+(scoreWinner neighbour OR-fold, capture-site mercy flag, dead-guard
+removal, stale `O2` attributes dropped — attribute flavours rot as the
+code around them changes, re-probe them). The grind also caught and
+fixed a corrupted bench firmware: the emulator build's RAM layout had
+silently broken `boardAt`'s carry-free precondition, and the bench
+driver now asserts the layout after every build.
+
 ## Measurement discipline
 
 The project's real engine. Everything above shipped through it:
