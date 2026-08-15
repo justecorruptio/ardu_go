@@ -3307,8 +3307,10 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                 // This is what actually kills disconnected stones in
                 // playouts — without it, cut-off groups survive by
                 // randomness and thin extensions look safe.
+                // XOR swap-select: cand = l1 or l2 by coin; the ko
+                // fixup flips to the other via one XOR chain (probe)
                 uint8_t cand = (rb & 16) ? l1 : l2;
-                if(cand == ko) cand = (cand == l1) ? l2 : l1;
+                if(cand == ko) cand = (uint8_t)(cand ^ l1 ^ l2);
                 tac = cand;
                 isSave = 1; // route through the self-atari gate
             } else {
