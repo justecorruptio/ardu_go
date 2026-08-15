@@ -3497,9 +3497,12 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
             // wholesale (open bench -18%!). Fresh draw = independent.
             uint16_t p = rnd16();
             uint8_t pos = 0xFF;
-            uint8_t lxy = posXY(last);
-            int8_t lx = lxy & 0x0F, ly = lxy >> 4;
+            // posXY sunk into the branches that read lx/ly (2026-08-15):
+            // the contact-answer path picks nbl[rnd(nl)] and never needs
+            // the coordinates.
             if(p & 1) {
+                uint8_t lxy = posXY(last);
+                int8_t lx = lxy & 0x0F, ly = lxy >> 4;
                 int8_t cx = lx + (int8_t)rndMod<3>() - 1;
                 int8_t cy = ly + (int8_t)rndMod<3>() - 1;
                 if(cx >= 0 && cx < BOARD_SIZE && cy >= 0 && cy < BOARD_SIZE)
@@ -3530,6 +3533,8 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                     answer = (p & (CONTACT_ANSWER_MASK << 1)) != 0;
                 } else if((p & (LONE_ANSWER_MASK << 1)) != 0) {
                     // 5x5 support scan only after the coin passes
+                    uint8_t lxy = posXY(last);
+                    int8_t lx = lxy & 0x0F, ly = lxy >> 4;
                     answer = 1; // lone unless support found
                     const uint8_t *rp = simBoard + last - 2 * BOARD_SIZE;
                     for(int8_t dy = -2; dy <= 2 && answer;
