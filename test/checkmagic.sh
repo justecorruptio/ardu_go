@@ -66,8 +66,10 @@ $NM -S -td "$B/ardu_go.ino.elf" | awk -v nr="$NODEREGION" '
   }
   / [bBdD] _ZL7chainId$/ {
     lo = ($1 % 8388608) % 256
-    # chainPtr is now carry-CORRECT (ldi 0 / subi / sbci), layout-independent.
-    printf "%-16s lo8=0x%X  ok (chainPtr carry-correct)\n", "chainId", lo
+    # chainPtr carry-FREE (2026-08-15): assert like boardAt/markPtr.
+    printf "%-16s lo8=0x%X", "chainId", lo
+    if (lo > 175) { print "  *** chainPtr CARRY: lo8(chainId)+80 > 0xFF ***"; bad = 1 }
+    else print "  ok (chainPtr carry-free)"
     seen_chainid = 1
   }
   / [bBdD] _ZL7poolExt$/           { check("poolExt", $1 % 8388608, $2 + 0) }

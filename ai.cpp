@@ -859,11 +859,12 @@ static uint8_t chainId[BOARD_CELLS];
 // per access. NOT used in buildChainMap (spill cascade, see the
 // boardAt fences).
 static inline __attribute__((always_inline)) uint8_t *chainPtr(uint8_t q) {
+    // carry-FREE form (2026-08-15, the markPtr sibling): lo8(chainId)
+    // <= 0xAF is asserted by checkmagic and the bench driver.
     uint8_t *p;
     asm("mov %A0,%1\n\t"
         "subi %A0,lo8(-(%2))\n\t"
-        "ldi %B0,0\n\t"
-        "sbci %B0,hi8(-(%2))"
+        "ldi %B0,hi8(%2)"
         : "=&d"(p) : "r"(q), "i"(chainId));
     return p;
 }
@@ -4879,7 +4880,7 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
         if(dup) continue;
         seen[nSeen++] = id;
         uint8_t l = LIBS_OF(cq);
-        if(simBoard[q] == opp) {
+        if(boardAt(q) == opp) {
             eGroups++;
             if(l < eMinLibs) eMinLibs = l;
             if(l == 1) {
