@@ -18,53 +18,118 @@ extern uint16_t rngState;  // engine PRNG; seed it for repeatable runs
 // the emulator routes through write() where the harness hooks it.
 volatile uint8_t benchMark;
 
-// Two benchmark positions. Default: the realistic mid-game board
-// (same as test/bench.cpp), thinks at the shipped 400 iterations.
-// -DBENCH_OPENING: an 8-stone opening (game_002 to move 8, Black to
-// play) -- under OPENING_BOOST_STONES the think naturally runs 600
-// iterations, so this benches the true opening wait-peak.
-#ifdef BENCH_OPENING
-static const char rows[9][10] = {
-    ".........",
-    ".....O...",
-    "..OO.....",
-    "...XX.O..",
-    ".........",
-    "...XX....",
-    ".........",
-    ".........",
-    ".........",
-};
+// Benchmark positions. Default: FIVE real positions spanning the game
+// (opening 8st / early-mid 13st / the classic 26st midgame / late-mid
+// 34st / endgame 45st), rotated one think each — the 5-position MEAN is
+// the bench number, making it robust to any single position's stop
+// timing (the 08-14 lesson: stable-stop fires on leader stability, so
+// one board's churn can swing a single-position bench 20%).
+// -DBENCH_SINGLE: the old 26-stone midgame board only (pre-08-14
+// numbers compare here). -DBENCH_OPENING: the old 8-stone opening only.
+// P2-P4 extracted from chain2 game_2002.sgf (v2full vs 10k human) at
+// t=14/36/48 via test/nnretrain/goboard.py.
+#if defined(BENCH_OPENING)
+#define NPOS 1
+static const char P0[] PROGMEM =
+    "........."
+    ".....O..."
+    "..OO....."
+    "...XX.O.."
+    "........."
+    "...XX...."
+    "........."
+    "........."
+    ".........";
+static const char* const POSN[1] PROGMEM = {P0};
+static const uint8_t PTURN[1] = {BLACK};
+#elif defined(BENCH_SINGLE)
+#define NPOS 1
+static const char P0[] PROGMEM =
+    "....XO..."
+    "..X.XO.O."
+    "....XO..."
+    "..X.XOO.."
+    "...X.XO.."
+    "...O.XO.."
+    ".OX..O..."
+    "...OO.OO."
+    ".O.O...O.";
+static const char* const POSN[1] PROGMEM = {P0};
+static const uint8_t PTURN[1] = {WHITE};
 #else
-static const char rows[9][10] = {
-    "....XO...",
-    "..X.XO.O.",
-    "....XO...",
-    "..X.XOO..",
-    "...X.XO..",
-    "...O.XO..",
-    ".OX..O...",
-    "...OO.OO.",
-    ".O.O...O.",
-};
+#define NPOS 5
+static const char P0[] PROGMEM =   // opening, 8 stones
+    "........."
+    ".....O..."
+    "..OO....."
+    "...XX.O.."
+    "........."
+    "...XX...."
+    "........."
+    "........."
+    ".........";
+static const char P1[] PROGMEM =   // early-mid, 13 stones (t=14)
+    "........."
+    "........."
+    "..X..X..."
+    ".......X."
+    ".X.OOXXO."
+    ".....OO.O"
+    ".......O."
+    "........."
+    ".........";
+static const char P2[] PROGMEM =   // the classic midgame, 26 stones
+    "....XO..."
+    "..X.XO.O."
+    "....XO..."
+    "..X.XOO.."
+    "...X.XO.."
+    "...O.XO.."
+    ".OX..O..."
+    "...OO.OO."
+    ".O.O...O.";
+static const char P3[] PROGMEM =   // late-mid, 34 stones (t=36)
+    "........."
+    "...OXX..."
+    ".XXOOX..."
+    ".OXXO..X."
+    "O.OOOXXO."
+    ".OXXXOO.O"
+    ".XXOO..O."
+    ".XO......"
+    ".........";
+static const char P4[] PROGMEM =   // endgame, 45 stones (t=48)
+    ".O.X....."
+    "..XOXX..."
+    "XXXOOX..."
+    ".OXXOX.X."
+    "OOOOOXXO."
+    "OOXXXOO.O"
+    ".XXOO..O."
+    "XXO.O...."
+    ".........";
+static const char* const POSN[5] PROGMEM = {P0, P1, P2, P3, P4};
+static const uint8_t PTURN[5] = {BLACK, BLACK, WHITE, BLACK, BLACK};
 #endif
 
-void setup() {
+static void loadPos(uint8_t p) {
+    const char *bp = (const char *)pgm_read_ptr(&POSN[p]);
     game.reset();
     for(uint8_t y = 0; y < 9; y++)
         for(uint8_t x = 0; x < 9; x++) {
-            char c = rows[y][x];
+            char c = (char)pgm_read_byte(bp + y * 9 + x);
             game.set(x, y, c == 'X' ? BLACK : c == 'O' ? WHITE : EMPTY);
         }
-    for(uint8_t i = 0; i < 81; i++) {} // (prevBoard already copied by set? no)
     memcpy(game.prevBoard, game.board, sizeof(game.board));
-#ifdef BENCH_OPENING
-    game.turn = BLACK;
-#else
-    game.turn = WHITE;
-#endif
+    game.turn = PTURN[p];
+}
 
+void setup() {
+    uint8_t p = 0;
     for(;;) {
+        loadPos(p);
+        p = (uint8_t)((p + 1) % NPOS);
+
         rngState = 12345;      // identical search every iteration
         benchMark = 0xA0;      // think START
         ai.reset();
