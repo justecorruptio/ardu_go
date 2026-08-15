@@ -19,7 +19,7 @@ Jaylib jay;
 // modular tax). checkmagic.sh verifies every constraint, EVERY build.)
 // (48: retuned 2026-08-13 -- the incremental near-mask's descentCaptured
 // byte shifted sBuffer up 1 and put node 136 on the magic key.)
-uint8_t magicPad[48] __attribute__((used));
+uint8_t magicPad[46] __attribute__((used));  // 48->46 (2026-08-15): diffsel's +2 bss
 Game game;
 AI ai;
 Display display(jay, game);
@@ -38,6 +38,25 @@ static const uint8_t PROGMEM DEMO_GAME[] = {
     0x02};
 #endif
 uint8_t menuCursor = 0;
+uint8_t diffCursor = 3;   // difficulty menu; default = EVEN
+
+// Difficulty ladder (Jay's UX, 2026-08-15): emulate opponent strengths
+// through color/handicap/komi. BLACK always receives the handicap
+// stones; handicap games start with WHITE to move; NO KOMI keeps the
+// half point so games can't tie. kpieces = komi in half-points.
+// Strength labels are provisional (renumber after calibration).
+struct DiffOpt { uint8_t humanColor, handi, kpieces; };
+static const DiffOpt DIFFS[7] PROGMEM = {
+    {BLACK, 3,  1},   // 20 KYU: human Black, 3 stones, no komi
+    {BLACK, 2,  1},   // 18KYU: human Black, 2 stones, no komi
+    {BLACK, 0,  1},   // 15KYU: human Black, no komi
+    {BLACK, 0, 13},   // 12KYU: even game
+    {WHITE, 0,  1},   // 10KYU: human White, engine keeps no-komi edge
+    {WHITE, 2,  1},   //  7KYU: engine Black + 2 stones
+    {WHITE, 3,  1},   //  5 KYU: engine Black + 3 stones
+};
+// 9x9 hoshi, facing pair first then the remaining corners
+static const uint8_t HPTS[4] PROGMEM = { 6+2*9, 2+6*9, 6+6*9, 2+2*9 };
 uint8_t inverted = 1;
 uint8_t aiTimer = 0;
 uint16_t aiThinkMs = 0; // 0 = no search stats to show
@@ -139,6 +158,9 @@ void setup() {
         while(1) { }
     }
 
+#ifdef SHOT_DIFFSEL
+    stage = STAGE_DIFFSEL;   // screenshot hook: boot straight to the menu
+#endif
 #ifdef BOOT_SCORE_DEMO
     game.reset();
     for(uint8_t i = 0; i < sizeof(DEMO_GAME); i++) {
@@ -175,10 +197,8 @@ void loop() {
         stepClamp(UP_BUTTON, DOWN_BUTTON, menuCursor, 3);
         if(jay.justPressed(A_BUTTON)) {
             switch(menuCursor) {
-            case 0: // VS AI
-                game.mode = MODE_VS_AI;
-                game.aiPlayer = WHITE;
-                startGame();
+            case 0: // VS AI -> difficulty select
+                stage = STAGE_DIFFSEL;
                 break;
             case 1: // VS HUMAN
                 game.mode = MODE_VS_HUMAN;
@@ -194,6 +214,37 @@ void loop() {
             }
         }
         display.renderTitle(menuCursor);
+        break;
+
+    case STAGE_DIFFSEL:
+        stepClamp(UP_BUTTON, DOWN_BUTTON, diffCursor, 6);
+        if(jay.justPressed(B_BUTTON)) {
+            stage = STAGE_TITLE;
+            break;
+        }
+        if(jay.justPressed(A_BUTTON)) {
+            game.mode = MODE_VS_AI;
+            uint8_t hc = pgm_read_byte(&DIFFS[diffCursor].humanColor);
+            uint8_t hs = pgm_read_byte(&DIFFS[diffCursor].handi);
+            uint8_t kp = pgm_read_byte(&DIFFS[diffCursor].kpieces);
+            game.aiPlayer = 3 - hc;
+            startGame();                    // resets game+ai, enters PLAY
+            game.kpieces = kp;              // after reset (reset -> 13)
+            if(hs) {
+                for(uint8_t i = 0; i < hs; i++) {
+                    uint8_t p = pgm_read_byte(&HPTS[i]);
+                    game.set(p % 9, p / 9, BLACK);
+                }
+                memcpy(game.prevBoard, game.board, sizeof(game.board));
+                game.turn = WHITE;          // handicap: White moves first
+                // The engine may now open on a NON-empty board: clear
+                // its first-move state so chooseMove searches instead
+                // of playing the empty-board komoku. notifyPass() is
+                // exactly that reset (firstMove=0, no last move).
+                ai.notifyPass();
+            }
+        }
+        display.renderDiffSel(diffCursor);
         break;
 
     case STAGE_PLAY:

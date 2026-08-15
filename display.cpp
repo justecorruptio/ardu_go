@@ -97,7 +97,7 @@ static const ScLabel UI_LBLS[] PROGMEM = {
     // renderHelp [12,14)
     {49 | 0x80, 1, HL_S0}, {1, 15, HL_S1},
 };
-#define LBL_SCORING 0, 8
+#define LBL_SCORING 0, 6   // S7 (komi) + S8 (.5) drawn dynamically now
 #define LBL_INFO    8, 10
 #define LBL_TITLE  10, 12
 #define LBL_HELP   12, 14
@@ -123,7 +123,10 @@ void Display::renderInfo() {
     drawLabels(jay, LBL_INFO);
     jay.prNum(ix + 8, 18, game.captures[0]);
     uint8_t wx = jay.prNum(ix + 8, 24, game.captures[1]);
-    jay.smallPrintPgm(wx + 4, 24, F("+6.5"), 1);
+    // komi readout follows the game's actual komi (difficulty ladder)
+    jay.smallPrintPgm(wx + 4, 24, F("+"), 1);
+    uint8_t kx = jay.prNum(wx + 8, 24, game.kpieces / 2);
+    jay.smallPrintPgm(kx, 24, F(".5"), 1);
     jay.drawFastHLine(ix, 31, 59);
     jay.drawFastHLine(ix, 52, 59);
 }
@@ -137,6 +140,29 @@ void Display::renderTitle(uint8_t menuCursor) {
         30 + (jay.counter / 4) % 4,
         28 + menuCursor * 6, F(">"), 1
     );
+}
+
+// Difficulty ladder labels (see DIFFS in ardu_go.ino — order must match)
+static const char DF_0[] PROGMEM = "25 KYU: BLACK, 3 HANDICAP";
+static const char DF_1[] PROGMEM = "18 KYU: BLACK, 2 HANDICAP";
+static const char DF_2[] PROGMEM = "13 KYU: BLACK, NO KOMI";
+static const char DF_3[] PROGMEM = "11 KYU: EVEN";
+static const char DF_4[] PROGMEM = "9 KYU: WHITE, NO KOMI";
+static const char DF_5[] PROGMEM = "5 KYU: WHITE, 2 HANDICAP";
+static const char DF_6[] PROGMEM = "1 KYU: WHITE, 3 HANDICAP";
+static const char* const DF_LBLS[7] PROGMEM =
+    { DF_0, DF_1, DF_2, DF_3, DF_4, DF_5, DF_6 };
+
+void Display::renderDiffSel(uint8_t cursor) {
+    jay.smallPrintPgm(34, 1, F("CHOOSE OPPONENT"), 1);
+    jay.drawFastHLine(34, 8, 57);
+    for(uint8_t i = 0; i < 7; i++)
+        // single-digit ranks indent one full glyph (4 px) so the
+        // colons align — a space only advances 2 px in this font
+        jay.smallPrintPgm(i >= 4 ? 14 : 10, 12 + i * 7,
+            (const __FlashStringHelper *)pgm_read_ptr(&DF_LBLS[i]), 1);
+    // same animated cursor idiom as the title menu
+    jay.smallPrintPgm(2 + (jay.counter / 4) % 4, 12 + cursor * 7, F(">"), 1);
 }
 
 void Display::renderHelp() {
@@ -172,7 +198,12 @@ void Display::renderScoring() {
     uint16_t areaW = ws + game.territory[1];
     uint16_t areaB = bs + game.territory[0];
     // white total is always x.5 (area + 6.5 komi; integer 6 here, .5 via SC_S8)
-    uint16_t vals[4] = { areaW, areaB, (uint16_t)(areaW + 6), areaB };
+    uint16_t vals[4] = { areaW, areaB,
+                         (uint16_t)(areaW + game.kpieces / 2), areaB };
+    // komi row + the .5 suffixes (were static labels; komi varies now)
+    uint8_t kx = jay.prNum(96, 31, game.kpieces / 2);
+    jay.smallPrintPgm(kx, 31, F(".5"), 1);
+    jay.smallPrintPgm(100, 39, F(".5"), 1);
     for(uint8_t i = 0; i < 4; i++)
         scoreNum(jay, pgm_read_byte(&SC_CELLS[i][0]),
                  pgm_read_byte(&SC_CELLS[i][1]), vals[i]);

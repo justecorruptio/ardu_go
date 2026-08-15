@@ -9,6 +9,7 @@
 #define STAGE_SCORING 4
 #define STAGE_GAME_OVER 5
 #define STAGE_HELP 6
+#define STAGE_DIFFSEL 7
 
 #define MODE_VS_HUMAN 0
 #define MODE_VS_AI 1

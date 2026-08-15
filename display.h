@@ -19,6 +19,7 @@ class Display {
     void renderCursor();
     void renderInfo();
     void renderTitle(uint8_t menuCursor);
+    void renderDiffSel(uint8_t cursor);
     void renderHelp();
     void renderScoring();
     void renderGameOver();
