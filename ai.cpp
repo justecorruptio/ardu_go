@@ -1756,7 +1756,8 @@ __attribute__((noinline)) static uint8_t simPlay(uint8_t pos, uint8_t color, uin
                 captured += removeGroup(q);
             }
         } else if(s == EMPTY) {
-            if(a == 0xFF) a = q; else if(b == 0xFF) b = q;
+            // sign-bit test for the 0xFF sentinel (form probe)
+            if(a & 0x80) a = q; else if(b & 0x80) b = q;
             ec++;
         } else
             ec |= 0x80;
