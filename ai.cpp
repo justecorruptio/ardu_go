@@ -966,11 +966,12 @@ static inline __attribute__((always_inline)) uint8_t lpmNext(const uint8_t *&p) 
     for(const uint8_t *_ne = NEIGHBOR_TABLE + (pos) * 5; \
         ((q) = lpmNext(_ne)) != 0xFF; )
 
-static inline __attribute__((always_inline)) void newMark() {
+static inline __attribute__((always_inline)) uint8_t newMark() {
     if(++markEpoch == 0) {
         memset(simMark, 0, sizeof(simMark));
         markEpoch = 1;
     }
+    return markEpoch;
 }
 
 // Board index -> packed (y<<4)|x. AVR has no hardware divide, so the
@@ -1076,7 +1077,7 @@ static uint8_t hasLiberty(uint8_t start, uint8_t color) {
 #undef PS_BODY
 prescanDone:;
     }
-    newMark();
+    uint8_t em = newMark();
     // BFS with chasing read/write POINTERS into floodScratch (indexed
     // access paid a 16-bit extend per push/pop; floodScratch's address
     // carries, so the boardAt trick can't apply -- pointers can):
@@ -1088,8 +1089,8 @@ prescanDone:;
     // (two list entries of one chain) dedups here at mark time exactly
     // as the old push-time check did.
     *rp++ = start;
-    simMark[start] = markEpoch;
-    for(uint8_t *dp = rp; dp != wp; dp++) simMark[*dp] = markEpoch;
+    simMark[start] = em;
+    for(uint8_t *dp = rp; dp != wp; dp++) simMark[*dp] = em;
     while(rp != wp) {
         uint8_t p = *rp++;
         // NOT unrolled: +0.88% pre-always_inline, retested +3.3%
@@ -1201,10 +1202,10 @@ static uint8_t groupLibsCore(uint8_t start, uint8_t markAll, uint8_t cap) {
 #undef GL_SEED_BODY
 #undef GL_CAP
 glcSeedTally:;
-        newMark();
-        simMark[start] = markEpoch;
-        for(uint8_t k = 0; k < sp; k++)
-            simMark[floodSlot(k)] = markEpoch;
+        { uint8_t em = newMark();
+          simMark[start] = em;
+          for(uint8_t k = 0; k < sp; k++)
+              simMark[floodSlot(k)] = em; }
     } else {
         // markAll floods into the CURRENT epoch (see header) -- no newMark
         floodSlot(sp++) = start;
@@ -6375,10 +6376,10 @@ static uint8_t selectChild(uint8_t nodeIdx) {
     uint8_t atRoot = (nodeIdx == 0);
     uint16_t best = 0;
     // fallback: first NON-latent child (a latent fallback once leaked
-    // move|0x80 into simPlay = out-of-bounds board write)
-    uint8_t bestC = node(nodeIdx).firstChild;
-    while(bestC != 0xFF && (node(bestC).move & 0x80))
-        bestC = node(bestC).nextSibling;
+    // move|0x80 into simPlay = out-of-bounds board write). Folded into
+    // the main loop — the first evaluated child claims bestC — selling
+    // a wash (+0.03%) for -10 B under the perf-per-byte rule.
+    uint8_t bestC = 0xFF;
     uint8_t c = node(nodeIdx).firstChild;
     for(; c != 0xFF;) {
         Node &n = node(c);
@@ -6467,7 +6468,7 @@ static uint8_t selectChild(uint8_t nodeIdx) {
 #else
         uint16_t u = q + (isqrtLUT((uint32_t)lnOverN * v) >> UCB_EXPLORE_SHIFT);
 #endif
-        if(u > best) {
+        if(u > best || bestC == 0xFF) {
             best = u;
             bestC = cur;
         }
