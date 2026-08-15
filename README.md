@@ -188,6 +188,76 @@ The discipline that grew around this:
   `-mcall-prologues`, with `noinline` used to give hot leaves their
   own register file — which is what makes the asm kernels possible.
 
+## Fitting in 28 KB (the flash campaign)
+
+The image lives a few hundred bytes under a hard 28,672-byte ceiling;
+every feature above was paid for by a measured reclaim somewhere else.
+The techniques that survived (numbers are shipped deltas):
+
+**Data representation**
+- **Symmetry-fold learned tables**: the 3×3 pattern table is
+  LR-mirror-folded through a triangular column-pair index — −678 B,
+  lossless, ~+1% pattern-lookup cost. (The second symmetry doesn't
+  fold: measured, no.)
+- **Board state packs 2 bits per point** (`packedGet` walks packed
+  bytes with constant shifts that unroll flat); repacking game.cpp's
+  state cost nothing and saved 136 B.
+- **Dense offset classes over sparse tables**: the opening net's
+  pairwise features clamp offsets to ±3 with sign preserved — 98 table
+  rows replacing a sparse 128.
+- **Prompts as glyph indices**: the large-font dialog strings are
+  stored as 1-based glyph numbers, skipping the character-set lookup.
+- **Right-sized networks**: the width ladder proved H=4 carries H=8's
+  strength — −284 B of weights and kernel.
+
+**Code structure**
+- **`noinline` as deduplication**: marking `candidatePrior` noinline
+  saved 784 B *and* ran faster (one copy, own register file). The
+  inverse is measured too: noinline on single-call-site functions costs
+  bytes for nothing (+50 in one experiment). The dedupe only pays at
+  multiple call sites.
+- **Stack frames over 64 B are poison**: avr-gcc's large-frame
+  addressing bloats every access; restructuring one function under the
+  limit saved 316 B. Audit any function with big locals.
+- **Shared label tables**: UI text positioned via PROGMEM
+  `{x, y, string}` tables walked by one loop (−294 B in the score
+  screen alone), `\n`-merged label columns as single strings (−384 B),
+  and one shared number-printing method replacing six hand-rolled
+  call sites (−92 B).
+- **Let the compiler dedupe divides**: replacing libgcc's division
+  helpers with reciprocal tricks *grew* the image (+2 to +120 B) —
+  at `-Os` the call-vs-inline decisions are already size-optimal, and
+  a shared helper only loses when call sites would shrink too.
+  Hand-optimize hot-path divides for *speed*, never for size.
+- **Per-function O2 is a two-way trade**: some hot functions buy speed
+  with `optimize("O2")` (+flash); reverting one such promotion bought
+  556 B back for +1% think when flash was the binding constraint.
+  Every such flag is a measured, revisitable line item.
+
+**Toolchain**
+- **LTO with a value-identity proof**: enabling `-flto` saved 302 B;
+  the emulator pool-hash confirmed byte-identical search behavior, and
+  `checkmagic.sh` now asserts the GIMPLE fingerprint so a toolchain
+  update can't silently drop it.
+- **`-mcall-prologues`**: shared register save/restore helpers
+  (~1 KB saved across the image) at a measured ~2.5% think cost —
+  the standing size-for-speed trade.
+- **Vendored, stripped USB**: shadowing the Arduino core's USB objects
+  with trimmed sketch-level copies (no Serial data plane, no string
+  descriptors, no LED pulses) freed ~1.26 KB while keeping enumeration
+  and upload auto-reset. Full removal (a further −1.28 KB) is built
+  and flag-gated but unused — it costs one-button upload.
+
+**Discipline**
+- **Verify outputs, not flags**: every claimed saving is an
+  `avr-size` delta on the real device build, and behavioral claims
+  ride on the pool-hash/fingerprint instruments. Build flags have
+  silently failed to engage more than once.
+- **Emulator-bench every deletion**: the one flash trick shipped
+  without a bench — removing a 164-byte β table — cost +7.9% think
+  and had to be re-discovered by profiling. Data that looks cold
+  often isn't.
+
 ## Measurement discipline
 
 The project's real engine. Everything above shipped through it:
