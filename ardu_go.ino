@@ -19,7 +19,7 @@ Jaylib jay;
 // modular tax). checkmagic.sh verifies every constraint, EVERY build.)
 // (48: retuned 2026-08-13 -- the incremental near-mask's descentCaptured
 // byte shifted sBuffer up 1 and put node 136 on the magic key.)
-uint8_t magicPad[7] __attribute__((used));   // 46->7 (2026-08-15): ladder journal's +43 bss (checkmagic-tuned)
+uint8_t magicPad[6] __attribute__((used));   // 7->6 (2026-08-15): mercy flag's +1 bss (checkmagic-tuned)
 Game game;
 AI ai;
 Display display(jay, game);
