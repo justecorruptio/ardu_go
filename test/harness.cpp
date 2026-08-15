@@ -804,6 +804,51 @@ int main(int argc, char **argv) {
     // position — a build FINGERPRINT so gauntlet arms can prove which
     // prior code they contain before burning 1000 games (stale arm
     // binaries have now voided two runs).
+    if(argc > 1 && std::string(argv[1]) == "symprobe") {
+        // Opening-responder symmetry audit: for every empty-board first
+        // move m and every symmetry s, reply(sym_s(m)) must equal
+        // sym_s(reply(m)) — the NN path is a deterministic argmax over
+        // per-candidate canonicalized scores, so any violation is either
+        // an exact-score tie broken by raster order or a covariance bug.
+        auto symXY = [](uint8_t s, uint8_t &x, uint8_t &y) {
+            if(s & 1) x = 8 - x;
+            if(s & 2) y = 8 - y;
+            if(s & 4) { uint8_t t = x; x = y; y = t; }
+        };
+        int viol = 0, checked = 0, nnMiss = 0;
+        for(uint8_t m = 0; m < 81; m++) {
+            uint8_t replies[8];
+            for(uint8_t s = 0; s < 8; s++) {
+                uint8_t mx = m % 9, my = m / 9;
+                symXY(s, mx, my);
+                game.reset(); ai.reset();
+                game.playMove(mx, my); ai.notifyMove(mx, my);
+                uint8_t before[81];
+                for(uint8_t q = 0; q < 81; q++) before[q] = game.at(q % 9, q / 9);
+                if(!ai.chooseMove(game)) { replies[s] = 0xFF; continue; }
+                replies[s] = 0xFF;
+                for(uint8_t q = 0; q < 81; q++)
+                    if(game.at(q % 9, q / 9) != EMPTY && before[q] == EMPTY &&
+                       q != (uint8_t)(my * 9 + mx)) replies[s] = q;
+            }
+            if(replies[0] == 0xFF) { nnMiss++; continue; }
+            for(uint8_t s = 1; s < 8; s++) {
+                if(replies[s] == 0xFF) { nnMiss++; continue; }
+                uint8_t ex = replies[0] % 9, ey = replies[0] / 9;
+                symXY(s, ex, ey);
+                checked++;
+                if(replies[s] != ey * 9 + ex) {
+                    viol++;
+                    printf("VIOLATION m=%c%d sym=%u: reply %c%d, expected %c%d\n",
+                           'A' + (m % 9 >= 8 ? 8 : m % 9), 9 - m / 9, s,
+                           'A' + replies[s] % 9, 9 - replies[s] / 9,
+                           'A' + ex, 9 - ey);
+                }
+            }
+        }
+        printf("SYMPROBE checked=%d violations=%d nn-declined=%d\n", checked, viol, nnMiss);
+        return 0;
+    }
     if(argc > 1 && std::string(argv[1]) == "priorprobe") {
         game.reset(); ai.reset();
         const char *seq[] = {"D4", "F3", "D6", "E5"};
