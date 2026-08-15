@@ -790,7 +790,21 @@ static uint8_t cacheLibsPos; // group's stone position, 0xFF = invalid
 static uint8_t cacheLibs, cacheL1, cacheL2;
 static uint8_t simCaptured;  // stones captured by the last simPlay
 #if defined(ENDLIST_STATS) && !defined(ARDUINO)
+#ifdef ENDLIST_STATS
 uint32_t elEnters, elMoves, elPasses;   // endgame-list instrumentation
+#endif
+#endif
+// BENCH-ONLY layout shim (2026-08-15): the bench firmware links its own
+// object set, so its RAM layout drifts independently of the device's --
+// and boardAt's carry-free trick needs lo8(simBoard) <= 0xAF in EVERY
+// binary that runs the engine. The endlist experiment's 12 unconditional
+// stats bytes pushed the BENCH build's simBoard to lo8 0xF4 and the
+// emulator silently measured an engine whose boardAt read simMark as
+// board cells for q >= 12 (device was unaffected -- checkmagic green).
+// The pad below is tuned per-layout by the bench driver, which now
+// nm-asserts lo8(simBoard) after every build. Not defined on device.
+#ifdef BENCH_PAD
+__attribute__((used)) static volatile uint8_t benchPad[BENCH_PAD];
 #endif
 static uint8_t simBoard[BOARD_CELLS];
 #ifdef ARDUINO
