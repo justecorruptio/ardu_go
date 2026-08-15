@@ -5294,7 +5294,65 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
         // int16 kernel: real accumulator range measured +-189 over 788k
         // candidate rows (17x under int16 even before headroom) -- full
         // int8 weights, native 8x8->16 muls, no saturation guard needed.
-#if PN_H == 8
+#if PN_H == 4
+        // 4-wide sibling of the PN_H==8 unroll below (H4 ships the same
+        // strength at −110 B tables; gauntleted 08-15: L0 1593 / human
+        // 462 vs the H8 champion's 1598/461). Four accumulator pairs =
+        // half the register pressure; same lpm Z+ asm idiom.
+#ifdef __AVR__
+        int16_t a0, a1, a2, a3;
+        {
+            const uint8_t *bp = (const uint8_t *)PN_B1;
+            asm(
+                "lpm %A[a0], Z+ \n\t" "lpm %B[a0], Z+ \n\t"
+                "lpm %A[a1], Z+ \n\t" "lpm %B[a1], Z+ \n\t"
+                "lpm %A[a2], Z+ \n\t" "lpm %B[a2], Z+ \n\t"
+                "lpm %A[a3], Z+ \n\t" "lpm %B[a3], Z+ \n\t"
+                : [a0]"=r"(a0), [a1]"=r"(a1), [a2]"=r"(a2), [a3]"=r"(a3),
+                  "+z"(bp));
+        }
+#else
+        int16_t a0 = (int16_t)pgm_read_word(&PN_B1[0]),
+                a1 = (int16_t)pgm_read_word(&PN_B1[1]),
+                a2 = (int16_t)pgm_read_word(&PN_B1[2]),
+                a3 = (int16_t)pgm_read_word(&PN_B1[3]);
+#endif
+        const uint8_t *wp = (const uint8_t *)PN_W1;
+        for(uint8_t i = 0; i < PN_NF; i++, wp += 4) {
+            int8_t d = (int8_t)pf[i];   // FMID folded at the write sites
+            if(!d) continue;
+#ifdef __AVR__
+            const uint8_t *w = wp;
+            uint8_t wt;
+            asm(
+                "lpm %[wt], Z+      \n\t" "muls %[wt], %[d]  \n\t"
+                "add %A[a0], r0     \n\t" "adc %B[a0], r1    \n\t"
+                "lpm %[wt], Z+      \n\t" "muls %[wt], %[d]  \n\t"
+                "add %A[a1], r0     \n\t" "adc %B[a1], r1    \n\t"
+                "lpm %[wt], Z+      \n\t" "muls %[wt], %[d]  \n\t"
+                "add %A[a2], r0     \n\t" "adc %B[a2], r1    \n\t"
+                "lpm %[wt], Z+      \n\t" "muls %[wt], %[d]  \n\t"
+                "add %A[a3], r0     \n\t" "adc %B[a3], r1    \n\t"
+                "clr __zero_reg__   \n\t"
+                : [a0]"+r"(a0), [a1]"+r"(a1), [a2]"+r"(a2), [a3]"+r"(a3),
+                  [wt]"=&d"(wt), "+z"(w)
+                : [d]"d"(d)
+                : "r0", "r1");
+#else
+            const uint8_t *w = wp;
+            a0 += (int16_t)(d * (int8_t)pgm_read_byte(w)); w++;
+            a1 += (int16_t)(d * (int8_t)pgm_read_byte(w)); w++;
+            a2 += (int16_t)(d * (int8_t)pgm_read_byte(w)); w++;
+            a3 += (int16_t)(d * (int8_t)pgm_read_byte(w));
+#endif
+        }
+        int32_t out = 0;
+        if(a0 > 0) out += (int32_t)a0 * (int8_t)pgm_read_byte(&PN_V[0]);
+        if(a1 > 0) out += (int32_t)a1 * (int8_t)pgm_read_byte(&PN_V[1]);
+        if(a2 > 0) out += (int32_t)a2 * (int8_t)pgm_read_byte(&PN_V[2]);
+        if(a3 > 0) out += (int32_t)a3 * (int8_t)pgm_read_byte(&PN_V[3]);
+#elif PN_H == 8
+
         // h-UNROLLED: all 8 accumulators live in registers across the
         // feature loop (candidatePrior is noinline = its own register
         // file; 8x int16 = 16 GPRs, fits). The rolled loop bounced every
