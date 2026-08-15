@@ -3064,7 +3064,8 @@ static uint8_t capArr[3];   // captures by color: [_, BLACK, WHITE] (mercy rule)
 // while any correct line captures the sacrifices right back — so
 // ownership tallies stay honest. (scoreMode is declared up top.)
 __attribute__((noinline))
-__attribute__((optimize("O2")))
+// (O2 dropped 2026-08-15: -Os is +0.06% (noise) for -44 B on the
+// current tree — the flash funds banked speed wins.)
 // Returns 0 on failure, else (0x100 | newKo): ko travels by VALUE and
 // comes back in the result, `last` is the caller's own pos -- the two
 // pointer out-params this replaces cost two derefs on entry and two
