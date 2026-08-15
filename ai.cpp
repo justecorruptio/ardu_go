@@ -3528,23 +3528,11 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
             if(boardAt(pos) != EMPTY || pos == ko) continue;
 
             // Lonely first-line moves are pure noise: skip unless the
-            // point touches a stone. Straight PROGMEM bool per cell --
-            // the old NEIGHBOR_TABLE slot-3 probe paid a pos*5 multiply
-            // per scanned empty; the table is one indexed lpm.
-            static const uint8_t PROGMEM FIRSTLINE[81] = {
-                1,1,1,1,1,1,1,1,1,
-                1,0,0,0,0,0,0,0,1,
-                1,0,0,0,0,0,0,0,1,
-                1,0,0,0,0,0,0,0,1,
-                1,0,0,0,0,0,0,0,1,
-                1,0,0,0,0,0,0,0,1,
-                1,0,0,0,0,0,0,0,1,
-                1,0,0,0,0,0,0,0,1,
-                1,1,1,1,1,1,1,1,1,
-            };
-            uint8_t fline = pgm_read_byte(FIRSTLINE + pos);
-            if(fline) {
-                const uint8_t *ne = NEIGHBOR_TABLE + pos * 5;
+            // point touches a stone. Slot 3 == 0xFF <=> <4 neighbours
+            // <=> first line.
+            const uint8_t *ne = NEIGHBOR_TABLE + pos * 5;
+            uint8_t fourth = pgm_read_byte(ne + 3);  // 0xFF iff <4 neighbours
+            if(fourth == 0xFF) {
                 uint8_t contact = 0, q;
                 while((q = pgm_read_byte(ne++)) != 0xFF) {
                     if(boardAt(q) != EMPTY) { contact = 1; break; }
@@ -3561,7 +3549,7 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
 #ifndef PLAYOUT_GROW_MASK
 #define PLAYOUT_GROW_MASK 3
 #endif
-            if(!fline && rootStones + m >= EARLY_STONES &&
+            if(fourth != 0xFF && rootStones + m >= EARLY_STONES &&
                (rnd16() & PLAYOUT_GROW_MASK)) {
                 // fourth != 0xFF already proved pos interior, so the
                 // whole 3x3 is on-board: no posXY, no bounds checks.
