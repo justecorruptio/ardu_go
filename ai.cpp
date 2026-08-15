@@ -2985,14 +2985,13 @@ static uint8_t scoreWinner() {
     for(uint8_t i = 0; i < BOARD_CELLS; i++) {
         if(simBoard[i] == BLACK) { black++; continue; }
         if(simBoard[i] == WHITE) { white++; continue; }
-        uint8_t tb = 0, tw = 0;
-        uint8_t q;
-        FOR_EACH_NEIGHBOR(q, i) {
-            if(simBoard[q] == BLACK) tb = 1;
-            if(simBoard[q] == WHITE) tw = 1;
-        }
-        if(tb && !tw) black++;
-        else if(tw && !tb) white++;
+        // OR-fold: cells are 0/1/2, so the OR of the neighbours is
+        // BLACK iff only-black borders, WHITE iff only-white, 3 iff
+        // mixed -- one accumulate replaces two compare/branch pairs.
+        uint8_t mm = 0, q;
+        FOR_EACH_NEIGHBOR(q, i) mm |= simBoard[q];
+        if(mm == BLACK) black++;
+        else if(mm == WHITE) white++;
     }
     lastMargin2 = (int16_t)black * 2 - (int16_t)white * 2;
     return lastMargin2 > (int16_t)simKomi ? BLACK : WHITE;
