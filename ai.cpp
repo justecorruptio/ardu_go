@@ -243,7 +243,14 @@ uint8_t AI::chooseMove(Game &game) {
 // ~56 root moves, full UCB1-Tuned exploration (~0.3 at n=10) dwarfs
 // the real q spread (~0.1) and the search polls uniformly instead of
 // concentrating on the best line.
-#define UCB_EXPLORE_SHIFT 1
+// SHIP 2 (2026-08-14): the constant was tuned in the 400-iter era and
+// never re-swept; at 1000 iters one notch greedier concentrates the
+// budget and wins on BOTH referees — L0 1544/3000 vs 1477, human
+// 838/2000 vs 774 (+3.2pp, p=.04, two fresh seed sets). shift=3
+// measured slightly worse both axes (1530 / 398): the curve peaks here.
+#ifndef UCB_EXPLORE_SHIFT
+#define UCB_EXPLORE_SHIFT 2
+#endif
 
 // Virtual win/visit priors seeded at expansion; real playout results
 // accumulate on top and wash these out. The base is deliberately heavy
