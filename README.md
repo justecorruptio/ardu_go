@@ -260,3 +260,7 @@ scales) are as much a part of this project as the code. If you change
 something load-bearing: two referees, three seed sets, replicate the
 human leg, and bench on all five positions. The constants you are
 tempted to tune were probably measured; check the logs first.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
