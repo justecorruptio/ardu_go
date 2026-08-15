@@ -1033,7 +1033,10 @@ static uint8_t glcL1, glcL2;   // first two liberties of the last flood
 // it instead of re-flooding (its only caller runs it right after).
 static uint8_t capturedGroupN;
 
-__attribute__((optimize("O2")))
+// (O2 attribute dropped 2026-08-15: it predated the newMark inline and
+// the simPlay same-chain dedup, and on the current tree -Os measures
+// FASTER (-0.38%) and -26 B. Stale flavor attributes rot — re-probe
+// them after structural changes.)
 static uint8_t hasLiberty(uint8_t start, uint8_t color) {
     // color = simBoard[start], passed in: every hot caller already
     // holds it in a register, and the reload cost ~6 cycles x 180K
