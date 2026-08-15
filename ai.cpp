@@ -1255,6 +1255,7 @@ static uint8_t groupLibsMark(uint8_t start) {
 // degree within it (region[0..cnt-1], all in the current mark epoch),
 // or 0xFF if none. Shared by regionVital and its lazy cache stamp;
 // bestDeg/ties feed the square-four gate.
+__attribute__((optimize("O2")))
 static uint8_t regionVitalCell(const uint8_t *region, uint8_t cnt,
                                uint8_t *bestDeg, uint8_t *ties) {
     uint8_t bd = 1, bc = 0xFF, t = 0;
