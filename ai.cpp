@@ -1244,7 +1244,7 @@ static inline __attribute__((always_inline)) uint8_t groupLibsFind(uint8_t start
     return groupLibsCore(start, 0, 3);
 }
 
-static uint8_t groupLibsMax3(uint8_t start) {
+static inline __attribute__((always_inline)) uint8_t groupLibsMax3(uint8_t start) {
     uint8_t n = groupLibsFind(start);
     return n ? n : 1; // preserve old behavior: 0 liberties reads as 1
 }
