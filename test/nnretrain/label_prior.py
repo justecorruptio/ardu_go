@@ -44,7 +44,7 @@ for ci in range(0, len(todo), CHUNK):
             mv = r['moves']
             q = {"id": str(r['id']), "moves": mv, "rules": "chinese", "komi": 6.5,
                  "boardXSize": 9, "boardYSize": 9, "analyzeTurns": [len(mv)],
-                 "maxVisits": 48, "includePolicy": True}
+                 "maxVisits": int(__import__("os").environ.get("KATA_VISITS", "48")), "includePolicy": True}
             try: p.stdin.write(json.dumps(q) + "\n")
             except BrokenPipeError: return
         try: p.stdin.close()

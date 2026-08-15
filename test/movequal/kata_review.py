@@ -19,7 +19,7 @@ def moves_of(path):
     return mvs
 proc = subprocess.Popen(["katago", "analysis", "-config", CFG, "-model", MODEL],
                         stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                        stderr=subprocess.DEVNULL, text=True, bufsize=1)
+                        stderr=open("/tmp/kata_review_err.log", "a"), text=True, bufsize=1)
 queries = 0
 for path in sgfs:
     g = int(re.search(r"game_(\d+)", path).group(1))
