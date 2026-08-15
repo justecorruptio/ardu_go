@@ -1184,8 +1184,8 @@ static uint8_t groupLibsCore(uint8_t start, uint8_t markAll, uint8_t cap) {
 #define GL_SEED_BODY(CAPCHK) \
         s = boardAt(q); \
         if(s == EMPTY) { \
-            if(lib1 == 0xFF) lib1 = q; \
-            else if(lib2 == 0xFF) lib2 = q; \
+            if(lib1 & 0x80) lib1 = q; \
+            else if(lib2 & 0x80) lib2 = q; \
             count++; \
             CAPCHK \
         } else if(s == color) floodSlot(sp++) = q;
@@ -1219,8 +1219,8 @@ glcSeedTally:;
             uint8_t s = boardAt(q);
             if(s == EMPTY) {
                 if(count < 3 && q != lib1 && q != lib2) {
-                    if(lib1 == 0xFF) lib1 = q;
-                    else if(lib2 == 0xFF) lib2 = q;
+                    if(lib1 & 0x80) lib1 = q;          // sign-bit sentinel
+                    else if(lib2 & 0x80) lib2 = q;
                     count++;
                     if(!markAll && count >= cap) break;
                 }
