@@ -3537,10 +3537,12 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
                 // (needed for the random pick nbl[rnd(nl)] below), count nl,
                 // and flag a contact push -- no break, nl must count all.
                 uint8_t nbl[4], nl = 0, contact = 0, answer = 0, q;
+                uint8_t *nw = nbl;   // pointer store beats indexed (probe)
                 FOR_EACH_NEIGHBOR(q, last) {
-                    nbl[nl++] = q;
+                    *nw++ = q;
                     if(boardAt(q) == toMove) contact = 1; // contact push
                 }
+                nl = (uint8_t)(nw - nbl);
                 if(contact) {
                     answer = (p & (CONTACT_ANSWER_MASK << 1)) != 0;
                 } else if((p & (LONE_ANSWER_MASK << 1)) != 0) {
