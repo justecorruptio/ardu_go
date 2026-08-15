@@ -1072,8 +1072,8 @@ static uint8_t hasLiberty(uint8_t start, uint8_t color) {
         if(s == color) *wp++ = q;
         q = lpmNext(e); PS_BODY
         q = lpmNext(e); PS_BODY
-        q = lpmNext(e); if(q == 0xFF) goto prescanDone; PS_BODY
-        q = pgm_read_byte(e); if(q == 0xFF) goto prescanDone; PS_BODY
+        q = lpmNext(e); if(q & 0x80) goto prescanDone; PS_BODY
+        q = pgm_read_byte(e); if(q & 0x80) goto prescanDone; PS_BODY
 #undef PS_BODY
 prescanDone:;
     }
@@ -1101,7 +1101,7 @@ prescanDone:;
         // unroll boundary on its own merits.
         const uint8_t *e = NEIGHBOR_TABLE + p * 5;
         uint8_t q;
-        while((q = lpmNext(e)) != 0xFF) {
+        while(!((q = lpmNext(e)) & 0x80)) {   // sign-bit sentinel
             uint8_t s = boardAt(q);
             if(s == EMPTY) return 1;
             if(s == color) {
@@ -1197,8 +1197,8 @@ static uint8_t groupLibsCore(uint8_t start, uint8_t markAll, uint8_t cap) {
         }
         q = lpmNext(e); GL_SEED_BODY()
         q = lpmNext(e); GL_SEED_BODY(GL_CAP)
-        q = lpmNext(e); if(q == 0xFF) goto glcSeedTally; GL_SEED_BODY(GL_CAP)
-        q = pgm_read_byte(e); if(q == 0xFF) goto glcSeedTally; GL_SEED_BODY(GL_CAP)
+        q = lpmNext(e); if(q & 0x80) goto glcSeedTally; GL_SEED_BODY(GL_CAP)
+        q = pgm_read_byte(e); if(q & 0x80) goto glcSeedTally; GL_SEED_BODY(GL_CAP)
 #undef GL_SEED_BODY
 #undef GL_CAP
 glcSeedTally:;
@@ -1651,10 +1651,10 @@ static uint8_t isOwnEye(uint8_t pos, uint8_t color) {
     q = lpmNext(e);
     if(boardAt(q) != color) return 0;
     q = lpmNext(e);
-    if(q != 0xFF) {
+    if(!(q & 0x80)) {
         if(boardAt(q) != color) return 0;
         q = pgm_read_byte(e);
-        if(q != 0xFF && boardAt(q) != color) return 0;
+        if(!(q & 0x80) && boardAt(q) != color) return 0;
     }
     // False-eye test (michi's is_eye): enemy-held diagonals make this
     // a connection point, not an eye -- an "eye" whose diagonals the
@@ -3602,7 +3602,7 @@ static uint8_t playout(uint8_t toMove, uint8_t ko, uint8_t last) {
             uint8_t fourth = pgm_read_byte(ne + 3);  // 0xFF iff <4 neighbours
             if(fourth == 0xFF) {
                 uint8_t contact = 0, q;
-                while((q = pgm_read_byte(ne++)) != 0xFF) {
+                while(!((q = pgm_read_byte(ne++)) & 0x80)) {   // sign-bit
                     if(boardAt(q) != EMPTY) { contact = 1; break; }
                 }
                 if(!contact) continue;
