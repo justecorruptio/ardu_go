@@ -4840,7 +4840,7 @@ static const uint16_t PROGMEM KEIMA_MY[9] = {0xEAA, 0xEEB, 0xFFF, 0xFFF, 0xFFF, 
 // early-game low-line penalties. Negative = virtual losses. isFar
 // marks a big open point, which can never earn tactical or local
 // credit and gets its own bonus instead.
-__attribute__((noinline))
+__attribute__((noinline, optimize("O2")))
 static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
                              uint8_t isFar) {
     uint8_t opp = 3 - toMove;
@@ -6336,7 +6336,7 @@ PROGMEM const uint16_t RECIP_TAB[64] = {
 // (nv<32; nv>=32 falls back to computing) catches ~all of them. Dropping this
 // table cost +7.9% mid think (measured on the emulator) for 164 B flash -- a
 // bad trade; kept. 64 B PROGMEM. host-verified against the integer pipeline.
-PROGMEM const uint16_t BETA_TAB[96] = {
+PROGMEM const uint16_t BETA_TAB[64] = {
      4096,  4075,  4055,  4035,  4016,  3996,  3978,  3959,
      3941,  3922,  3905,  3887,  3870,  3852,  3835,  3819,
      3803,  3786,  3770,  3754,  3738,  3723,  3708,  3693,
@@ -6351,10 +6351,6 @@ PROGMEM const uint16_t BETA_TAB[96] = {
      3456,  3440,  3440,  3424,  3408,  3392,  3392,  3376,
      3360,  3344,  3344,  3328,  3312,  3312,  3296,  3296,
      3280,  3264,  3264,  3248,  3232,  3232,  3216,  3200,
-     3200,  3184,  3184,  3168,  3152,  3152,  3136,  3120,
-     3120,  3104,  3104,  3088,  3088,  3072,  3056,  3056,
-     3056,  3040,  3024,  3024,  3024,  3008,  2992,  2992,
-     2992,  2976,  2960,  2960,  2960,  2944,  2928,  2928,
 };
 
 PROGMEM const uint8_t SQRT_LUT[192] = {128,129,130,131,132,133,134,135,136,137,138,139,139,140,141,142,143,144,145,146,147,148,148,149,150,151,152,153,153,154,155,156,157,158,158,159,160,161,162,162,163,164,165,166,166,167,168,169,169,170,171,172,172,173,174,175,175,176,177,177,178,179,180,180,181,182,182,183,184,185,185,186,187,187,188,189,189,190,191,191,192,193,193,194,195,195,196,197,197,198,199,199,200,200,201,202,202,203,204,204,205,206,206,207,207,208,209,209,210,210,211,212,212,213,213,214,215,215,216,216,217,218,218,219,219,220,221,221,222,222,223,223,224,225,225,226,226,227,227,228,229,229,230,230,231,231,232,232,233,234,234,235,235,236,236,237,237,238,238,239,239,240,241,241,242,242,243,243,244,244,245,245,246,246,247,247,248,248,249,249,250,250,251,251,252,252,253,253,254,254,255,255};
@@ -6452,7 +6448,7 @@ static uint8_t selectChild(uint8_t nodeIdx) {
            atRoot && nv < POISONED &&
            n.move < BOARD_CELLS && raveV[n.move]
            ) {
-            uint16_t beta = (nv < 96)
+            uint16_t beta = (nv < 64)
                 ? pgm_read_word(BETA_TAB + nv)
                 : isqrtLUT((uint32_t)raveRatio(nv) << 12);
             uint16_t qr = winRate6(raveW[n.move], raveV[n.move]) << 6;
