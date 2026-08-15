@@ -964,7 +964,7 @@ static inline __attribute__((always_inline)) uint8_t lpmNext(const uint8_t *&p) 
 // you declare) takes each neighbour in turn -- no count, no nb[] round-trip.
 #define FOR_EACH_NEIGHBOR(q, pos) \
     for(const uint8_t *_ne = NEIGHBOR_TABLE + (pos) * 5; \
-        ((q) = lpmNext(_ne)) != 0xFF; )
+        !(((q) = lpmNext(_ne)) & 0x80); )   /* sign-bit sentinel */
 
 static inline __attribute__((always_inline)) uint8_t newMark() {
     if(++markEpoch == 0) {
