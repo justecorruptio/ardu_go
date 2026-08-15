@@ -1669,6 +1669,31 @@ static uint8_t isOwnEye(uint8_t pos, uint8_t color) {
     return 1;
 }
 
+// ---- Ladder-read journal undo (2026-08-15) ----
+// ladderEscapes' 81-byte pre-read snapshot memcpy was ~its whole cost
+// (per call, even instant-dead reads). The chase mutates the board two
+// ways only: stones played on pre-read-EMPTY cells (journaled below),
+// and captures. Captures are handled by a LAZY snapshot taken inside
+// simPlay at the instant the first capture is about to run: the board
+// there equals pre-read + journaled plays (the capturing stone is
+// journaled by the caller BEFORE its simPlay call), so copying the
+// board and re-emptying the journaled cells reconstructs the exact
+// pre-read state. Restore: full memcpy back if snapshotted, else just
+// re-empty the journaled plays. Value-identical by construction: both
+// paths restore the exact pre-read board; no draw or verdict changes.
+// The journal is a small static (stack is high-water-critical on the
+// ladder path); 2*maxSteps <= 40 entries by the callers' caps.
+static uint8_t ladderBoard[BOARD_CELLS];   // lazy snapshot (pre-read image)
+static uint8_t ladderJournal[40];
+static uint8_t ladderJMode;      // 1 = journal active (inside a read)
+static uint8_t ladderSnapped;    // 1 = ladderBoard holds the snapshot
+static uint8_t ladderJN;         // journaled play count
+__attribute__((noinline)) static void ladderSnapNow(void) {
+    memcpy(ladderBoard, simBoard, BOARD_CELLS);
+    for(uint8_t i = 0; i < ladderJN; i++)
+        ladderBoard[ladderJournal[i]] = EMPTY;
+    ladderSnapped = 1;
+}
 // Play on simBoard. Returns new ko point, NO_KO, or ILLEGAL.
 // noSelfAtari additionally rejects non-capturing moves that leave the
 // placed group at one liberty (the playout policy). Cheap by
@@ -1710,8 +1735,12 @@ __attribute__((noinline)) static uint8_t simPlay(uint8_t pos, uint8_t color, uin
         if(s == opp) {
             if(markEpoch != e0 && *markPtr(q) == markEpoch)
                 ;   // same chain as an already-flooded neighbour: alive
-            else if(!hasLiberty(q, opp))
+            else if(!hasLiberty(q, opp)) {
+                // ladder-journal lazy snapshot: must run before the
+                // FIRST capture of a journaled read (see ladderSnapNow)
+                if(ladderJMode && !ladderSnapped) ladderSnapNow();
                 captured += removeGroup(q);
+            }
         } else if(s == EMPTY) {
             if(a == 0xFF) a = q; else if(b == 0xFF) b = q;
             ec++;
@@ -1787,9 +1816,7 @@ __attribute__((noinline)) static uint8_t simPlay(uint8_t pos, uint8_t color, uin
     return NO_KO;
 }
 
-// Snapshot for ladder reading (static: too big for the AVR stack at
-// the depths this gets called from)
-static uint8_t ladderBoard[BOARD_CELLS];
+// (ladderBoard is declared beside the journal machinery above)
 
 #ifdef NNOPEN
 // ==================== TINY OPENING NET ====================
@@ -2599,29 +2626,21 @@ uint8_t AI::nnOpeningMove(Game &game, uint8_t &ox, uint8_t &oy) {
 // Ko is ignored while reading. NOT reentrant (single snapshot).
 static uint8_t ladderEscapes(uint8_t defStart, uint8_t esc,
                              uint8_t maxSteps = 20) {
-    memcpy(ladderBoard, simBoard, BOARD_CELLS);
     uint8_t defColor = simBoard[defStart];
     uint8_t atkColor = 3 - defColor;
     uint8_t escaped = 1;
-    // Restore bound: the chase only ever mutates the cells it plays on
-    // (ILLEGAL simPlay undoes itself; the tentative probes revert in
-    // place), so tracking the min/max played index lets the restore
-    // copy back just that slice. A capture inside the read (rare --
-    // snapback/counter-capture) widens to the whole board rather than
-    // chasing the captured group's extent. An instant-dead read (first
-    // extension ILLEGAL) restores nothing at all.
-    uint8_t lo = 0xFF, hi = 0;
+    // Journal-undo protocol (see ladderSnapNow above): no snapshot up
+    // front. Every play is journaled BEFORE its simPlay call (so the
+    // lazy in-simPlay snapshot can re-empty it); ILLEGAL un-journals.
+    ladderJMode = 1; ladderSnapped = 0; ladderJN = 0;
 
     for(uint8_t step = 0; step < maxSteps; step++) {
         // Defender extends at the sole liberty
+        ladderJournal[ladderJN++] = esc;
         if(simPlay(esc, defColor, NO_KO) == ILLEGAL) {
+            ladderJN--;
             escaped = 0;
             break;
-        }
-        if(simCaptured) { lo = 0; hi = BOARD_CELLS - 1; }
-        else {
-            if(esc < lo) lo = esc;
-            if(esc > hi) hi = esc;
         }
         uint8_t libs = groupLibsFind(esc);
         uint8_t l1 = glcL1, l2 = glcL2;
@@ -2652,17 +2671,17 @@ static uint8_t ladderEscapes(uint8_t defStart, uint8_t esc,
             }
         }
         if(chase == 0xFF) break; // no working chase: escape
-        if(simPlay(chase, atkColor, NO_KO) == ILLEGAL) break;
-        if(simCaptured) { lo = 0; hi = BOARD_CELLS - 1; }
-        else {
-            if(chase < lo) lo = chase;
-            if(chase > hi) hi = chase;
-        }
+        ladderJournal[ladderJN++] = chase;
+        if(simPlay(chase, atkColor, NO_KO) == ILLEGAL) { ladderJN--; break; }
         esc = next;
     }
 
-    if(lo <= hi)
-        memcpy(simBoard + lo, ladderBoard + lo, (uint8_t)(hi - lo + 1));
+    ladderJMode = 0;
+    if(ladderSnapped)
+        memcpy(simBoard, ladderBoard, BOARD_CELLS);
+    else
+        for(uint8_t i = 0; i < ladderJN; i++)
+            simBoard[ladderJournal[i]] = EMPTY;
     return escaped;
 }
 
