@@ -86,7 +86,7 @@ _cp=build_regions({'candidatePrior'}, [
     ('tactical scan (capt/atari/libs)', 'static int8_t candidatePrior('),
     ('keima / shape block',             'pgm_read_byte(KEIMA_A'),
     ('feature assembly pf[]',           'defined(PRIOR_DUMP) || defined(PRIORNN)'),
-    ('MLP kernel (d-loop + MAC)',       '#if PN_H == 8'),
+    ('MLP kernel (d-loop + MAC)',       '#if PN_H == '),
     ('V pass + clamp',                  'int32_t out = 0;'),
 ])
 if _cp: res['candidatePrior']=_cp

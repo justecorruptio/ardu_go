@@ -150,8 +150,8 @@ ol.changelog b{color:var(--ink);font-weight:600} .dlt{color:var(--accent);font:6
 TABS = [
   # single tab: the shipped engine. The delta column still compares
   # against the archived old-ship profile (profile_folded_ship1000).
-  ("v2prior", "NN prior + shift-2", 251.44, 15.7, 1000,
-   "THE SHIPPED ENGINE (learned prior + exploration shift-2), profiled over the 5-position full-game bench. L0 51.5% / human 41.9% vs the old ship&rsquo;s 44.9/37.8; the kernel arc (&minus;18.4%) and the shift dividend (&minus;16%) took the mean move from ~18.5 s to 15.7 s. Flash 27,800 (872 free).",
+  ("v2prior", "Shipped: H4 prior + shift-2 + V2/W1", 252.88, 15.8, 1000,
+   "THE SHIPPED ENGINE after the 08-14/15 session (five ships: learned prior, exploration shift-2, un-revert, seed ballast V2/W1, H=4 net + 4-wide kernel). L0 53.1% / human ~46% vs the prior ship&rsquo;s 44.9/37.8; mean move 15.8 s (was ~18.5); flash 27,516 (1,156 free). 5-position full-game bench.",
    "profile_folded_ship1000.folded"),
 ]
 
