@@ -938,7 +938,11 @@ static uint8_t rnd(uint8_t n) {
 // Bit-identical to rnd(N) -- same rnd16() draw, same remainder.
 template<uint8_t N>
 __attribute__((optimize("O2"), noinline))
-static uint8_t rndMod() { return rnd16() % N; }
+// Lemire high-mult reduction (2026-08-15): same uniform family as %N,
+// a DIFFERENT draw->index map (trace-changing, so gauntlet-gated:
+// L0 3x1000 pooled 1634/3000 vs ship 1582 — at/above band) and no
+// __umulhisi3 magic-divide. Matches rnd()'s existing Lemire map.
+static uint8_t rndMod() { return (uint8_t)(((uint32_t)rnd16() * N) >> 16); }
 
 // Fused PROGMEM read + post-increment: avr-libc's pgm_read_byte(p++) emits
 // `lpm; adiw` (read then a separate 2-cyc increment); `lpm Z+` does both in
