@@ -5506,11 +5506,13 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
                 a3 = (int16_t)pgm_read_word(&PN_B1[3]);
 #endif
         const uint8_t *wp = (const uint8_t *)PN_W1;
-        for(uint8_t i = 0; i < PN_NF; i++, wp += 4) {
+        for(uint8_t i = 0; i < PN_NF; i++) {
             int8_t d = (int8_t)pf[i];   // FMID folded at the write sites
-            if(!d) continue;
+            if(!d) { wp += 4; continue; }
 #ifdef __AVR__
-            const uint8_t *w = wp;
+            // lpm Z+ x4 advances wp itself: no per-iteration Z copy and
+            // no loop-header wp += 4 on the taken path -- gcc keeps wp
+            // pinned in Z across the whole feature loop
             uint8_t wt;
             asm(
                 "lpm %[wt], Z+      \n\t" "muls %[wt], %[d]  \n\t"
@@ -5523,11 +5525,11 @@ static int8_t candidatePrior(uint8_t pos, uint8_t toMove, uint8_t last,
                 "add %A[a3], r0     \n\t" "adc %B[a3], r1    \n\t"
                 "clr __zero_reg__   \n\t"
                 : [a0]"+r"(a0), [a1]"+r"(a1), [a2]"+r"(a2), [a3]"+r"(a3),
-                  [wt]"=&d"(wt), "+z"(w)
+                  [wt]"=&d"(wt), "+z"(wp)
                 : [d]"d"(d)
                 : "r0", "r1");
 #else
-            const uint8_t *w = wp;
+            const uint8_t *w = wp; wp += 4;
             a0 += (int16_t)(d * (int8_t)pgm_read_byte(w)); w++;
             a1 += (int16_t)(d * (int8_t)pgm_read_byte(w)); w++;
             a2 += (int16_t)(d * (int8_t)pgm_read_byte(w)); w++;
