@@ -960,7 +960,30 @@ __attribute__((optimize("O2"), noinline))
 // a DIFFERENT draw->index map (trace-changing, so gauntlet-gated:
 // L0 3x1000 pooled 1634/3000 vs ship 1582 — at/above band) and no
 // __umulhisi3 magic-divide. Matches rnd()'s existing Lemire map.
-static uint8_t rndMod() { return (uint8_t)(((uint32_t)rnd16() * N) >> 16); }
+static uint8_t rndMod() {
+#ifdef ARDUINO
+    // (x*N) >> 16 for 8-bit N via two hardware muls: exact because
+    // result = (xh*N + (xl*N >> 8)) >> 8 and the dropped low byte can
+    // never carry ((u+thi)*256 + tlo >= 65536 needs tlo >= 256). gcc
+    // was emitting a ~25-instruction 32-bit shift-add chain here.
+    uint16_t x = rnd16();
+    uint8_t r, t, nn = N;
+    asm("mul %A[x], %[n]   \n\t"
+        "mov %[t], r1      \n\t"
+        "mul %B[x], %[n]   \n\t"
+        "add r0, %[t]      \n\t"
+        "clr %[t]          \n\t"
+        "adc r1, %[t]      \n\t"
+        "mov %[r], r1      \n\t"
+        "clr __zero_reg__  \n\t"
+        : [r]"=&r"(r), [t]"=&r"(t)
+        : [x]"r"(x), [n]"r"(nn)
+        : "r0", "r1");
+    return r;
+#else
+    return (uint8_t)(((uint32_t)rnd16() * N) >> 16);
+#endif
+}
 
 // Fused PROGMEM read + post-increment: avr-libc's pgm_read_byte(p++) emits
 // `lpm; adiw` (read then a separate 2-cyc increment); `lpm Z+` does both in
