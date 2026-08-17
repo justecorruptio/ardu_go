@@ -843,6 +843,20 @@ static inline __attribute__((always_inline)) uint8_t *markPtr(uint8_t q) {
 #else
 static inline __attribute__((always_inline)) uint8_t *markPtr(uint8_t q) { return &simMark[q]; }
 #endif
+#ifdef ARDUINO
+// &simBoard[q], pointer form of boardAt (same carry-free precondition).
+// For scattered read+write pairs on ONE cell — NOT for loops (spill law).
+static inline __attribute__((always_inline)) uint8_t *boardPtr(uint8_t q) {
+    uint8_t *p;
+    asm("mov %A0,%1\n\t"
+        "subi %A0,lo8(-(%2))\n\t"
+        "ldi %B0,hi8(%2)"
+        : "=&d"(p) : "r"(q), "i"(simBoard));
+    return p;
+}
+#else
+static inline __attribute__((always_inline)) uint8_t *boardPtr(uint8_t q) { return &simBoard[q]; }
+#endif
 // Chain map, computed once per EXPANSION while the board is frozen.
 // One byte per cell: (libs << 6) | id — the capped 1/2/3+ liberty
 // class lives in the top 2 bits, the chain id in the low 6 (0 =
@@ -1717,10 +1731,11 @@ __attribute__((noinline)) static void ladderSnapNow(void) {
 __attribute__((noinline)) static uint8_t simPlay(uint8_t pos, uint8_t color, uint8_t ko,
                        uint8_t noSelfAtari = 0) {
     if(pos == MOVE_PASS) return NO_KO;
-    if(pos == ko || simBoard[pos] != EMPTY) return ILLEGAL;
+    uint8_t *bp = boardPtr(pos);   // one address calc for the read AND write
+    if(pos == ko || *bp != EMPTY) return ILLEGAL;
 
     uint8_t opp = 3 - color;
-    simBoard[pos] = color;
+    *bp = color;
 
     // ONE fused neighbour walk (was three): the capture check, the
     // fast-path classification (empties a/b/e, connectivity) and the
