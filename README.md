@@ -448,6 +448,22 @@ perf-per-byte rule — anything under the historical exchange rate
 (0.35%/100 B, playout-O2's price) is reverted or stays banked — and
 wash-measured changes that shrink flash are taken as sales.
 
+Round four's win came from reading the disassembly of the hottest
+function: the NN dot-product copied its weight pointer into Z and
+re-advanced it every iteration, when `lpm Z+` already advances by
+exactly the row width — letting the asm consume the pointer directly
+freed GCC to pin it in Z for the whole loop (−1.81% in one change).
+The same census found `(x*N) >> 16` for 8-bit N reducible to two
+hardware multiplies, exactly (−0.25%). The rest of the round mostly
+*closed families* with measured mechanisms: branch-expect hints are
+codegen no-ops here, counted shift loops are colder than profilers
+claim, and — five separate confirmations now — nothing new survives
+inside the register-pressure islands (inline asm, RAM-static hoists,
+and forced inlining into candidatePrior or the floods all lose).
+Grind total across the four rounds: **279.1M → 232.1M cycles,
+17.44 → 14.51 s/move (−16.8%), every change bit-identical by pool-hash
+and host parity.**
+
 ## Measurement discipline
 
 The project's real engine. Everything above shipped through it:
