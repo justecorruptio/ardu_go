@@ -6628,12 +6628,21 @@ static void mctsIterate(Game &game) {
             // Progressive widening: one more candidate as visits grow
             // (the root has its own, wider schedule)
             uint8_t maxKids;
+            // Saturation gate (2026-08-17): past the cap threshold the
+            // divide's result is provably the cap -- skip __udivmodhi4
+            // on every established node (proof: exhaustive 0..65535).
             if(cur == 0) {
-                uint16_t mk = ROOT_INIT + nVisits(0) / ROOT_WIDEN_RATE;
-                maxKids = mk > 80 ? 80 : (uint8_t)mk;
+                uint16_t nv0 = nVisits(0);
+                if(nv0 >= (80 - ROOT_INIT) * ROOT_WIDEN_RATE)   // 864
+                    maxKids = 80;
+                else
+                    maxKids = (uint8_t)(ROOT_INIT + nv0 / ROOT_WIDEN_RATE);
             } else {
-                maxKids = 1 + nVisits(cur) / WIDEN_RATE;
-                if(maxKids > WIDEN_CAP) maxKids = WIDEN_CAP;
+                uint16_t nvc = nVisits(cur);
+                if(nvc >= (uint16_t)(WIDEN_CAP - 1) * WIDEN_RATE)  // 90
+                    maxKids = WIDEN_CAP;
+                else
+                    maxKids = (uint8_t)(1 + nvc / WIDEN_RATE);
             }
             if(childCount(cur) < maxKids) {
                 // a stored latent fills the slot without a scan; the
