@@ -464,6 +464,23 @@ Grind total across the four rounds: **279.1M → 232.1M cycles,
 17.44 → 14.51 s/move (−16.8%), every change bit-identical by pool-hash
 and host parity.**
 
+The eviction engine itself was redesigned the same day (Jay's insight,
+an 11-arm sweep): `reclaim()` now frees a **20-node burst** per call --
+path latents, then least-visited off-path subtrees -- instead of one
+latent at a time. The win is not reclaim overhead but *earlier
+decidedness*: challengers whose analysis is repeatedly recycled stop
+contesting the leader, the decidedness early-stop fires at ~528 mean
+iterations instead of 666, and think time drops **-26.6%** (14.51 ->
+10.65 s/move) at unchanged reading depth -- with the campaign's only
+statistically significant strength gain (L0 +54/2000, chi2 5.0) and a
+human-leg wash. The sweep's laws: the chunk-size curve peaks sharply
+at 20; wholesale PV razing (ship did it ~5x/think, up to 151 nodes)
+turns out to be harmless because the victim's own counters carry the
+decision; protecting analysis instead (three separate arms) either
+does nothing or costs strength -- the tree is a scratchpad, not an
+archive. An off-path-first latent order (latoff, +46 L0 at ship speed)
+is banked as a future strength lever.
+
 ## Measurement discipline
 
 The project's real engine. Everything above shipped through it:
