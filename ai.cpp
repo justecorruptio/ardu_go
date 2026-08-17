@@ -4685,6 +4685,23 @@ static uint8_t newNode(uint8_t move) {
 // sibling links double as the traversal worklist, so no stack is
 // needed: a node's children are spliced into the list ahead of its
 // remaining siblings before it is freed.
+// SHIPPED 2026-08-17 (Jay: "Ship chunk 20"): chunk-20 burst eviction is
+// the DEFAULT engine — measured -26.6% think (232.1M -> 170.4M), L0
+// +54/2000 (chi2 5.0, significant), human 10k -9/1000 (chi2 0.16, n.s.).
+// -DWIDEN_SHIP_EVICT restores the pre-sweep one-per-reclaim policy.
+#if !defined(WIDEN_CHUNK) && !defined(WIDEN_SHAPE) && !defined(WIDEN_EVICT) \
+    && !defined(WIDEN_LATALL) && !defined(WIDEN_LATNIB) && !defined(WIDEN_LATOFF) \
+    && !defined(WIDEN_SHIP_EVICT) && !defined(WIDEN_CHUNKPRO)
+#define WIDEN_CHUNK 20
+#endif
+#if defined(WIDEN_SHAPE) || defined(WIDEN_EVICT) || defined(WIDEN_CHUNK) || defined(WIDEN_LATALL) || defined(WIDEN_CHUNKPRO)
+// Depth-shaped hard caps (Jay 08-17): visit schedules keep their growth
+// rates but clamp at 32/16/8/6/4/2 by depth (pathDepth 1 = root).
+// Bottom-up chunked eviction below pairs with these.
+PROGMEM const uint8_t WS_CAP[8] = {32, 32, 16, 8, 6, 4, 2, 2};
+#define WS_CAPD(d) pgm_read_byte(WS_CAP + ((d) < 7 ? (d) : 7))
+static uint8_t wsFreed;   // nodes freed by the current reclaim burst
+#endif  /* WIDEN_SHAPE || WIDEN_EVICT (WIDEN_EVICT = eviction-only arm) */
 static void freeSubtree(uint8_t v) {
     uint8_t work = node(v).firstChild;
     node(v).firstChild = 0xFF;
@@ -4699,6 +4716,9 @@ static void freeSubtree(uint8_t v) {
         }
         node(work).nextSibling = freeHead;
         freeHead = work;
+#if defined(WIDEN_SHAPE) || defined(WIDEN_EVICT) || defined(WIDEN_CHUNK) || defined(WIDEN_LATALL) || defined(WIDEN_CHUNKPRO)
+        wsFreed++;
+#endif
         work = nxt;
     }
 }
@@ -4709,6 +4729,348 @@ static void freeSubtree(uint8_t v) {
 // scratch — only its descendants go back to the free list. Skipping
 // path[] members keeps the active descent's indices valid. Returns 1
 // if anything was freed.
+#ifdef WIDEN_CHUNKPRO
+// Protected chunk (Jay 08-17: "speed without razing potential PV trees"):
+// chunk burst with the subtree phase restricted to the HOPELESS TAIL.
+// Top-P root children by visits (leader + contenders = the potential
+// PVs) are protected wholesale; victims are unprotected root children
+// only, taken whole -- no deep-victim ladder. When the tail is gone,
+// STOP: allocation fails, widening skips, and late-think decisiveness
+// comes from admission freezing instead of analysis razing.
+#ifndef WIDEN_CHUNKPRO_P
+#define WIDEN_CHUNKPRO_P 3
+#endif
+static uint8_t reclaim() {
+    wsFreed = 0;
+    for(uint8_t d = 0; d < pathDepth && wsFreed < 20; d++) {
+        uint8_t prev = 0xFF;
+        for(uint8_t c = node(path[d]).firstChild; c != 0xFF;) {
+            uint8_t nxt = node(c).nextSibling;
+            if(node(c).move & 0x80) {
+                if(prev == 0xFF) node(path[d]).firstChild = nxt;
+                else node(prev).nextSibling = nxt;
+                node(c).nextSibling = freeHead;
+                freeHead = c;
+                wsFreed++;
+                if(wsFreed >= 20) return 1;
+            } else
+                prev = c;
+            c = nxt;
+        }
+    }
+    // top-P root children by visits = protected contenders
+    uint8_t prot[WIDEN_CHUNKPRO_P];
+    uint16_t protV[WIDEN_CHUNKPRO_P];
+    for(uint8_t k = 0; k < WIDEN_CHUNKPRO_P; k++) { prot[k] = 0xFF; protV[k] = 0; }
+    for(uint8_t c = node(0).firstChild; c != 0xFF; c = node(c).nextSibling) {
+        if(node(c).move & 0x80) continue;
+        uint16_t v = nVisits(c);
+        uint8_t k = WIDEN_CHUNKPRO_P;
+        while(k > 0 && v > protV[k - 1]) k--;
+        if(k < WIDEN_CHUNKPRO_P) {
+            for(uint8_t j = WIDEN_CHUNKPRO_P - 1; j > k; j--) {
+                prot[j] = prot[j - 1]; protV[j] = protV[j - 1];
+            }
+            prot[k] = c; protV[k] = v;
+        }
+    }
+    // raze the tail: least-visited UNPROTECTED root child with children
+    while(wsFreed < 20) {
+        uint8_t victim = 0xFF;
+        uint16_t worst = 0xFFFF;
+        uint8_t next1 = (pathDepth > 1) ? path[1] : 0xFF;
+        for(uint8_t c = node(0).firstChild; c != 0xFF; c = node(c).nextSibling) {
+            if(c == next1 || node(c).firstChild == 0xFF) continue;
+            if(node(c).move & 0x80) continue;
+            uint8_t isProt = 0;
+            for(uint8_t k = 0; k < WIDEN_CHUNKPRO_P; k++)
+                if(prot[k] == c) { isProt = 1; break; }
+            if(isProt) continue;
+            uint16_t v = nVisits(c);
+            if(v < worst) { worst = v; victim = c; }
+        }
+        if(victim == 0xFF) break;   // tail exhausted: freeze, never raze contenders
+        freeSubtree(victim);
+    }
+    return wsFreed > 0;
+}
+#elif defined(WIDEN_LATOFF)
+// Jay's inversion (08-17): recycle OFF-PATH latents first -- the path's
+// larder (root + the line being searched) is the most likely to
+// activate soon, and ship eats exactly it first (path[0] is always the
+// root). Order: coldest off-path larder nibble -> path nibble -> subtree.
+static uint8_t reclaim() {
+    uint8_t onPath[(NODE_POOL + 7) >> 3];
+    memset(onPath, 0, sizeof(onPath));
+    for(uint8_t d = 0; d < pathDepth; d++)
+        onPath[path[d] >> 3] |= bitMask(path[d]);
+    {
+        uint8_t stack[48]; uint8_t sp = 0;
+        uint8_t bestParent = 0xFF; uint16_t bestV = 0xFFFF;
+        stack[sp++] = 0;
+        while(sp) {
+            uint8_t n = stack[--sp];
+            uint8_t sawLat = 0;
+            for(uint8_t c = node(n).firstChild; c != 0xFF; c = node(c).nextSibling) {
+                if(node(c).move & 0x80) sawLat = 1;
+                else if(sp < sizeof(stack)) stack[sp++] = c;
+            }
+            if(sawLat && !(onPath[n >> 3] & bitMask(n))) {
+                uint16_t v = nVisits(n);
+                if(v < bestV) { bestV = v; bestParent = n; }
+            }
+        }
+        if(bestParent != 0xFF) {
+            uint8_t prev = 0xFF;
+            for(uint8_t c = node(bestParent).firstChild; c != 0xFF;
+                prev = c, c = node(c).nextSibling) {
+                if(!(node(c).move & 0x80)) continue;
+                if(prev == 0xFF) node(bestParent).firstChild = node(c).nextSibling;
+                else node(prev).nextSibling = node(c).nextSibling;
+                node(c).nextSibling = freeHead;
+                freeHead = c;
+                return 1;
+            }
+        }
+    }
+    // no off-path latents: path nibble (ship order)
+    for(uint8_t d = 0; d < pathDepth; d++) {
+        uint8_t prev = 0xFF;
+        for(uint8_t c = node(path[d]).firstChild; c != 0xFF;
+            prev = c, c = node(c).nextSibling) {
+            if(!(node(c).move & 0x80)) continue;
+            if(prev == 0xFF) node(path[d]).firstChild = node(c).nextSibling;
+            else node(prev).nextSibling = node(c).nextSibling;
+            node(c).nextSibling = freeHead;
+            freeHead = c;
+            return 1;
+        }
+    }
+    // zero latents anywhere: ship's subtree fallback
+    uint8_t victim = 0xFF;
+    uint16_t worst = 0xFFFF;
+    for(uint8_t d = 0; d < pathDepth; d++) {
+        uint8_t next = (d + 1 < pathDepth) ? path[d + 1] : 0xFF;
+        for(uint8_t c = node(path[d]).firstChild; c != 0xFF;
+            c = node(c).nextSibling) {
+            if(c == next || node(c).firstChild == 0xFF) continue;
+            uint16_t v = nVisits(c);
+            if(v < worst) { worst = v; victim = c; }
+        }
+    }
+    if(victim == 0xFF) return 0;
+    freeSubtree(victim);
+    return 1;
+}
+#elif defined(WIDEN_LATNIB)
+// Cheap raze-guard (08-17, after latall's +18.6% cost): keep ship's
+// path latent nibble (larder-preserving), and when the path has no
+// latent, nibble ONE latent globally -- the one under the least-visited
+// parent (coldest larder). Subtree eviction now fires only when zero
+// latents exist anywhere, which the ship trace shows never coincides
+// with a PV raze opportunity (all five razes had 7-86 latents standing).
+static uint8_t reclaim() {
+    // ship's path nibble
+    for(uint8_t d = 0; d < pathDepth; d++) {
+        uint8_t prev = 0xFF;
+        for(uint8_t c = node(path[d]).firstChild; c != 0xFF;
+            prev = c, c = node(c).nextSibling) {
+            if(!(node(c).move & 0x80)) continue;
+            if(prev == 0xFF) node(path[d]).firstChild = node(c).nextSibling;
+            else node(prev).nextSibling = node(c).nextSibling;
+            node(c).nextSibling = freeHead;
+            freeHead = c;
+            return 1;
+        }
+    }
+    // global nibble: one latent under the coldest parent
+    {
+        uint8_t stack[48]; uint8_t sp = 0;
+        uint8_t bestParent = 0xFF; uint16_t bestV = 0xFFFF;
+        stack[sp++] = 0;
+        while(sp) {
+            uint8_t n = stack[--sp];
+            uint8_t sawLat = 0;
+            for(uint8_t c = node(n).firstChild; c != 0xFF; c = node(c).nextSibling) {
+                if(node(c).move & 0x80) sawLat = 1;
+                else if(sp < sizeof(stack)) stack[sp++] = c;
+            }
+            if(sawLat) {
+                uint16_t v = nVisits(n);
+                if(v < bestV) { bestV = v; bestParent = n; }
+            }
+        }
+        if(bestParent != 0xFF) {
+            uint8_t prev = 0xFF;
+            for(uint8_t c = node(bestParent).firstChild; c != 0xFF;
+                prev = c, c = node(c).nextSibling) {
+                if(!(node(c).move & 0x80)) continue;
+                if(prev == 0xFF) node(bestParent).firstChild = node(c).nextSibling;
+                else node(prev).nextSibling = node(c).nextSibling;
+                node(c).nextSibling = freeHead;
+                freeHead = c;
+                return 1;
+            }
+        }
+    }
+    // truly zero latents anywhere: ship's subtree fallback
+    uint8_t victim = 0xFF;
+    uint16_t worst = 0xFFFF;
+    for(uint8_t d = 0; d < pathDepth; d++) {
+        uint8_t next = (d + 1 < pathDepth) ? path[d + 1] : 0xFF;
+        for(uint8_t c = node(path[d]).firstChild; c != 0xFF;
+            c = node(c).nextSibling) {
+            if(c == next || node(c).firstChild == 0xFF) continue;
+            uint16_t v = nVisits(c);
+            if(v < worst) { worst = v; victim = c; }
+        }
+    }
+    if(victim == 0xFF) return 0;
+    freeSubtree(victim);
+    return 1;
+}
+#elif defined(WIDEN_LATALL)
+// Jay's policy (08-17): when the pool runs dry, reclaim EVERY latent in
+// the whole tree (not just the current path) in one sweep -- the chunk
+// size adapts to the standing larder. Subtree eviction only when zero
+// latents exist anywhere. Measured motivation: all five wholesale
+// PV-raze events in the ship trace fired while 7-86 latents were
+// standing off-path; a tree-wide sweep converts each raze into free
+// allocations.
+static uint8_t reclaim() {
+    wsFreed = 0;
+    uint8_t stack[48]; uint8_t sp = 0;
+    stack[sp++] = 0;
+    while(sp) {
+        uint8_t n = stack[--sp];
+        uint8_t prev = 0xFF;
+        for(uint8_t c = node(n).firstChild; c != 0xFF;) {
+            uint8_t nxt = node(c).nextSibling;
+            if(node(c).move & 0x80) {
+                if(prev == 0xFF) node(n).firstChild = nxt;
+                else node(prev).nextSibling = nxt;
+                node(c).nextSibling = freeHead;
+                freeHead = c;
+                wsFreed++;
+            } else {
+                if(sp < sizeof(stack)) stack[sp++] = c;
+                prev = c;
+            }
+            c = nxt;
+        }
+    }
+    if(wsFreed) return 1;
+    // Leaf-tier fallback REFUTED 08-17 (-91/2000 L0, chi2 14.3): with
+    // PRIOR_BASE_V-seeded counters a visit floor cannot distinguish
+    // explored-and-cold from newborn frontier, and the sweep razed the
+    // search's working edge every reclaim. An age/LRU signal would fix
+    // it but costs per-node RAM this device does not have.
+    // Fallback = ship's single least-visited off-path subtree victim.
+    uint8_t victim = 0xFF;
+    uint16_t worst = 0xFFFF;
+    for(uint8_t d = 0; d < pathDepth; d++) {
+        uint8_t next = (d + 1 < pathDepth) ? path[d + 1] : 0xFF;
+        for(uint8_t c = node(path[d]).firstChild; c != 0xFF;
+            c = node(c).nextSibling) {
+            if(c == next || node(c).firstChild == 0xFF) continue;
+            uint16_t v = nVisits(c);
+            if(v < worst) { worst = v; victim = c; }
+        }
+    }
+    if(victim == 0xFF) return 0;
+    freeSubtree(victim);
+    return 1;
+}
+#elif defined(WIDEN_CHUNK)
+#if WIDEN_CHUNK <= 1
+#undef WIDEN_CHUNK
+#define WIDEN_CHUNK 16   /* bare -DWIDEN_CHUNK = the measured default */
+#endif
+// Chunk-only arm: SHIP's eviction order exactly (latents swept from
+// path[0] downward, then the globally least-visited off-path subtree),
+// looped until a chunk of >=16 nodes is freed. Isolates the reclaim-
+// call amortization from the victim-order change (WIDEN_EVICT's
+// deepest-first order carried a consistent ~1.5pp human tax).
+static uint8_t reclaim() {
+    wsFreed = 0;
+    // latents, ship order (root-first), until chunk filled
+    for(uint8_t d = 0; d < pathDepth && wsFreed < WIDEN_CHUNK; d++) {
+        uint8_t prev = 0xFF;
+        for(uint8_t c = node(path[d]).firstChild; c != 0xFF;) {
+            uint8_t nxt = node(c).nextSibling;
+            if(node(c).move & 0x80) {
+                if(prev == 0xFF) node(path[d]).firstChild = nxt;
+                else node(prev).nextSibling = nxt;
+                node(c).nextSibling = freeHead;
+                freeHead = c;
+                wsFreed++;
+                if(wsFreed >= WIDEN_CHUNK) return 1;
+            } else
+                prev = c;
+            c = nxt;
+        }
+    }
+    // subtrees, ship rule (global least-visited), until chunk filled
+    while(wsFreed < WIDEN_CHUNK) {
+        uint8_t victim = 0xFF;
+        uint16_t worst = 0xFFFF;
+        for(uint8_t d = 0; d < pathDepth; d++) {
+            uint8_t next = (d + 1 < pathDepth) ? path[d + 1] : 0xFF;
+            for(uint8_t c = node(path[d]).firstChild; c != 0xFF;
+                c = node(c).nextSibling) {
+                if(c == next || node(c).firstChild == 0xFF) continue;
+                uint16_t v = nVisits(c);
+                if(v < worst) { worst = v; victim = c; }
+            }
+        }
+        if(victim == 0xFF) break;
+        freeSubtree(victim);
+    }
+    return wsFreed > 0;
+}
+#elif defined(WIDEN_SHAPE) || defined(WIDEN_EVICT)
+static uint8_t reclaim() {
+    wsFreed = 0;
+    // latents, deepest level first; take EVERY latent of a level before
+    // moving up (the shipped policy took root's first -- measured: >=50%
+    // of latent evictions ate the root larder)
+    for(int8_t d = (int8_t)pathDepth - 1; d >= 0 && wsFreed < 16; d--) {
+        uint8_t prev = 0xFF;
+        for(uint8_t c = node(path[d]).firstChild; c != 0xFF;) {
+            uint8_t nxt = node(c).nextSibling;
+            if(node(c).move & 0x80) {
+                if(prev == 0xFF) node(path[d]).firstChild = nxt;
+                else node(prev).nextSibling = nxt;
+                node(c).nextSibling = freeHead;
+                freeHead = c;
+                wsFreed++;
+                if(wsFreed >= 16) return 1;
+            } else
+                prev = c;
+            c = nxt;
+        }
+    }
+    // subtrees: deepest path level that has any evictable off-path child;
+    // least-visited within that level; repeat until the chunk is full
+    while(wsFreed < 16) {
+        uint8_t victim = 0xFF;
+        uint16_t worst = 0xFFFF;
+        for(int8_t d = (int8_t)pathDepth - 1; d >= 0; d--) {
+            uint8_t next = (d + 1 < pathDepth) ? path[d + 1] : 0xFF;
+            for(uint8_t c = node(path[d]).firstChild; c != 0xFF;
+                c = node(c).nextSibling) {
+                if(c == next || node(c).firstChild == 0xFF) continue;
+                uint16_t v = nVisits(c);
+                if(v < worst) { worst = v; victim = c; }
+            }
+            if(victim != 0xFF) break;   // stay at the deepest level found
+        }
+        if(victim == 0xFF) break;
+        freeSubtree(victim);
+    }
+    return wsFreed > 0;
+}
+#else
 static uint8_t reclaim() {
 #ifdef LATENT_DEBUG
     if(path[0] != 0 || pathDepth > 31) {
@@ -4767,6 +5129,7 @@ static uint8_t reclaim() {
     freeSubtree(victim);
     return 1;
 }
+#endif  /* WIDEN_SHAPE */
 
 // A node can be allocated now, or after recycling a dead subtree.
 // Checked BEFORE the prior scans in expand/widen, so a hopeless scan
@@ -6628,6 +6991,24 @@ static void mctsIterate(Game &game) {
             // Progressive widening: one more candidate as visits grow
             // (the root has its own, wider schedule)
             uint8_t maxKids;
+#ifdef WIDEN_SHAPE
+            if(cur == 0) {
+                uint16_t nv0 = nVisits(0);
+                if(nv0 >= (32 - ROOT_INIT) * ROOT_WIDEN_RATE)   // 288
+                    maxKids = 32;
+                else
+                    maxKids = (uint8_t)(ROOT_INIT + nv0 / ROOT_WIDEN_RATE);
+            } else {
+                uint8_t cap = WS_CAPD(pathDepth);
+                uint16_t nvc = nVisits(cur);
+                if(nvc >= (uint16_t)(cap - 1) * WIDEN_RATE)
+                    maxKids = cap;
+                else {
+                    maxKids = (uint8_t)(1 + nvc / WIDEN_RATE);
+                    if(maxKids > cap) maxKids = cap;
+                }
+            }
+#else
             // Saturation gate (2026-08-17): past the cap threshold the
             // divide's result is provably the cap -- skip __udivmodhi4
             // on every established node (proof: exhaustive 0..65535).
@@ -6644,6 +7025,7 @@ static void mctsIterate(Game &game) {
                 else
                     maxKids = (uint8_t)(1 + nvc / WIDEN_RATE);
             }
+#endif
             if(childCount(cur) < maxKids) {
                 // a stored latent fills the slot without a scan; the
                 // FIRST flagged child in the walk is the best remaining
